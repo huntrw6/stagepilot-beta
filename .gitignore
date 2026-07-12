@@ -1,0 +1,45 @@
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*.local.json
+*.local.toml
+*.local.yaml
+*.local.yml
+.stagepilot/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Node and frontend builds
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Rust and Tauri
+desktop/src-tauri/target/
+desktop/src-tauri/gen/schemas/
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~

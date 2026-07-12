@@ -1,0 +1,151 @@
+# StagePilot architecture
+
+## Goals and constraints
+
+StagePilot coordinates systems used in live production, where a single failed
+integration must not freeze the UI or take down unrelated automation. The design
+therefore favors typed events, observable state, bounded asynchronous work, and
+small plugin boundaries over direct integration-to-integration calls.
+
+The desktop application is one host for StagePilot, not the architecture's
+center. The FastAPI backend and built frontend remain independently runnable for
+headless and browser-based deployments.
+
+## System context
+
+```text
+Planning Center API       Playback / MIDI       ProPresenter API
+        |                        |                      ^
+        v                        v                      |
+  planning_center         midi_playback          propresenter
+        plugin                plugin                 plugin
+             \                 |                  /
+              +---------- typed event bus -------+
+                             |
+                       application state
+                             |
+                  REST API + WebSocket stream
+                             |
+                   React dashboard / Tauri
+```
+
+An input plugin publishes a domain event such as `song.started`. Output plugins,
+state projection, logs, and the WebSocket publisher can react independently. A
+MIDI plugin must never know how to call ProPresenter.
+
+## Backend boundaries
+
+- **Core** owns typed events, the asynchronous event bus, application state,
+  configuration contracts, plugin lifecycle contracts, and structured logging.
+- **Plugins** isolate external systems. They translate external input into domain
+  events and domain events into external side effects.
+- **Services** coordinate domain workflows that do not belong to one external
+  integration.
+- **API** validates requests, invokes the same application actions used by
+  plugins, and serializes safe state. It does not contain production logic.
+- **Models** define stable API and domain data structures. Secrets use separate
+  input models and are never included in public state.
+
+Dependencies point inward: plugins and API may depend on core contracts; core
+does not import plugins, FastAPI routes, or frontend concepts.
+
+## Typed event model
+
+Events have a stable name, timestamp, source, correlation identifier where
+useful, and a typed payload. Arbitrary dictionaries should not cross core
+boundaries. Event handlers are asynchronous, and a handler failure is recorded
+without preventing other subscribers from running.
+
+Commands from the dashboard and MIDI inputs converge on the same event-driven
+application actions. This prevents manual controls from developing behavior that
+differs from the live cue path.
+
+The event bus is process-local in the initial architecture. Persisted queues or
+distributed brokers should only be introduced when deployment requirements make
+them necessary.
+
+## Plugin lifecycle and isolation
+
+Plugins expose an asynchronous lifecycle:
+
+```python
+class Plugin:
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def health(self) -> PluginHealth: ...
+```
+
+The plugin manager controls startup and shutdown, records health, and contains
+failures at plugin boundaries. Network calls require explicit timeouts. Retries
+must be bounded or use backoff and must stop during application shutdown.
+Blocking MIDI or vendor-library work belongs in a worker thread or executor.
+
+See [docs/plugins.md](docs/plugins.md) for the contribution checklist.
+
+## Observable application state
+
+The backend is the source of truth. Its state projection includes application
+status, loaded service, current and next songs, selection index, timer state,
+integration connection state, plugin health, recent events and errors, and the
+last successful reload. State transitions enforce index bounds, duplicate-event
+protection, and valid timer durations.
+
+REST provides snapshots and commands. WebSockets provide live state and event
+updates. Clients must tolerate reconnects and replace local state from a fresh
+snapshot after reconnecting rather than assuming no events were missed.
+
+## API and network boundary
+
+Versioned endpoints live under `/api/v1`; the live stream uses `/ws`. Request
+and response bodies use typed models. The initial server binds to `127.0.0.1`,
+and CORS is limited to known development and desktop origins.
+
+LAN binding is an explicit administrator choice. It requires a deployment-level
+review of authentication, transport security, firewall rules, allowed origins,
+and secret exposure. A permissive CORS setting is not an authentication system.
+
+## Configuration and secrets
+
+Configuration precedence is:
+
+1. Safe application defaults.
+2. An ignored local configuration file.
+3. Environment-variable overrides.
+4. Validated runtime settings.
+
+The backend validates and owns integration configuration. The UI may submit a
+new secret but must receive only an `is_configured`-style indication in return.
+Logs and exported diagnostics redact sensitive values. See
+[docs/configuration.md](docs/configuration.md) and
+[docs/security.md](docs/security.md).
+
+## Frontend and desktop boundaries
+
+React renders backend state and sends user intent through typed HTTP commands.
+It does not implement service navigation or timer sequencing. Its WebSocket
+client owns connection and resynchronization behavior.
+
+Tauri v2 supplies a native window and, later, operating-system packaging. The
+current shell loads Vite during development and `frontend/dist` in production.
+It grants only Tauri core defaults and does not expose shell execution or file
+system capabilities. Backend sidecar supervision, signing, installers, and
+updaters remain explicit future packaging work.
+
+## Technology decisions
+
+- **FastAPI and Pydantic** provide asynchronous request handling, WebSockets,
+  runtime validation, and an inspectable typed API without coupling the service
+  to a desktop runtime.
+- **React and TypeScript** support a strongly typed, component-oriented live
+  dashboard. **Vite** keeps the development and build path small and fast.
+- **Tauri v2** provides a lightweight cross-platform native shell while allowing
+  the same frontend to run in a browser.
+- **Python asyncio** fits concurrent HTTP, WebSocket, plugin, and lifecycle work;
+  blocking libraries remain isolated rather than blocking the event loop.
+
+## Major decisions not yet made
+
+The project has not yet committed to a secure credential-store implementation,
+a Python sidecar packaging toolchain, remote authentication, or a stable plugin
+distribution ABI. Those decisions require implementation and platform testing;
+the current interfaces should not be presented as compatibility guarantees.
