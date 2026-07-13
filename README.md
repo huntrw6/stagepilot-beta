@@ -6,9 +6,9 @@ and a reusable ProPresenter countdown timer. The longer-term goal is a reliable,
 event-driven automation hub for live production systems.
 
 > [!IMPORTANT]
-> StagePilot is in early development. Milestone 1 provides the foundation and a
-> demo-oriented dashboard; it is not ready to run a live service or control
-> production equipment.
+> StagePilot is in early development. The foundation is complete and Planning
+> Center client work is underway, but the application is not ready to run a live
+> service or control production equipment.
 
 ## What the first workflow will do
 
@@ -46,8 +46,8 @@ intended for development and demo-mode validation.
   [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/)
   when running the desktop shell
 
-No Planning Center, MIDI, or ProPresenter credentials are required for Milestone
-1 demo development.
+No Planning Center, MIDI, or ProPresenter credentials are required for demo
+development.
 
 ## Development setup
 
@@ -152,10 +152,11 @@ access.
 
 ## Project status
 
-Development is organized into small milestones. Foundation work comes first,
-followed by Planning Center, MIDI Playback controls, ProPresenter timer control,
-and production packaging. See [ROADMAP.md](ROADMAP.md) and
-[CHANGELOG.md](CHANGELOG.md) for scope and progress.
+Milestone 1 foundation work is complete. Milestone 2 currently includes
+validated, secret-aware PAT configuration and a typed, paginated service-type
+client with mocked tests. Production plugin registration, plan discovery, song
+extraction, and the setup interface remain in progress. See
+[ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for scope and progress.
 
 ## Contributing
 

@@ -21,5 +21,10 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 - Shared architecture, contribution, configuration, security, plugin, and
   milestone documentation.
 - Safe example environment configuration and repository ignore rules.
+- Secret-aware Planning Center PAT configuration with validated credentials,
+  IANA time zone, request timeout, and identifying user-agent settings.
+- Typed asynchronous Planning Center service-type client with Basic Auth,
+  version pinning, safe pagination, timeout handling, sanitized errors, and
+  mocked contract tests.
 
 [Unreleased]: https://github.com/huntrw6/stage-pilot/commits/main

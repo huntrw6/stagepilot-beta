@@ -1,9 +1,10 @@
 # Configuration
 
 StagePilot starts with safe development defaults and validates configuration in
-the backend. Milestone 1 supports environment overrides for the local server and
-demo mode. Persistent settings and operating-system credential storage are
-planned work and should not be treated as implemented.
+the backend. Environment overrides now cover the local server, demo mode, time
+zone, and the initial Planning Center Personal Access Token client. Persistent
+settings and operating-system credential storage remain planned work and should
+not be treated as implemented.
 
 ## Precedence
 
@@ -14,11 +15,11 @@ The intended configuration order, from lowest to highest priority, is:
 3. Environment variables supplied by the process host.
 4. Validated runtime settings saved through the application.
 
-Only defaults and the documented environment variables are active in Milestone
-1. Later layers must preserve the same typed validation and secret-redaction
-rules when implemented.
+Only defaults and the documented environment variables are active today. Later
+layers must preserve the same typed validation and secret-redaction rules when
+implemented.
 
-## Milestone 1 variables
+## General variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -26,6 +27,7 @@ rules when implemented.
 | `STAGEPILOT_PORT` | `8765` | Local FastAPI port, from 1 through 65535. |
 | `STAGEPILOT_LOG_LEVEL` | `INFO` | Backend structured-log threshold. |
 | `STAGEPILOT_DEMO_MODE` | `true` | Enables data and behavior that require no vendor connections. |
+| `STAGEPILOT_TIMEZONE` | `America/Los_Angeles` | IANA time zone used for local-date plan selection. |
 
 The backend reads variables from its process environment. It does not implicitly
 load a root `.env` file. Copy `.env.example` to an ignored `.env`, then use a
@@ -46,17 +48,24 @@ STAGEPILOT_LOG_LEVEL=DEBUG uv run --project backend stagepilot
 
 ## Planning Center variables
 
-The following names are reserved for the v0.2 Planning Center work and are
-commented out in `.env.example`:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `STAGEPILOT_PCO_APP_ID` | unset | Personal Access Token client ID. Treated as a server-side secret. |
+| `STAGEPILOT_PCO_SECRET` | unset | Personal Access Token secret. Treated as a server-side secret. |
+| `STAGEPILOT_PCO_SERVICE_TYPE_ID` | unset | Service type selected for future plan loading. |
+| `STAGEPILOT_PCO_TIMEOUT_SECONDS` | `10` | HTTP request timeout, from 1 through 60 seconds. |
+| `STAGEPILOT_PCO_USER_AGENT` | StagePilot project URL | Required identifying header sent to Planning Center. |
 
-- `STAGEPILOT_PCO_APP_ID`
-- `STAGEPILOT_PCO_SECRET`
-- `STAGEPILOT_PCO_SERVICE_TYPE_ID`
-- `STAGEPILOT_TIMEZONE`
+The application ID and secret must be provided together. They use Pydantic
+secret types, remain absent from public application state, and are never placed
+in URLs or outward-facing errors. The initial typed client can discover service
+types, but the production Planning Center plugin and plan loading are not wired
+into application startup yet. Demo mode therefore remains the default.
 
-Milestone 1 does not consume or validate them. Do not infer a working Planning
-Center connection from their presence. When implemented, the secret must use a
-secret input model, remain absent from public state, and be redacted from logs.
+Planning Center documents Personal Access Tokens as appropriate for local tools
+used with one organization. A future multi-organization StagePilot distribution
+must use OAuth instead of collecting PAT credentials. See Planning Center's
+[authentication documentation](https://api.planningcenteronline.com/docs/overview/authentication).
 
 ## Network configuration
 

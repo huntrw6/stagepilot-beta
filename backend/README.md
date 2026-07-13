@@ -1,7 +1,8 @@
 # StagePilot backend
 
-The StagePilot backend is an independently runnable FastAPI application. Milestone 1 runs in
-demo mode and requires no external services or credentials.
+The StagePilot backend is an independently runnable FastAPI application. Demo
+mode requires no external services or credentials. The initial Planning Center
+client is typed and tested but is not yet registered as a production plugin.
 
 ```bash
 cd backend
