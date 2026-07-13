@@ -31,6 +31,10 @@ class PlanningCenterResponseError(PlanningCenterError):
     """Planning Center returned data that did not match the documented contract."""
 
 
+class PlanningCenterPlanSelectionError(PlanningCenterError):
+    """A requested plan is not one of the safe current-day candidates."""
+
+
 class PlanningCenterApiError(PlanningCenterError):
     """Planning Center returned an unsuccessful HTTP response."""
 

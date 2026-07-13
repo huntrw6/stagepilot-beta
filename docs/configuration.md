@@ -52,15 +52,16 @@ STAGEPILOT_LOG_LEVEL=DEBUG uv run --project backend stagepilot
 | --- | --- | --- |
 | `STAGEPILOT_PCO_APP_ID` | unset | Personal Access Token client ID. Treated as a server-side secret. |
 | `STAGEPILOT_PCO_SECRET` | unset | Personal Access Token secret. Treated as a server-side secret. |
-| `STAGEPILOT_PCO_SERVICE_TYPE_ID` | unset | Service type selected for future plan loading. |
+| `STAGEPILOT_PCO_SERVICE_TYPE_ID` | unset | Service type selected for Planning Center plan loading. |
 | `STAGEPILOT_PCO_TIMEOUT_SECONDS` | `10` | HTTP request timeout, from 1 through 60 seconds. |
 | `STAGEPILOT_PCO_USER_AGENT` | StagePilot project URL | Required identifying header sent to Planning Center. |
 
 The application ID and secret must be provided together. They use Pydantic
 secret types, remain absent from public application state, and are never placed
-in URLs or outward-facing errors. The initial typed client can discover service
-types, but the production Planning Center plugin and plan loading are not wired
-into application startup yet. Demo mode therefore remains the default.
+in URLs or outward-facing errors. The typed client can discover service types,
+find exact local-date plans, surface ambiguous matches, and parse a selected
+plan's ordered songs. The production Planning Center plugin is not wired into
+application startup yet, so demo mode remains the default.
 
 Planning Center documents Personal Access Tokens as appropriate for local tools
 used with one organization. A future multi-organization StagePilot distribution

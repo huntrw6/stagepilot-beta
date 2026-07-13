@@ -19,6 +19,7 @@ export interface Song {
   formatted_duration?: string | null;
   order: number;
   is_generic: boolean;
+  source_song_id: string | null;
 }
 
 export interface ServicePlan {

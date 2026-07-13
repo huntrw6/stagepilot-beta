@@ -312,6 +312,15 @@ async def test_transport_error_is_translated() -> None:
         {},
         {"data": {}},
         {"data": [{"type": "WrongType", "id": "1", "attributes": {"name": "X"}}]},
+        {
+            "data": [
+                {
+                    "type": "ServiceType",
+                    "id": "../unsafe",
+                    "attributes": {"name": "X"},
+                }
+            ]
+        },
         {"data": [{"type": "ServiceType", "id": "1", "attributes": {}}]},
         {"data": [], "meta": {"total_count": "not-a-number"}},
     ],

@@ -26,5 +26,8 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 - Typed asynchronous Planning Center service-type client with Basic Auth,
   version pinning, safe pagination, timeout handling, sanitized errors, and
   mocked contract tests.
+- Current-local-date Planning Center plan discovery with timezone-aware service
+  time matching, explicit ambiguity, ordered linked and generic song parsing,
+  scheduled durations, source song IDs, and visible skipped-item reasons.
 
 [Unreleased]: https://github.com/huntrw6/stage-pilot/commits/main

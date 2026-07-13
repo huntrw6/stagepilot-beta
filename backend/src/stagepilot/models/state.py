@@ -44,6 +44,7 @@ class Song(BaseModel):
     duration_seconds: int | None = Field(default=None, ge=0)
     order: int = Field(ge=1)
     is_generic: bool = False
+    source_song_id: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

@@ -153,9 +153,10 @@ access.
 ## Project status
 
 Milestone 1 foundation work is complete. Milestone 2 currently includes
-validated, secret-aware PAT configuration and a typed, paginated service-type
-client with mocked tests. Production plugin registration, plan discovery, song
-extraction, and the setup interface remain in progress. See
+validated, secret-aware PAT configuration, service-type discovery, and a typed
+client that discovers exact local-date plans and parses ordered songs with
+mocked tests. Production plugin registration, reload and last-known-good state,
+and the setup interface remain in progress. See
 [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for scope and progress.
 
 ## Contributing
