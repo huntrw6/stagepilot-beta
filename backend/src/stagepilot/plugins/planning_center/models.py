@@ -102,7 +102,7 @@ class ItemResource(BaseModel):
 
 
 class PlanningCenterPlanCandidate(BaseModel):
-    """A plan whose service times match the requested local date."""
+    """A plan whose service times match the nearest available local service date."""
 
     id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     title: str = Field(min_length=1, max_length=500)

@@ -1,9 +1,142 @@
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
+
+import pytest
 from fastapi.testclient import TestClient
 
+from stagepilot.api.routes import _production_service_ready
 from stagepilot.core.config import PlanningCenterSettings, Settings
 from stagepilot.main import create_app
+from stagepilot.models.state import (
+    ApplicationState,
+    ConnectionStatus,
+    ServiceLoadState,
+    ServiceLoadStatus,
+    ServicePlan,
+    Song,
+)
+from stagepilot.plugins.planning_center.models import (
+    PlanAmbiguousResult,
+    PlanLoadedResult,
+    PlanningCenterPlanCandidate,
+    PlanningCenterServiceType,
+)
+
+TARGET_DATE = date(2026, 7, 12)
+PRIVATE_APP_ID = "private-app-id"
+PRIVATE_SECRET = "private-secret"
+
+
+def planning_center_settings(*, demo_mode: bool = False) -> Settings:
+    return Settings(
+        demo_mode=demo_mode,
+        timezone="America/Los_Angeles",
+        planning_center=PlanningCenterSettings(
+            app_id=PRIVATE_APP_ID,
+            secret=PRIVATE_SECRET,
+            service_type_id="42",
+        ),
+    )
+
+
+def fixed_today(_timezone: ZoneInfo) -> date:
+    return TARGET_DATE
+
+
+class FakePlanningCenterClient:
+    def __init__(self) -> None:
+        self.service_type = PlanningCenterServiceType(
+            id="42",
+            name="Weekend Services",
+            sequence=1,
+        )
+        self.candidates = [
+            PlanningCenterPlanCandidate(
+                id="plan-early",
+                title="Sunday Worship — 9:00",
+                service_type_id="42",
+                service_type_name="Weekend Services",
+                target_date=TARGET_DATE,
+                service_times=[datetime(2026, 7, 12, 16, 0, tzinfo=UTC)],
+            ),
+            PlanningCenterPlanCandidate(
+                id="plan-late",
+                title="Sunday Worship — 11:00",
+                service_type_id="42",
+                service_type_name="Weekend Services",
+                target_date=TARGET_DATE,
+                service_times=[datetime(2026, 7, 12, 18, 0, tzinfo=UTC)],
+            ),
+        ]
+        self.selected_plan_ids: list[str | None] = []
+        self.lookahead_days: list[int] = []
+        self.closed = False
+
+    async def list_service_types(self) -> list[PlanningCenterServiceType]:
+        return [self.service_type]
+
+    async def load_plan_for_date(
+        self,
+        service_type: PlanningCenterServiceType,
+        target_date: date,
+        timezone_name: str,
+        *,
+        selected_plan_id: str | None = None,
+        lookahead_days: int = 0,
+    ) -> PlanAmbiguousResult | PlanLoadedResult:
+        assert service_type == self.service_type
+        assert target_date == TARGET_DATE
+        assert timezone_name == "America/Los_Angeles"
+        self.selected_plan_ids.append(selected_plan_id)
+        self.lookahead_days.append(lookahead_days)
+        if selected_plan_id is None:
+            return PlanAmbiguousResult(
+                service_type=self.service_type,
+                target_date=TARGET_DATE,
+                candidates=self.candidates,
+            )
+
+        candidate = next(
+            (value for value in self.candidates if value.id == selected_plan_id),
+            None,
+        )
+        if candidate is None:
+            raise AssertionError(f"Unexpected selected plan: {selected_plan_id}")
+        return PlanLoadedResult(
+            candidate=candidate,
+            plan=ServicePlan(
+                id=candidate.id,
+                title=candidate.title,
+                date=TARGET_DATE,
+                service_type=self.service_type.name,
+                service_times=["09:00"],
+                duration_source="Planning Center scheduled item length",
+                songs=[
+                    Song(
+                        id="item-1",
+                        title="Battle Belongs",
+                        duration_seconds=281,
+                        order=1,
+                        source_song_id="song-1",
+                    )
+                ],
+            ),
+        )
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class RecordingPlanningCenterFactory:
+    def __init__(self, client: FakePlanningCenterClient) -> None:
+        self.client = client
+        self.calls: list[PlanningCenterSettings] = []
+
+    def __call__(self, settings: PlanningCenterSettings) -> FakePlanningCenterClient:
+        self.calls.append(settings)
+        return self.client
 
 
 def test_health_state_and_action_endpoints() -> None:
@@ -33,27 +166,251 @@ def test_unknown_action_is_rejected_by_validation() -> None:
     assert response.status_code == 422
 
 
-def test_planning_center_credentials_are_absent_from_public_responses() -> None:
+def test_demo_mode_never_constructs_the_real_planning_center_client() -> None:
+    planning_center_client = FakePlanningCenterClient()
+    factory = RecordingPlanningCenterFactory(planning_center_client)
     app = create_app(
-        Settings(
-            demo_mode=True,
-            planning_center=PlanningCenterSettings(
-                app_id="private-app-id",
-                secret="private-secret",
-            ),
-        )
+        planning_center_settings(demo_mode=True),
+        planning_center_client_factory=factory,
+        planning_center_today_provider=fixed_today,
     )
 
     with TestClient(app) as client:
-        public_text = "\n".join(
-            [
-                client.get("/api/v1/health").text,
-                client.get("/api/v1/state").text,
-            ]
+        state = client.get("/api/v1/state")
+
+    assert state.status_code == 200
+    assert state.json()["plan"]["title"] == "Sunday Worship — Demo"
+    assert factory.calls == []
+    assert planning_center_client.closed is False
+
+
+def test_non_demo_startup_exposes_ambiguous_planning_center_state() -> None:
+    planning_center_client = FakePlanningCenterClient()
+    factory = RecordingPlanningCenterFactory(planning_center_client)
+    app = create_app(
+        planning_center_settings(),
+        planning_center_client_factory=factory,
+        planning_center_today_provider=fixed_today,
+    )
+
+    with TestClient(app) as client:
+        health = client.get("/api/v1/health")
+        state = client.get("/api/v1/state")
+
+    assert health.status_code == 200
+    assert health.json()["status"] == "degraded"
+    assert state.status_code == 200
+    body = state.json()
+    assert body["planning_center_status"] == ConnectionStatus.CONNECTED
+    assert body["plan"] is None
+    assert body["service_load"]["status"] == ServiceLoadStatus.AMBIGUOUS
+    assert body["service_load"]["target_date"] == TARGET_DATE.isoformat()
+    assert [candidate["id"] for candidate in body["service_load"]["candidates"]] == [
+        "plan-early",
+        "plan-late",
+    ]
+    assert planning_center_client.selected_plan_ids == [None]
+    assert len(factory.calls) == 1
+    assert planning_center_client.closed is True
+
+
+def test_valid_planning_center_selection_loads_the_requested_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "stagepilot.api.routes._current_local_date",
+        lambda _timezone_name: TARGET_DATE,
+    )
+    planning_center_client = FakePlanningCenterClient()
+    app = create_app(
+        planning_center_settings(),
+        planning_center_client_factory=RecordingPlanningCenterFactory(planning_center_client),
+        planning_center_today_provider=fixed_today,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/planning-center/plan-selection",
+            json={"plan_id": "plan-early"},
+        )
+        health = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    assert health.status_code == 200
+    assert health.json()["status"] == "healthy"
+    body = response.json()
+    assert body["accepted"] is True
+    assert body["message"] == 'Loaded "Sunday Worship — 9:00".'
+    assert body["state"]["service_load"]["status"] == ServiceLoadStatus.LOADED
+    assert body["state"]["service_load"]["candidates"] == []
+    assert body["state"]["plan"]["id"] == "plan-early"
+    assert body["state"]["plan"]["songs"][0]["title"] == "Battle Belongs"
+    assert planning_center_client.selected_plan_ids == [None, "plan-early"]
+    assert planning_center_client.closed is True
+
+
+def _ready_production_plan() -> ServicePlan:
+    return ServicePlan(
+        id="plan-1",
+        title="Sunday Worship",
+        date=TARGET_DATE,
+        service_type="Weekend Services",
+        songs=[
+            Song(
+                id="item-1",
+                title="Battle Belongs",
+                duration_seconds=281,
+                order=1,
+            )
+        ],
+    )
+
+
+def _ready_production_state() -> ApplicationState:
+    return ApplicationState(
+        planning_center_status=ConnectionStatus.CONNECTED,
+        service_load=ServiceLoadState(
+            status=ServiceLoadStatus.LOADED,
+            target_date=TARGET_DATE,
+        ),
+        plan=_ready_production_plan(),
+    )
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        _ready_production_state().model_copy(
+            update={"planning_center_status": ConnectionStatus.DISCONNECTED},
+            deep=True,
+        ),
+        _ready_production_state().model_copy(
+            update={
+                "service_load": ServiceLoadState(
+                    status=ServiceLoadStatus.NOT_FOUND,
+                    target_date=TARGET_DATE,
+                )
+            },
+            deep=True,
+        ),
+        _ready_production_state().model_copy(
+            update={
+                "service_load": ServiceLoadState(
+                    status=ServiceLoadStatus.NOT_FOUND,
+                    target_date=TARGET_DATE,
+                    is_stale=True,
+                )
+            },
+            deep=True,
+        ),
+        _ready_production_state().model_copy(update={"plan": None}, deep=True),
+        _ready_production_state().model_copy(
+            update={
+                "plan": _ready_production_plan().model_copy(update={"date": date(2026, 7, 11)})
+            },
+            deep=True,
+        ),
+        _ready_production_state().model_copy(
+            update={"plan": _ready_production_plan().model_copy(update={"songs": []})},
+            deep=True,
+        ),
+    ],
+    ids=[
+        "disconnected",
+        "not-loaded",
+        "stale",
+        "missing-plan",
+        "wrong-date",
+        "no-songs",
+    ],
+)
+def test_production_service_readiness_rejects_unusable_state(
+    state: ApplicationState,
+) -> None:
+    assert _production_service_ready(state, TARGET_DATE) is False
+
+
+def test_production_service_readiness_accepts_current_loaded_plan() -> None:
+    assert _production_service_ready(_ready_production_state(), TARGET_DATE) is True
+
+
+def test_production_service_readiness_accepts_clean_upcoming_plan() -> None:
+    upcoming_date = date(2026, 7, 14)
+    state = _ready_production_state().model_copy(
+        update={
+            "service_load": ServiceLoadState(
+                status=ServiceLoadStatus.LOADED,
+                target_date=upcoming_date,
+            ),
+            "plan": _ready_production_plan().model_copy(
+                update={"date": upcoming_date},
+                deep=True,
+            ),
+        },
+        deep=True,
+    )
+
+    assert _production_service_ready(state, TARGET_DATE) is True
+
+
+def test_production_service_readiness_rejects_loaded_past_plan() -> None:
+    assert (
+        _production_service_ready(
+            _ready_production_state(),
+            date(2026, 7, 13),
+        )
+        is False
+    )
+
+
+def test_invalid_planning_center_candidate_returns_conflict_without_loading() -> None:
+    planning_center_client = FakePlanningCenterClient()
+    app = create_app(
+        planning_center_settings(),
+        planning_center_client_factory=RecordingPlanningCenterFactory(planning_center_client),
+        planning_center_today_provider=fixed_today,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/planning-center/plan-selection",
+            json={"plan_id": "plan-not-offered"},
         )
 
-    assert "private-app-id" not in public_text
-    assert "private-secret" not in public_text
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "The selected plan is not a current Planning Center candidate."
+    }
+    assert planning_center_client.selected_plan_ids == [None]
+
+
+def test_planning_center_credentials_are_absent_from_all_public_responses() -> None:
+    planning_center_client = FakePlanningCenterClient()
+    app = create_app(
+        planning_center_settings(),
+        planning_center_client_factory=RecordingPlanningCenterFactory(planning_center_client),
+        planning_center_today_provider=fixed_today,
+    )
+
+    with TestClient(app) as client:
+        responses = [
+            client.get("/api/v1/health"),
+            client.get("/api/v1/state"),
+            client.post(
+                "/api/v1/planning-center/plan-selection",
+                json={"plan_id": "plan-not-offered"},
+            ),
+            client.post(
+                "/api/v1/planning-center/plan-selection",
+                json={"plan_id": "plan-late"},
+            ),
+        ]
+
+    assert [response.status_code for response in responses] == [200, 200, 409, 200]
+    public_text = "\n".join(response.text for response in responses)
+
+    assert PRIVATE_APP_ID not in public_text
+    assert PRIVATE_SECRET not in public_text
 
 
 def test_websocket_sends_initial_and_updated_full_state() -> None:

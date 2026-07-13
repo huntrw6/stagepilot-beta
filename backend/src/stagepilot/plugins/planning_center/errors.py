@@ -32,7 +32,7 @@ class PlanningCenterResponseError(PlanningCenterError):
 
 
 class PlanningCenterPlanSelectionError(PlanningCenterError):
-    """A requested plan is not one of the safe current-day candidates."""
+    """A requested plan is not one of the nearest-date candidates."""
 
 
 class PlanningCenterApiError(PlanningCenterError):

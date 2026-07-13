@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class ApplicationStatus(StrEnum):
@@ -38,6 +38,15 @@ class PluginStatus(StrEnum):
     ERROR = "error"
 
 
+class ServiceLoadStatus(StrEnum):
+    IDLE = "idle"
+    LOADING = "loading"
+    LOADED = "loaded"
+    NOT_FOUND = "not_found"
+    AMBIGUOUS = "ambiguous"
+    ERROR = "error"
+
+
 class Song(BaseModel):
     id: str
     title: str = Field(min_length=1)
@@ -63,9 +72,71 @@ class ServicePlan(BaseModel):
     title: str
     date: date
     service_type: str
+    service_type_id: str | None = None
     service_times: list[str] = Field(default_factory=list)
     duration_source: str = "Scheduled item length"
     songs: list[Song] = Field(default_factory=list)
+
+
+class ServicePlanCandidate(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=500)
+    service_type_id: str = Field(min_length=1, max_length=128)
+    service_type_name: str = Field(min_length=1, max_length=500)
+    target_date: date
+    service_times: list[str] = Field(min_length=1)
+
+
+class SkippedServiceItem(BaseModel):
+    item_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=500)
+    item_type: str = Field(min_length=1, max_length=32)
+    sequence: int = Field(ge=0)
+    reason: str = Field(min_length=1, max_length=64)
+
+
+class ServiceLoadState(BaseModel):
+    """Validated projection of the current plan-loading outcome."""
+
+    status: ServiceLoadStatus = ServiceLoadStatus.IDLE
+    target_date: date | None = None
+    candidates: list[ServicePlanCandidate] = Field(default_factory=list)
+    skipped_items: list[SkippedServiceItem] = Field(default_factory=list)
+    message: str | None = None
+    is_stale: bool = False
+    last_attempt_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def load_state_is_consistent(self) -> ServiceLoadState:
+        if self.status is ServiceLoadStatus.IDLE:
+            if self.target_date is not None:
+                msg = "An idle service-load state cannot have a target date."
+                raise ValueError(msg)
+        elif self.target_date is None:
+            msg = "A non-idle service-load state requires a target date."
+            raise ValueError(msg)
+
+        if self.status is ServiceLoadStatus.AMBIGUOUS:
+            if len(self.candidates) < 2:
+                msg = "An ambiguous service-load state requires at least two candidates."
+                raise ValueError(msg)
+            if any(candidate.target_date != self.target_date for candidate in self.candidates):
+                msg = "Every service-plan candidate must match the service-load target date."
+                raise ValueError(msg)
+        elif self.candidates:
+            msg = "Service-plan candidates are only valid for an ambiguous load state."
+            raise ValueError(msg)
+
+        stale_statuses = {
+            ServiceLoadStatus.LOADING,
+            ServiceLoadStatus.NOT_FOUND,
+            ServiceLoadStatus.AMBIGUOUS,
+            ServiceLoadStatus.ERROR,
+        }
+        if self.is_stale and self.status not in stale_statuses:
+            msg = "An idle or successfully loaded service cannot retain a stale plan."
+            raise ValueError(msg)
+        return self
 
 
 class TimerState(BaseModel):
@@ -108,6 +179,7 @@ class ApplicationState(BaseModel):
     planning_center_status: ConnectionStatus = ConnectionStatus.DISCONNECTED
     midi_status: ConnectionStatus = ConnectionStatus.DISCONNECTED
     propresenter_status: ConnectionStatus = ConnectionStatus.DISCONNECTED
+    service_load: ServiceLoadState = Field(default_factory=ServiceLoadState)
     timer: TimerState = Field(default_factory=TimerState)
     plugins: dict[str, PluginHealth] = Field(default_factory=dict)
     recent_events: list[EventSummary] = Field(default_factory=list)

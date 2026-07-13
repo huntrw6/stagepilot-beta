@@ -117,33 +117,62 @@ class PlanningCenterClient:
         timezone_name: str,
         *,
         selected_plan_id: str | None = None,
+        lookahead_days: int = 0,
     ) -> PlanDiscoveryResult:
-        """Discover and load a plan only when its service time matches the local date."""
+        """Load today's plan, or the nearest plan within the future search window."""
 
         if selected_plan_id is not None:
             self._validate_identifier(selected_plan_id, "selected plan")
+        if not 0 <= lookahead_days <= 365:
+            raise PlanningCenterConfigurationError(
+                "The Planning Center plan lookahead must be between 0 and 365 days."
+            )
         timezone = self._timezone(timezone_name)
-        plan_resources = await self._list_plans(service_type.id, target_date, timezone)
+        search_end_date = target_date + timedelta(days=lookahead_days)
+        plan_resources = await self._list_plans(
+            service_type.id,
+            target_date,
+            timezone,
+            lookahead_days=lookahead_days,
+        )
         candidates: list[PlanningCenterPlanCandidate] = []
         for plan_resource in plan_resources:
             plan_times = await self._list_plan_times(service_type.id, plan_resource.id)
-            matching_times = self._matching_service_times(plan_times, target_date, timezone)
+            matching_times = self._matching_service_times(
+                plan_times,
+                target_date,
+                search_end_date,
+                timezone,
+            )
             if not matching_times:
                 continue
+            candidate_date = matching_times[0].date()
+            candidate_times = [
+                service_time
+                for service_time in matching_times
+                if service_time.date() == candidate_date
+            ]
             candidates.append(
                 PlanningCenterPlanCandidate(
                     id=plan_resource.id,
                     title=self._plan_title(plan_resource),
                     service_type_id=service_type.id,
                     service_type_name=service_type.name,
-                    target_date=target_date,
-                    service_times=matching_times,
+                    target_date=candidate_date,
+                    service_times=candidate_times,
                 )
             )
 
+        if candidates:
+            nearest_date = min(candidate.target_date for candidate in candidates)
+            candidates = [
+                candidate for candidate in candidates if candidate.target_date == nearest_date
+            ]
         candidates.sort(key=lambda candidate: (candidate.service_times[0], candidate.id))
         if not candidates:
             return PlanNotFoundResult(service_type=service_type, target_date=target_date)
+
+        candidate_date = candidates[0].target_date
 
         selected_candidate: PlanningCenterPlanCandidate | None = None
         if selected_plan_id is not None:
@@ -153,12 +182,13 @@ class PlanningCenterClient:
             )
             if selected_candidate is None:
                 raise PlanningCenterPlanSelectionError(
-                    "The selected Planning Center plan does not match the requested local date."
+                    "The selected Planning Center plan does not match a candidate on the "
+                    "nearest available service date."
                 )
         elif len(candidates) > 1:
             return PlanAmbiguousResult(
                 service_type=service_type,
-                target_date=target_date,
+                target_date=candidate_date,
                 candidates=candidates,
             )
         else:
@@ -169,8 +199,9 @@ class PlanningCenterClient:
         plan = ServicePlan(
             id=selected_candidate.id,
             title=selected_candidate.title,
-            date=target_date,
+            date=selected_candidate.target_date,
             service_type=service_type.name,
+            service_type_id=service_type.id,
             service_times=[value.strftime("%H:%M") for value in selected_candidate.service_times],
             duration_source="Planning Center scheduled item length",
             songs=songs,
@@ -186,10 +217,16 @@ class PlanningCenterClient:
         service_type_id: str,
         target_date: date,
         timezone: ZoneInfo,
+        *,
+        lookahead_days: int = 0,
     ) -> list[PlanResource]:
         self._validate_identifier(service_type_id, "service type")
         start = datetime.combine(target_date, time.min, tzinfo=timezone)
-        end = datetime.combine(target_date + timedelta(days=1), time.min, tzinfo=timezone)
+        end = datetime.combine(
+            target_date + timedelta(days=lookahead_days + 1),
+            time.min,
+            tzinfo=timezone,
+        )
         resources = await self._get_collection(
             CollectionDocument[PlanResource],
             f"services/v2/service_types/{service_type_id}/plans",
@@ -329,14 +366,15 @@ class PlanningCenterClient:
     @staticmethod
     def _matching_service_times(
         resources: list[PlanTimeResource],
-        target_date: date,
+        start_date: date,
+        end_date: date,
         timezone: ZoneInfo,
     ) -> list[datetime]:
         matching = [
             resource.attributes.starts_at.astimezone(timezone)
             for resource in resources
             if resource.attributes.time_type.casefold() == "service"
-            and resource.attributes.starts_at.astimezone(timezone).date() == target_date
+            and start_date <= resource.attributes.starts_at.astimezone(timezone).date() <= end_date
         ]
         return sorted(matching)
 

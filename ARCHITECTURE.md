@@ -80,6 +80,26 @@ failures at plugin boundaries. Network calls require explicit timeouts. Retries
 must be bounded or use backoff and must stop during application shutdown.
 Blocking MIDI or vendor-library work belongs in a worker thread or executor.
 
+The first MIDI Playback slice uses Mido with the RtMidi backend. Port discovery,
+open, close, and other potentially blocking backend operations run in one
+dedicated worker thread. The vendor callback normalizes supported note messages
+and hands them back to the asyncio loop through a bounded queue; application
+actions never execute in the vendor callback thread. A supervisor re-enumerates
+the exact configured input name and reconnects with capped backoff. Each open
+port receives a connection generation identifier so late callbacks from a
+closed port are ignored. Held-note latching and monotonic debounce suppress
+duplicates without changing the order of accepted cues.
+
+Hardware notes and manual cue simulation enter the same queue and dispatch
+through the same application action service. Simulation therefore tests action
+behavior, but does not pretend that a missing MIDI device is connected. The
+input discovery endpoint exposes safe port metadata with opaque input IDs. An
+API or dashboard selection resolves one of those IDs against the latest unique
+port list, changes the in-memory selection, and wakes the supervisor to
+reconnect. Sending a null selection disconnects the port. Selection is scoped to
+the running backend process: shutdown discards it, and the next start uses
+`STAGEPILOT_MIDI_INPUT_NAME` as the default again.
+
 See [docs/plugins.md](docs/plugins.md) for the contribution checklist.
 
 ## Observable application state
@@ -87,8 +107,25 @@ See [docs/plugins.md](docs/plugins.md) for the contribution checklist.
 The backend is the source of truth. Its state projection includes application
 status, loaded service, current and next songs, selection index, timer state,
 integration connection state, plugin health, recent events and errors, and the
-last successful reload. State transitions enforce index bounds, duplicate-event
-protection, and valid timer durations.
+last successful reload. Service-load state separately represents loading,
+loaded, not-found, ambiguous, and error outcomes so API connectivity is not
+mistaken for plan readiness. Its target date is the actual service date when a
+current or upcoming plan is found.
+
+Planning Center discovery treats the configured local date as a search anchor.
+Plans with service times on that date always take precedence. Only when none
+match does discovery consider later service times, up to the configured
+lookahead window, which defaults to 30 days. The earliest qualifying future
+local date wins. Multiple plans on that date remain explicitly ambiguous until
+the operator selects one; plans on later dates are not offered. Past plans,
+plans without service times, and rehearsal-only times never qualify.
+
+A failed refresh retains an active current or future plan as stale. Advancing
+between pre-event dates does not discard a preloaded upcoming plan; once its
+service date is in the past, rollover clears the actionable plan. State rollover
+also requests an external timer stop and resets the local timer state. State
+transitions enforce index bounds, duplicate-event protection, and valid timer
+durations.
 
 REST provides snapshots and commands. WebSockets provide live state and event
 updates. Clients must tolerate reconnects and replace local state from a fresh

@@ -6,13 +6,15 @@ and a reusable ProPresenter countdown timer. The longer-term goal is a reliable,
 event-driven automation hub for live production systems.
 
 > [!IMPORTANT]
-> StagePilot is in early development. The foundation is complete and Planning
-> Center client work is underway, but the application is not ready to run a live
-> service or control production equipment.
+> StagePilot is in early development. The foundation and initial Planning Center
+> plan-loading workflow are implemented, and the first backend MIDI Playback
+> slice is available for development testing. The application is not ready to
+> run a live service or control production equipment.
 
 ## What the first workflow will do
 
-1. Load today's ordered songs and scheduled durations from Planning Center.
+1. Load today's ordered songs and scheduled durations from Planning Center, or
+   the nearest upcoming service when today has no plan.
 2. Translate configured MIDI cues from Playback into typed StagePilot events.
 3. Select or restart the appropriate song without blind index changes.
 4. Stop, set, reset, and start one reusable ProPresenter timer.
@@ -47,7 +49,8 @@ intended for development and demo-mode validation.
   when running the desktop shell
 
 No Planning Center, MIDI, or ProPresenter credentials are required for demo
-development.
+development. MIDI itself never requires an API key or secret; it uses a local
+input port exposed by the operating system.
 
 ## Development setup
 
@@ -73,6 +76,32 @@ uv run --project backend uvicorn stagepilot.main:app --reload --host 127.0.0.1 -
 
 The backend is intentionally bound to loopback. Check it at
 `http://127.0.0.1:8765/api/v1/health`.
+
+### Try the MIDI Playback backend slice
+
+MIDI input is disabled by default and is currently registered only outside demo
+mode. Keep any existing Planning Center production variables, then enable MIDI
+in the PowerShell session that launches the backend:
+
+```powershell
+$env:STAGEPILOT_DEMO_MODE = "false"
+$env:STAGEPILOT_MIDI_ENABLED = "true"
+$env:STAGEPILOT_MIDI_CHANNEL = "1"
+# Optional startup default; the dashboard can select a port for this session:
+$env:STAGEPILOT_MIDI_INPUT_NAME = "<your Playback MIDI input name>"
+uv run --project backend stagepilot
+```
+
+The dashboard MIDI setup panel can refresh, select, and disconnect an input.
+The same flow is available through `POST /api/v1/midi/inputs/refresh` and
+`POST /api/v1/midi/input-selection`. Dashboard/API selections last only for the
+current backend session; a new backend process again uses
+`STAGEPILOT_MIDI_INPUT_NAME` as its startup default. The cue-simulation endpoint
+exercises a named cue through the same application-action path as hardware
+input. MIDI environment changes take effect only after the backend process is
+restarted. See
+[docs/configuration.md](docs/configuration.md#midi-playback-variables) for the
+six default note mappings, endpoint examples, and validation limits.
 
 ### Run the browser dashboard
 
@@ -109,6 +138,7 @@ cd ..
 
 # Frontend checks and production build
 npm --prefix frontend run lint
+npm --prefix frontend test
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
 
@@ -154,9 +184,15 @@ access.
 
 Milestone 1 foundation work is complete. Milestone 2 currently includes
 validated, secret-aware PAT configuration, service-type discovery, and a typed
-client that discovers exact local-date plans and parses ordered songs with
-mocked tests. Production plugin registration, reload and last-known-good state,
-and the setup interface remain in progress. See
+client that parses ordered songs and discovers today's plan first, then the
+nearest upcoming plan within a configurable window. The window defaults to 30
+days. The production plugin now loads on startup outside demo mode, handles
+reloads without discarding an active last-known-good plan, and exposes ambiguous
+same-date plan selection in the dashboard. The first Milestone 3 backend slice
+adds disabled-by-default MIDI input discovery, a session-only dashboard setup
+panel, environment-based startup defaults and cue mapping, reconnect behavior,
+and manual cue simulation. Broader hardware testing, persistent settings, and
+the wider setup interface remain in progress. See
 [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for scope and progress.
 
 ## Contributing

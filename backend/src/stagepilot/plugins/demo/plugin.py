@@ -12,6 +12,7 @@ from stagepilot.models.state import PluginHealth, PluginStatus
 from stagepilot.plugins.demo.data import demo_service_plan
 from stagepilot.plugins.demo.events import (
     connection_ready,
+    service_load_ready,
     service_loaded,
     timer_started,
     timer_stopped,
@@ -45,7 +46,9 @@ class DemoPlugin(Plugin):
                 ),
             ]
         )
-        await self.event_bus.publish(service_loaded(demo_service_plan()))
+        plan = demo_service_plan()
+        await self.event_bus.publish(service_loaded(plan))
+        await self.event_bus.publish(service_load_ready(plan))
         for integration in ("planning_center", "midi", "propresenter"):
             await self.event_bus.publish(connection_ready(integration))
         await self.event_bus.publish(timer_stopped())
@@ -81,4 +84,6 @@ class DemoPlugin(Plugin):
 
     async def _on_reload_requested(self, _event: StagePilotEvent) -> None:
         self._last_activity_at = datetime.now(UTC)
-        await self.event_bus.publish(service_loaded(demo_service_plan()))
+        plan = demo_service_plan()
+        await self.event_bus.publish(service_loaded(plan))
+        await self.event_bus.publish(service_load_ready(plan))

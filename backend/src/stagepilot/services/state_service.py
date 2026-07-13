@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from stagepilot.core.actions import ActionOutcome
 from stagepilot.core.event_bus import EventBus, Subscription
 from stagepilot.core.events import (
     ActionName,
@@ -16,6 +16,7 @@ from stagepilot.core.events import (
     ConnectionPayload,
     EventType,
     PluginPayload,
+    ServiceLoadPayload,
     ServicePayload,
     SongPayload,
     StagePilotEvent,
@@ -30,16 +31,11 @@ from stagepilot.models.state import (
     ErrorSummary,
     EventSummary,
     PluginHealth,
+    ServiceLoadState,
     ServicePlan,
     TimerState,
     TimerStatus,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class ActionOutcome:
-    accepted: bool
-    message: str
 
 
 class StateService:
@@ -67,6 +63,7 @@ class StateService:
             tuple[EventType | None, Callable[[StagePilotEvent], Coroutine[Any, Any, None]]], ...
         ] = (
             (EventType.ACTION_REQUESTED, self._handle_action),
+            (EventType.SERVICE_LOAD_CHANGED, self._handle_service_load_changed),
             (EventType.SERVICE_LOADED, self._handle_service_loaded),
             (EventType.TIMER_STARTED, self._handle_timer_started),
             (EventType.TIMER_STOPPED, self._handle_timer_stopped),
@@ -254,6 +251,48 @@ class StateService:
                     if preserved_index + 1 < len(incoming.songs)
                     else None
                 )
+
+        await self._state_store.mutate(mutation)
+
+    async def _handle_service_load_changed(self, event: StagePilotEvent) -> None:
+        if not isinstance(event.payload, ServiceLoadPayload):
+            return
+        payload = event.payload
+        before = await self._state_store.snapshot()
+        is_date_rollover = (
+            before.plan is not None
+            and payload.target_date is not None
+            and before.plan.date != payload.target_date
+        )
+        if is_date_rollover and before.timer.status is TimerStatus.RUNNING:
+            await self._event_bus.publish(
+                new_event(
+                    EventType.TIMER_STOP_REQUESTED,
+                    source="state_service",
+                )
+            )
+
+        def mutation(state: ApplicationState) -> None:
+            if (
+                state.plan is not None
+                and payload.target_date is not None
+                and state.plan.date != payload.target_date
+            ):
+                state.plan = None
+                state.current_song = None
+                state.next_song = None
+                state.current_song_index = None
+                state.timer = TimerState(status=TimerStatus.STOPPED)
+                self._pending_start_index = 0
+            state.service_load = ServiceLoadState(
+                status=payload.status,
+                target_date=payload.target_date,
+                candidates=payload.candidates,
+                skipped_items=payload.skipped_items,
+                message=payload.message,
+                is_stale=payload.is_stale,
+                last_attempt_at=event.timestamp,
+            )
 
         await self._state_store.mutate(mutation)
 

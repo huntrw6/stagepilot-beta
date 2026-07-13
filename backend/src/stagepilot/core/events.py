@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from stagepilot.models.state import ConnectionStatus, PluginStatus, ServicePlan, Song
+from stagepilot.models.state import (
+    ConnectionStatus,
+    PluginStatus,
+    ServiceLoadStatus,
+    ServicePlan,
+    ServicePlanCandidate,
+    SkippedServiceItem,
+    Song,
+)
 
 
 class EventType(StrEnum):
@@ -17,10 +25,13 @@ class EventType(StrEnum):
     APPLICATION_STOPPING = "application.stopping"
     ACTION_REQUESTED = "action.requested"
     SERVICE_RELOAD_REQUESTED = "service.reload_requested"
+    SERVICE_PLAN_SELECTION_REQUESTED = "service.plan_selection_requested"
+    SERVICE_LOAD_CHANGED = "service.load_changed"
     SERVICE_LOADED = "service.loaded"
     SONG_SELECTED = "song.selected"
     SONG_STARTED = "song.started"
     SONG_RESTARTED = "song.restarted"
+    MIDI_NOTE_RECEIVED = "midi.note_received"
     TIMER_STOP_REQUESTED = "timer.stop_requested"
     TIMER_STARTED = "timer.started"
     TIMER_STOPPED = "timer.stopped"
@@ -55,10 +66,35 @@ class ServicePayload(BaseModel):
     plan: ServicePlan
 
 
+class ServicePlanSelectionPayload(BaseModel):
+    kind: Literal["service_plan_selection"] = "service_plan_selection"
+    plan_id: str = Field(min_length=1, max_length=128)
+
+
+class ServiceLoadPayload(BaseModel):
+    kind: Literal["service_load"] = "service_load"
+    status: ServiceLoadStatus
+    target_date: date | None = None
+    candidates: list[ServicePlanCandidate] = Field(default_factory=list)
+    skipped_items: list[SkippedServiceItem] = Field(default_factory=list)
+    message: str | None = None
+    is_stale: bool = False
+
+
 class SongPayload(BaseModel):
     kind: Literal["song"] = "song"
     song: Song
     index: int = Field(ge=0)
+
+
+class MidiNotePayload(BaseModel):
+    kind: Literal["midi_note"] = "midi_note"
+    channel: int = Field(ge=1, le=16)
+    note: int = Field(ge=0, le=127)
+    velocity: int = Field(ge=1, le=127)
+    action: ActionName
+    connection_id: UUID | None = None
+    simulated: bool = False
 
 
 class TimerPayload(BaseModel):
@@ -86,7 +122,10 @@ EventPayload = Annotated[
     EmptyPayload
     | ActionPayload
     | ServicePayload
+    | ServicePlanSelectionPayload
+    | ServiceLoadPayload
     | SongPayload
+    | MidiNotePayload
     | TimerPayload
     | ConnectionPayload
     | PluginPayload,

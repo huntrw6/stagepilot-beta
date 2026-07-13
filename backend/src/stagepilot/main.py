@@ -19,10 +19,25 @@ from stagepilot.core.plugin import PluginManager
 from stagepilot.core.runtime import Runtime
 from stagepilot.core.state import StateStore
 from stagepilot.plugins.demo import DemoPlugin
+from stagepilot.plugins.midi_playback import (
+    MidiBackendFactory,
+    MidiPlaybackPlugin,
+)
+from stagepilot.plugins.planning_center import (
+    PlanningCenterClientFactory,
+    PlanningCenterPlugin,
+    TodayProvider,
+)
 from stagepilot.services.state_service import StateService
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    planning_center_client_factory: PlanningCenterClientFactory | None = None,
+    planning_center_today_provider: TodayProvider | None = None,
+    midi_backend_factory: MidiBackendFactory | None = None,
+) -> FastAPI:
     """Create an independently testable StagePilot application instance."""
 
     resolved_settings = settings or get_settings()
@@ -37,14 +52,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         recent_error_limit=resolved_settings.recent_error_limit,
     )
     plugin_manager = PluginManager(event_bus)
+    midi_plugin: MidiPlaybackPlugin | None = None
     if resolved_settings.demo_mode:
         plugin_manager.register(DemoPlugin(event_bus, state_store))
+    else:
+        plugin_manager.register(
+            PlanningCenterPlugin(
+                event_bus,
+                state_store,
+                resolved_settings.planning_center,
+                timezone_name=resolved_settings.timezone,
+                client_factory=planning_center_client_factory,
+                today_provider=planning_center_today_provider,
+            )
+        )
+        if resolved_settings.midi.enabled:
+            midi_plugin = MidiPlaybackPlugin(
+                event_bus,
+                state_store,
+                resolved_settings.midi,
+                state_service,
+                backend_factory=midi_backend_factory,
+            )
+            plugin_manager.register(midi_plugin)
     runtime = Runtime(
         settings=resolved_settings,
         event_bus=event_bus,
         state_store=state_store,
         state_service=state_service,
         plugin_manager=plugin_manager,
+        midi_controller=midi_plugin,
     )
 
     @asynccontextmanager

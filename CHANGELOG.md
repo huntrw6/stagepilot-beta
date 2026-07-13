@@ -26,8 +26,25 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 - Typed asynchronous Planning Center service-type client with Basic Auth,
   version pinning, safe pagination, timeout handling, sanitized errors, and
   mocked contract tests.
-- Current-local-date Planning Center plan discovery with timezone-aware service
-  time matching, explicit ambiguity, ordered linked and generic song parsing,
-  scheduled durations, source song IDs, and visible skipped-item reasons.
+- Today-first Planning Center plan discovery with timezone-aware service-time
+  matching and a configurable nearest-upcoming fallback window that defaults to
+  30 days. Discovery excludes past and no-service-time plans and preserves
+  explicit ambiguity when multiple plans share the selected date.
+- Ordered linked and generic Planning Center song parsing with scheduled
+  durations, source song IDs, and visible skipped-item reasons.
+- Production Planning Center plugin startup and reload orchestration with
+  current-or-upcoming last-known-good plans, connection and discovery state,
+  explicit dashboard plan selection, skipped-item visibility, live health,
+  single-flight refreshes, date-rollover cleanup, and demo-mode isolation.
+- First backend MIDI Playback slice with disabled-by-default Mido/RtMidi input
+  discovery, environment-configured port, channel, and six cue mappings, bounded
+  ordered dispatch, duplicate protection, reconnect handling, safe port metadata,
+  session-only API and dashboard input selection, disconnect and refresh
+  controls, and manual cue simulation through the hardware action path.
+- Bounded live MIDI note monitor with port, channel, note, velocity, and
+  accepted-or-ignored diagnostics in the production dashboard.
+- Vitest and React Testing Library coverage for dashboard plan ambiguity,
+  pending selection, revision-safe live state, stale readiness, and skipped-item
+  warnings.
 
 [Unreleased]: https://github.com/huntrw6/stage-pilot/commits/main

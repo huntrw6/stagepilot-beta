@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -23,6 +24,9 @@ from stagepilot.plugins.planning_center.models import (
 JsonObject = dict[str, object]
 Handler = Callable[[httpx.Request], httpx.Response]
 TARGET_DATE = date(2026, 7, 12)
+NEXT_DATE = date(2026, 7, 13)
+LATER_DATE = date(2026, 7, 14)
+TIMEZONE_NAME = "America/Los_Angeles"
 
 
 def client_settings() -> PlanningCenterSettings:
@@ -140,6 +144,53 @@ class DiscoveryApi:
         return httpx.Response(200, request=request, json={"data": data})
 
 
+class LookaheadDiscoveryApi:
+    """Serve date-specific plan lists for upcoming-plan discovery tests."""
+
+    def __init__(
+        self,
+        *,
+        plans_by_date: Mapping[date, list[JsonObject]],
+        plan_times_by_plan: Mapping[str, list[JsonObject]],
+        items_by_plan: Mapping[str, list[JsonObject]] | None = None,
+    ) -> None:
+        self.plans_by_date = dict(plans_by_date)
+        self.plan_times_by_plan = dict(plan_times_by_plan)
+        self.items_by_plan = dict(items_by_plan or {})
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        path = request.url.path
+        if path.endswith("/plans"):
+            after = datetime.fromisoformat(request.url.params["after"].replace("Z", "+00:00"))
+            before = datetime.fromisoformat(request.url.params["before"].replace("Z", "+00:00"))
+            timezone = ZoneInfo(TIMEZONE_NAME)
+            first_date = (after + timedelta(seconds=1)).astimezone(timezone).date()
+            last_date = (before - timedelta(seconds=1)).astimezone(timezone).date()
+            data = [
+                plan
+                for plan_date in sorted(self.plans_by_date)
+                if first_date <= plan_date <= last_date
+                for plan in self.plans_by_date[plan_date]
+            ]
+        elif path.endswith("/plan_times"):
+            plan_id = path.rsplit("/", 2)[-2]
+            try:
+                data = self.plan_times_by_plan[plan_id]
+            except KeyError as exc:
+                raise AssertionError(f"Unexpected plan-time request for {plan_id}") from exc
+        elif path.endswith("/items"):
+            plan_id = path.rsplit("/", 2)[-2]
+            try:
+                data = self.items_by_plan[plan_id]
+            except KeyError as exc:
+                raise AssertionError(f"Unexpected item request for {plan_id}") from exc
+        else:
+            raise AssertionError(f"Unexpected Planning Center request: {path}")
+        return httpx.Response(200, request=request, json={"data": data})
+
+
 def mock_transport(handler: Handler) -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
@@ -159,6 +210,206 @@ async def test_no_plans_returns_not_found_without_detail_requests() -> None:
     assert result.target_date == TARGET_DATE
     assert result.service_type.id == "42"
     assert [request.url.path for request in api.requests] == ["/services/v2/service_types/42/plans"]
+
+
+@pytest.mark.asyncio
+async def test_today_plan_wins_when_search_window_contains_future_plan() -> None:
+    api = LookaheadDiscoveryApi(
+        plans_by_date={
+            TARGET_DATE: [plan_resource("plan-today", "Today's Service")],
+            NEXT_DATE: [
+                plan_resource(
+                    "plan-tomorrow",
+                    "Tomorrow's Service",
+                    sort_date="2026-07-13T16:00:00Z",
+                )
+            ],
+        },
+        plan_times_by_plan={
+            "plan-today": [plan_time_resource("time-today", "2026-07-12T16:00:00Z")],
+            "plan-tomorrow": [plan_time_resource("time-tomorrow", "2026-07-13T16:00:00Z")],
+        },
+        items_by_plan={"plan-today": []},
+    )
+
+    async with PlanningCenterClient(client_settings(), transport=mock_transport(api)) as client:
+        result = await client.load_plan_for_date(
+            weekend_service_type(),
+            TARGET_DATE,
+            TIMEZONE_NAME,
+            lookahead_days=30,
+        )
+
+    assert isinstance(result, PlanLoadedResult)
+    assert result.plan.id == "plan-today"
+    assert result.plan.date == TARGET_DATE
+    plan_requests = [request for request in api.requests if request.url.path.endswith("/plans")]
+    assert len(plan_requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_nearest_upcoming_plan_wins_after_empty_dates() -> None:
+    api = LookaheadDiscoveryApi(
+        plans_by_date={
+            TARGET_DATE: [],
+            NEXT_DATE: [],
+            LATER_DATE: [
+                plan_resource(
+                    "plan-nearest",
+                    "Tuesday Service",
+                    sort_date="2026-07-14T16:00:00Z",
+                )
+            ],
+        },
+        plan_times_by_plan={
+            "plan-nearest": [plan_time_resource("time-nearest", "2026-07-14T16:00:00Z")]
+        },
+        items_by_plan={"plan-nearest": []},
+    )
+
+    async with PlanningCenterClient(client_settings(), transport=mock_transport(api)) as client:
+        result = await client.load_plan_for_date(
+            weekend_service_type(),
+            TARGET_DATE,
+            TIMEZONE_NAME,
+            lookahead_days=30,
+        )
+
+    assert isinstance(result, PlanLoadedResult)
+    assert result.candidate.target_date == LATER_DATE
+    assert result.plan.id == "plan-nearest"
+    assert result.plan.date == LATER_DATE
+    plan_requests = [request for request in api.requests if request.url.path.endswith("/plans")]
+    assert len(plan_requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_after_configured_lookahead_is_not_considered() -> None:
+    api = LookaheadDiscoveryApi(
+        plans_by_date={
+            LATER_DATE: [
+                plan_resource(
+                    "plan-outside-window",
+                    "Outside Window",
+                    sort_date="2026-07-14T16:00:00Z",
+                )
+            ]
+        },
+        plan_times_by_plan={
+            "plan-outside-window": [
+                plan_time_resource("time-outside-window", "2026-07-14T16:00:00Z")
+            ]
+        },
+    )
+
+    async with PlanningCenterClient(client_settings(), transport=mock_transport(api)) as client:
+        result = await client.load_plan_for_date(
+            weekend_service_type(),
+            TARGET_DATE,
+            TIMEZONE_NAME,
+            lookahead_days=1,
+        )
+
+    assert isinstance(result, PlanNotFoundResult)
+    assert result.target_date == TARGET_DATE
+    assert [request.url.path for request in api.requests] == ["/services/v2/service_types/42/plans"]
+
+
+@pytest.mark.asyncio
+async def test_nearest_future_ambiguity_excludes_later_plans() -> None:
+    api = LookaheadDiscoveryApi(
+        plans_by_date={
+            TARGET_DATE: [],
+            NEXT_DATE: [
+                plan_resource(
+                    "plan-morning",
+                    "Monday Morning",
+                    sort_date="2026-07-13T16:00:00Z",
+                ),
+                plan_resource(
+                    "plan-evening",
+                    "Monday Evening",
+                    sort_date="2026-07-14T01:00:00Z",
+                ),
+            ],
+            LATER_DATE: [
+                plan_resource(
+                    "plan-later",
+                    "Tuesday Service",
+                    sort_date="2026-07-14T16:00:00Z",
+                )
+            ],
+        },
+        plan_times_by_plan={
+            "plan-morning": [plan_time_resource("time-morning", "2026-07-13T16:00:00Z")],
+            "plan-evening": [plan_time_resource("time-evening", "2026-07-14T01:00:00Z")],
+            "plan-later": [plan_time_resource("time-later", "2026-07-14T16:00:00Z")],
+        },
+    )
+
+    async with PlanningCenterClient(client_settings(), transport=mock_transport(api)) as client:
+        result = await client.load_plan_for_date(
+            weekend_service_type(),
+            TARGET_DATE,
+            TIMEZONE_NAME,
+            lookahead_days=30,
+        )
+
+    assert isinstance(result, PlanAmbiguousResult)
+    assert result.target_date == NEXT_DATE
+    assert [candidate.id for candidate in result.candidates] == [
+        "plan-morning",
+        "plan-evening",
+    ]
+    assert all(candidate.target_date == NEXT_DATE for candidate in result.candidates)
+    plan_requests = [request for request in api.requests if request.url.path.endswith("/plans")]
+    assert len(plan_requests) == 1
+    assert not any(request.url.path.endswith("/items") for request in api.requests)
+
+
+@pytest.mark.asyncio
+async def test_explicit_selection_can_load_a_future_candidate() -> None:
+    api = LookaheadDiscoveryApi(
+        plans_by_date={
+            TARGET_DATE: [],
+            NEXT_DATE: [
+                plan_resource(
+                    "plan-morning",
+                    "Monday Morning",
+                    sort_date="2026-07-13T16:00:00Z",
+                ),
+                plan_resource(
+                    "plan-evening",
+                    "Monday Evening",
+                    sort_date="2026-07-14T01:00:00Z",
+                ),
+            ],
+        },
+        plan_times_by_plan={
+            "plan-morning": [plan_time_resource("time-morning", "2026-07-13T16:00:00Z")],
+            "plan-evening": [plan_time_resource("time-evening", "2026-07-14T01:00:00Z")],
+        },
+        items_by_plan={"plan-evening": []},
+    )
+
+    async with PlanningCenterClient(client_settings(), transport=mock_transport(api)) as client:
+        result = await client.load_plan_for_date(
+            weekend_service_type(),
+            TARGET_DATE,
+            TIMEZONE_NAME,
+            selected_plan_id="plan-evening",
+            lookahead_days=30,
+        )
+
+    assert isinstance(result, PlanLoadedResult)
+    assert result.candidate.id == "plan-evening"
+    assert result.candidate.target_date == NEXT_DATE
+    assert result.plan.id == "plan-evening"
+    assert result.plan.date == NEXT_DATE
+    item_requests = [request for request in api.requests if request.url.path.endswith("/items")]
+    assert [request.url.path for request in item_requests] == [
+        "/services/v2/service_types/42/plans/plan-evening/items"
+    ]
 
 
 @pytest.mark.asyncio
@@ -192,6 +443,7 @@ async def test_exact_local_date_matching_converts_utc_service_times() -> None:
         "2026-07-12T23:30:00-07:00"
     ]
     assert result.plan.date == TARGET_DATE
+    assert result.plan.service_type_id == "42"
     assert result.plan.service_times == ["23:30"]
     plan_request = api.requests[0]
     assert plan_request.url.params["filter"] == "after,before"
@@ -336,7 +588,10 @@ async def test_explicit_selection_must_match_a_current_day_candidate() -> None:
     )
 
     async with PlanningCenterClient(client_settings(), transport=mock_transport(api)) as client:
-        with pytest.raises(PlanningCenterPlanSelectionError, match="does not match"):
+        with pytest.raises(
+            PlanningCenterPlanSelectionError,
+            match="does not match a candidate on the nearest available service date",
+        ):
             await client.load_plan_for_date(
                 weekend_service_type(),
                 TARGET_DATE,

@@ -7,12 +7,13 @@ from typing import Literal
 from stagepilot.core.events import (
     ConnectionPayload,
     EventType,
+    ServiceLoadPayload,
     ServicePayload,
     StagePilotEvent,
     TimerPayload,
     new_event,
 )
-from stagepilot.models.state import ConnectionStatus, ServicePlan
+from stagepilot.models.state import ConnectionStatus, ServiceLoadStatus, ServicePlan
 
 
 def service_loaded(plan: ServicePlan) -> StagePilotEvent:
@@ -20,6 +21,18 @@ def service_loaded(plan: ServicePlan) -> StagePilotEvent:
         EventType.SERVICE_LOADED,
         source="demo",
         payload=ServicePayload(plan=plan),
+    )
+
+
+def service_load_ready(plan: ServicePlan) -> StagePilotEvent:
+    return new_event(
+        EventType.SERVICE_LOAD_CHANGED,
+        source="demo",
+        payload=ServiceLoadPayload(
+            status=ServiceLoadStatus.LOADED,
+            target_date=plan.date,
+            message="Demo service loaded.",
+        ),
     )
 
 

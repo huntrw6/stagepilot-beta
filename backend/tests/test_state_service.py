@@ -10,12 +10,14 @@ from stagepilot.core.event_bus import EventBus
 from stagepilot.core.events import (
     ActionName,
     EventType,
+    ServiceLoadPayload,
     ServicePayload,
     StagePilotEvent,
+    TimerPayload,
     new_event,
 )
 from stagepilot.core.state import StateStore
-from stagepilot.models.state import ServicePlan, Song, TimerStatus
+from stagepilot.models.state import ServiceLoadStatus, ServicePlan, Song, TimerStatus
 from stagepilot.services.state_service import StateService
 
 
@@ -269,3 +271,77 @@ async def test_reset_position_returns_to_pre_service_state(
     assert state.current_song_index is None
     assert state.next_song and state.next_song.id == "a"
     assert state.timer.status is TimerStatus.STOPPED
+
+
+@pytest.mark.asyncio
+async def test_date_rollover_clears_plan_and_resets_running_timer(
+    service: tuple[EventBus, StateStore, StateService],
+) -> None:
+    bus, store, _state_service = service
+    stop_requests: list[StagePilotEvent] = []
+    await bus.subscribe(EventType.TIMER_STOP_REQUESTED, stop_requests.append)
+    await load(bus, make_plan(song("a", "Alpha", 1)))
+    await bus.publish(
+        new_event(
+            EventType.TIMER_STARTED,
+            source="test",
+            payload=TimerPayload(duration_seconds=240),
+        )
+    )
+
+    await bus.publish(
+        new_event(
+            EventType.SERVICE_LOAD_CHANGED,
+            source="test",
+            payload=ServiceLoadPayload(
+                status=ServiceLoadStatus.ERROR,
+                target_date=date(2026, 7, 13),
+                message="The new service could not be loaded.",
+            ),
+        )
+    )
+    state = await store.snapshot()
+
+    assert state.plan is None
+    assert state.current_song is None
+    assert state.current_song_index is None
+    assert state.next_song is None
+    assert state.timer.status is TimerStatus.STOPPED
+    assert state.timer.duration_seconds is None
+    assert state.timer.started_at is None
+    assert len(stop_requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_same_day_stale_load_keeps_plan_and_running_timer(
+    service: tuple[EventBus, StateStore, StateService],
+) -> None:
+    bus, store, _state_service = service
+    plan = make_plan(song("a", "Alpha", 1))
+    await load(bus, plan)
+    await bus.publish(
+        new_event(
+            EventType.TIMER_STARTED,
+            source="test",
+            payload=TimerPayload(duration_seconds=240),
+        )
+    )
+
+    await bus.publish(
+        new_event(
+            EventType.SERVICE_LOAD_CHANGED,
+            source="test",
+            payload=ServiceLoadPayload(
+                status=ServiceLoadStatus.ERROR,
+                target_date=plan.date,
+                message="The refresh failed.",
+                is_stale=True,
+            ),
+        )
+    )
+    state = await store.snapshot()
+
+    assert state.plan == plan
+    assert state.service_load.is_stale is True
+    assert state.timer.status is TimerStatus.RUNNING
+    assert state.timer.duration_seconds == 240

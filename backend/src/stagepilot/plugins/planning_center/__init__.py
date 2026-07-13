@@ -11,6 +11,12 @@ from stagepilot.plugins.planning_center.models import (
     SkippedItemReason,
     SkippedPlanItem,
 )
+from stagepilot.plugins.planning_center.plugin import (
+    PlanningCenterClientContract,
+    PlanningCenterClientFactory,
+    PlanningCenterPlugin,
+    TodayProvider,
+)
 
 __all__ = [
     "PlanAmbiguousResult",
@@ -18,8 +24,12 @@ __all__ = [
     "PlanLoadedResult",
     "PlanNotFoundResult",
     "PlanningCenterClient",
+    "PlanningCenterClientContract",
+    "PlanningCenterClientFactory",
     "PlanningCenterPlanCandidate",
+    "PlanningCenterPlugin",
     "PlanningCenterServiceType",
     "SkippedItemReason",
     "SkippedPlanItem",
+    "TodayProvider",
 ]

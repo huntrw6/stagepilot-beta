@@ -5,8 +5,12 @@ import type {
   ApplicationState,
   ConnectionStatus,
   HealthResponse,
+  MidiCueName,
+  MidiInputsResponse,
+  MidiMonitorMessage,
   Song,
 } from "../types";
+import { MidiSetupPanel } from "./MidiSetupPanel";
 import { StatusCard } from "./StatusCard";
 
 const formatDuration = (seconds: number | null | undefined) => {
@@ -82,8 +86,16 @@ function SongRow({ song, current, next }: { song: Song; current: boolean; next: 
   );
 }
 
-const connectionDetail = (status: ConnectionStatus, activity: string | null) =>
-  status === "connected" ? `Demo activity ${formatTime(activity)}` : "Waiting for integration";
+const connectionDetail = (
+  status: ConnectionStatus,
+  activity: string | null,
+  detail: string | null,
+) => {
+  if (status === "connected") {
+    return activity ? `Last plan sync ${formatTime(activity)}` : detail ?? "Connected";
+  }
+  return detail ?? "Waiting for integration";
+};
 
 export function Dashboard({
   state,
@@ -92,7 +104,18 @@ export function Dashboard({
   error,
   actionMessage,
   pendingAction,
+  pendingPlanId,
+  midi,
+  midiMessages,
+  midiError,
+  midiMessage,
+  pendingMidiOperation,
+  pendingMidiCue,
   dispatch,
+  selectPlan,
+  refreshMidi,
+  selectMidi,
+  simulateMidi,
 }: {
   state: ApplicationState;
   health: HealthResponse | null;
@@ -100,25 +123,54 @@ export function Dashboard({
   error: string | null;
   actionMessage: string | null;
   pendingAction: ActionName | null;
+  pendingPlanId: string | null;
+  midi: MidiInputsResponse | null;
+  midiMessages: MidiMonitorMessage[];
+  midiError: string | null;
+  midiMessage: string | null;
+  pendingMidiOperation: "refresh" | "connect" | "disconnect" | null;
+  pendingMidiCue: MidiCueName | null;
   dispatch: (action: ActionName) => void;
+  selectPlan: (planId: string) => void;
+  refreshMidi: () => void;
+  selectMidi: (inputId: string | null) => void;
+  simulateMidi: (cue: MidiCueName) => void;
 }) {
   const plugin = state.plugins.demo;
   const backendStatus: ConnectionStatus = state.application_status === "running" && live
     ? "connected"
     : state.application_status === "error" ? "error" : live ? "connecting" : "disconnected";
   const plan = state.plan;
+  const serviceLoad = state.service_load;
   const durationReady = Boolean(plan?.songs.length) && plan!.songs.every((song) => Boolean(song.duration_seconds));
-  const timerReady = plugin?.status === "running";
-  const checks = [
+  const servicePlanReady = Boolean(plan)
+    && plan?.date === serviceLoad.target_date
+    && serviceLoad.status === "loaded"
+    && !serviceLoad.is_stale;
+  const checks: ReadonlyArray<readonly [string, boolean]> = [
     ["Planning Center connected", state.planning_center_status === "connected"],
-    ["Today’s plan loaded", Boolean(plan)],
+    ["Service plan loaded", servicePlanReady],
     ["Song durations valid", durationReady],
     ["MIDI input connected", state.midi_status === "connected"],
     ["ProPresenter connected", state.propresenter_status === "connected"],
-    ["Demo timer available", timerReady],
-  ] as const;
+    ...(plugin ? [["Demo integration running", plugin.status === "running"]] as const : []),
+  ];
   const ready = checks.every(([, passed]) => passed) && live;
   const activity = [...state.recent_events].reverse().slice(0, 10);
+  const connectedMidiInput = midi?.inputs.find((input) => input.connected);
+  const midiDetail = state.last_action
+    ? `Last action: ${state.last_action.replaceAll("_", " ")}`
+    : plugin
+      ? "Listening for demo actions"
+      : !midi
+        ? "Loading MIDI configuration"
+        : !midi.enabled
+          ? "MIDI Playback disabled"
+          : connectedMidiInput
+            ? `Connected to ${connectedMidiInput.name}`
+            : midi.selected_input_name
+              ? `Waiting for ${midi.selected_input_name}`
+              : "No input selected";
 
   return (
     <main className="mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
@@ -127,7 +179,7 @@ export function Dashboard({
           <div className="grid h-10 w-10 place-items-center rounded-xl border border-sky-300/20 bg-sky-400/10 text-lg font-black text-sky-300">SP</div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white">StagePilot</h1>
-            <p className="text-xs text-slate-500">Live production automation · Demo mode</p>
+            <p className="text-xs text-slate-500">Live production automation · {plugin ? "Demo mode" : "Production mode"}</p>
           </div>
         </div>
         <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${ready ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-amber-400/30 bg-amber-400/10 text-amber-300"}`}>
@@ -142,21 +194,73 @@ export function Dashboard({
         </div>
       )}
 
+      {serviceLoad.status === "ambiguous" && (
+        <section className="mb-5 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4" aria-live="polite">
+          <p className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-amber-300">Plan selection required</p>
+          <h2 className="mt-1 text-lg font-bold text-white">Multiple plans match {serviceLoad.target_date ?? "the service date"}</h2>
+          {serviceLoad.message && <p className="mt-1 text-sm font-medium text-amber-100">{serviceLoad.message}</p>}
+          <p className="mt-1 text-sm text-amber-100/70">
+            {serviceLoad.is_stale ? "The previous plan remains available but is marked stale. " : ""}
+            Choose the service plan StagePilot should load.
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {serviceLoad.candidates.map((candidate) => (
+              <div key={candidate.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-300/15 bg-slate-950/30 px-3 py-3">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-slate-100">{candidate.title}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">{candidate.service_type_name} · {candidate.service_times.join(", ")}</p>
+                </div>
+                <button
+                  aria-label={pendingPlanId === candidate.id ? `Loading ${candidate.title}` : `Use ${candidate.title}`}
+                  className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-amber-200 disabled:cursor-wait disabled:opacity-50"
+                  disabled={pendingPlanId !== null}
+                  onClick={() => selectPlan(candidate.id)}
+                  type="button"
+                >
+                  {pendingPlanId === candidate.id ? "Loading…" : "Use this plan"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {serviceLoad.status !== "idle" && serviceLoad.status !== "loaded" && serviceLoad.status !== "ambiguous" && (
+        <div className={`mb-5 rounded-lg border px-4 py-3 text-sm ${serviceLoad.status === "loading" ? "border-sky-400/20 bg-sky-400/10 text-sky-200" : "border-rose-400/25 bg-rose-400/10 text-rose-200"}`} aria-live="polite">
+          {serviceLoad.message ?? "Planning Center plan status changed."}
+          {serviceLoad.is_stale && " The last successful plan is still displayed as stale."}
+        </div>
+      )}
+
       <section aria-label="Connections" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatusCard title="Planning Center" status={state.planning_center_status} detail={connectionDetail(state.planning_center_status, state.last_successful_plan_reload_at)} icon={<Glyph>PC</Glyph>} />
-        <StatusCard title="MIDI / Playback" status={state.midi_status} detail={state.last_action ? `Last action: ${state.last_action.replaceAll("_", " ")}` : "Listening for demo actions"} icon={<Glyph>MI</Glyph>} />
+        <StatusCard title="Planning Center" status={state.planning_center_status} detail={connectionDetail(state.planning_center_status, state.last_successful_plan_reload_at, serviceLoad.message)} icon={<Glyph>PC</Glyph>} />
+        <StatusCard title="MIDI / Playback" status={state.midi_status} detail={midiDetail} icon={<Glyph>MI</Glyph>} />
         <StatusCard title="ProPresenter" status={state.propresenter_status} detail={state.timer.status === "running" ? "Song Countdown running" : `Timer ${state.timer.status}`} icon={<Glyph>PP</Glyph>} />
         <StatusCard title="StagePilot backend" status={backendStatus} detail={health ? `v${health.version} · state revision ${state.revision}` : "Connecting to local API"} icon={<Glyph>API</Glyph>} />
       </section>
+
+      {!plugin && (
+        <MidiSetupPanel
+          error={midiError}
+          message={midiMessage}
+          midi={midi}
+          messages={midiMessages}
+          onRefresh={refreshMidi}
+          onSelect={selectMidi}
+          onSimulate={simulateMidi}
+          pendingCue={pendingMidiCue}
+          pendingOperation={pendingMidiOperation}
+        />
+      )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(350px,0.8fr)]">
         <section className="overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
           <div className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div>
-              <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Today’s service</p>
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Service plan</p>
               <h2 className="mt-1 text-lg font-bold text-white">{plan?.title ?? "No service loaded"}</h2>
               <p className="mt-1 text-xs text-slate-500">
-                {plan ? `${plan.service_type} · ${plan.date} · ${plan.service_times.join(", ")}` : "Start the backend in demo mode to load a plan."}
+                {plan ? `${plan.service_type} · ${plan.date} · ${plan.service_times.join(", ")}` : "Waiting for a current or upcoming service plan."}
               </p>
             </div>
             <div className="text-right">
@@ -165,6 +269,12 @@ export function Dashboard({
             </div>
           </div>
           <ol>{plan?.songs.map((song) => <SongRow key={song.id} song={song} current={song.id === state.current_song?.id} next={song.id === state.next_song?.id} />)}</ol>
+          {serviceLoad.skipped_items.length > 0 && (
+            <div className="border-t border-amber-400/15 bg-amber-400/[0.06] px-4 py-3 text-xs text-amber-200">
+              <p className="font-bold uppercase tracking-wider">{serviceLoad.skipped_items.length} non-song {serviceLoad.skipped_items.length === 1 ? "item was" : "items were"} skipped</p>
+              <p className="mt-1 text-amber-100/60">{serviceLoad.skipped_items.map((item) => `${item.title} (${item.reason.replaceAll("_", " ")})`).join(", ")}</p>
+            </div>
+          )}
         </section>
 
         <div className="grid content-start gap-5">

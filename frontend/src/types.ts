@@ -2,6 +2,13 @@ export type ApplicationStatus = "starting" | "running" | "stopping" | "error";
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 export type PluginStatus = "stopped" | "starting" | "running" | "stopping" | "error";
 export type TimerStatus = "idle" | "running" | "stopped" | "error";
+export type ServiceLoadStatus =
+  | "idle"
+  | "loading"
+  | "loaded"
+  | "not_found"
+  | "ambiguous"
+  | "error";
 
 export type ActionName =
   | "start_next"
@@ -11,6 +18,24 @@ export type ActionName =
   | "stop_timer"
   | "reload_plan"
   | "reset_position";
+
+export type MidiCueName =
+  | "start_next"
+  | "restart_current"
+  | "previous"
+  | "next"
+  | "reload_plan"
+  | "stop_timer";
+
+export type MidiMessageDisposition =
+  | "dispatched"
+  | "action_rejected"
+  | "duplicate"
+  | "unmapped"
+  | "wrong_channel"
+  | "note_release"
+  | "queue_full"
+  | "error";
 
 export interface Song {
   id: string;
@@ -27,9 +52,37 @@ export interface ServicePlan {
   title: string;
   date: string;
   service_type: string;
+  service_type_id: string | null;
   service_times: string[];
   duration_source: string;
   songs: Song[];
+}
+
+export interface ServicePlanCandidate {
+  id: string;
+  title: string;
+  service_type_id: string;
+  service_type_name: string;
+  target_date: string;
+  service_times: string[];
+}
+
+export interface SkippedServiceItem {
+  item_id: string;
+  title: string;
+  item_type: string;
+  sequence: number;
+  reason: string;
+}
+
+export interface ServiceLoadState {
+  status: ServiceLoadStatus;
+  target_date: string | null;
+  candidates: ServicePlanCandidate[];
+  skipped_items: SkippedServiceItem[];
+  message: string | null;
+  is_stale: boolean;
+  last_attempt_at: string | null;
 }
 
 export interface PluginHealth {
@@ -65,6 +118,7 @@ export interface ApplicationState {
   planning_center_status: ConnectionStatus;
   midi_status: ConnectionStatus;
   propresenter_status: ConnectionStatus;
+  service_load: ServiceLoadState;
   timer: {
     status: TimerStatus;
     duration_seconds: number | null;
@@ -91,6 +145,61 @@ export interface StateEnvelope {
 }
 
 export interface ActionResponse {
+  action: ActionName;
+  accepted: boolean;
+  message: string;
+  state: ApplicationState;
+}
+
+export interface PlanSelectionResponse {
+  accepted: boolean;
+  message: string;
+  state: ApplicationState;
+}
+
+export interface MidiInput {
+  id: string;
+  name: string;
+  ambiguous: boolean;
+  selected: boolean;
+  connected: boolean;
+}
+
+export interface MidiInputsResponse {
+  enabled: boolean;
+  channel: number;
+  configured_input_name: string | null;
+  selected_input_name: string | null;
+  inputs: MidiInput[];
+  mappings: Partial<Record<MidiCueName, number>>;
+}
+
+export interface MidiMonitorMessage {
+  timestamp: string;
+  input_name: string | null;
+  message_type: "note_on" | "note_off";
+  channel: number;
+  note: number;
+  note_name: string;
+  velocity: number;
+  disposition: MidiMessageDisposition;
+  detail: string;
+  action: ActionName | null;
+  simulated: boolean;
+}
+
+export interface MidiMonitorResponse {
+  messages: MidiMonitorMessage[];
+}
+
+export interface MidiInputSelectionResponse {
+  accepted: boolean;
+  message: string;
+  midi: MidiInputsResponse;
+}
+
+export interface MidiCueSimulationResponse {
+  cue: MidiCueName;
   action: ActionName;
   accepted: boolean;
   message: string;

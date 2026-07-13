@@ -22,7 +22,7 @@ scaffold or mock alone does not prove a production integration.
 
 - Secure Personal Access Token configuration
 - Service type discovery and selection
-- Current-local-date plan discovery
+- Today-first plan discovery with nearest-upcoming fallback
 - Explicit handling for multiple matching plans
 - Ordered linked and generic song extraction
 - Scheduled duration extraction and warnings

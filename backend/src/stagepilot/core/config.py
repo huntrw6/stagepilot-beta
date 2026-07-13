@@ -8,6 +8,61 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from stagepilot.core.midi import MidiCueName
+
+
+class MidiNoteMappings(BaseModel):
+    """Configurable note-on mappings for Playback cues."""
+
+    start_next: int | None = Field(default=112, ge=0, le=127)
+    restart_current: int | None = Field(default=113, ge=0, le=127)
+    previous: int | None = Field(default=114, ge=0, le=127)
+    next: int | None = Field(default=115, ge=0, le=127)
+    reload_plan: int | None = Field(default=116, ge=0, le=127)
+    stop_timer: int | None = Field(default=117, ge=0, le=127)
+
+    @model_validator(mode="after")
+    def mapped_notes_are_unique(self) -> MidiNoteMappings:
+        notes = [note for _cue, note in self.configured()]
+        if len(notes) != len(set(notes)):
+            raise ValueError("Every configured MIDI action must use a distinct note.")
+        return self
+
+    def configured(self) -> tuple[tuple[MidiCueName, int], ...]:
+        values = (
+            (MidiCueName.START_NEXT, self.start_next),
+            (MidiCueName.RESTART_CURRENT, self.restart_current),
+            (MidiCueName.PREVIOUS, self.previous),
+            (MidiCueName.NEXT, self.next),
+            (MidiCueName.RELOAD_PLAN, self.reload_plan),
+            (MidiCueName.STOP_TIMER, self.stop_timer),
+        )
+        return tuple((cue, note) for cue, note in values if note is not None)
+
+    def note_for(self, cue: MidiCueName) -> int | None:
+        return dict(self.configured()).get(cue)
+
+    def cue_for(self, note: int) -> MidiCueName | None:
+        return next((cue for cue, mapped_note in self.configured() if mapped_note == note), None)
+
+
+class MidiSettings(BaseModel):
+    """Validated runtime settings for the Playback MIDI input."""
+
+    enabled: bool = False
+    input_name: str | None = Field(default=None, max_length=512)
+    channel: int = Field(default=1, ge=1, le=16)
+    mappings: MidiNoteMappings = Field(default_factory=MidiNoteMappings)
+    debounce_ms: int = Field(default=250, ge=0, le=2000)
+
+    @field_validator("input_name", mode="before")
+    @classmethod
+    def empty_input_name_is_unset(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
 
 class PlanningCenterSettings(BaseModel):
     """Validated server-side settings for Planning Center Personal Access Tokens."""
@@ -17,6 +72,7 @@ class PlanningCenterSettings(BaseModel):
     app_id: SecretStr | None = None
     secret: SecretStr | None = None
     service_type_id: str | None = Field(default=None, min_length=1)
+    upcoming_lookahead_days: int = Field(default=30, ge=0, le=365)
     request_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     user_agent: str = Field(
         default="StagePilot/0.1.0 (https://github.com/huntrw6/stage-pilot)",
@@ -75,6 +131,7 @@ class Settings(BaseModel):
     demo_mode: bool = True
     timezone: str = "America/Los_Angeles"
     planning_center: PlanningCenterSettings = Field(default_factory=PlanningCenterSettings)
+    midi: MidiSettings = Field(default_factory=MidiSettings)
     recent_event_limit: int = Field(default=100, ge=1, le=1000)
     recent_error_limit: int = Field(default=50, ge=1, le=500)
 
@@ -104,6 +161,11 @@ def _environment_optional(name: str) -> str | None:
     return stripped or None
 
 
+def _environment_optional_int(name: str, default: int | None) -> int | None:
+    value = _environment_optional(name)
+    return default if value is None else int(value)
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Load application settings from StagePilot environment variables."""
@@ -118,10 +180,27 @@ def get_settings() -> Settings:
             app_id=_environment_optional("STAGEPILOT_PCO_APP_ID"),
             secret=_environment_optional("STAGEPILOT_PCO_SECRET"),
             service_type_id=_environment_optional("STAGEPILOT_PCO_SERVICE_TYPE_ID"),
+            upcoming_lookahead_days=int(os.getenv("STAGEPILOT_PCO_LOOKAHEAD_DAYS", "30")),
             request_timeout_seconds=float(os.getenv("STAGEPILOT_PCO_TIMEOUT_SECONDS", "10.0")),
             user_agent=os.getenv(
                 "STAGEPILOT_PCO_USER_AGENT",
                 "StagePilot/0.1.0 (https://github.com/huntrw6/stage-pilot)",
             ),
+        ),
+        midi=MidiSettings(
+            enabled=_environment_bool("STAGEPILOT_MIDI_ENABLED", False),
+            input_name=_environment_optional("STAGEPILOT_MIDI_INPUT_NAME"),
+            channel=int(os.getenv("STAGEPILOT_MIDI_CHANNEL", "1")),
+            mappings=MidiNoteMappings(
+                start_next=_environment_optional_int("STAGEPILOT_MIDI_START_NEXT_NOTE", 112),
+                restart_current=_environment_optional_int(
+                    "STAGEPILOT_MIDI_RESTART_CURRENT_NOTE", 113
+                ),
+                previous=_environment_optional_int("STAGEPILOT_MIDI_PREVIOUS_NOTE", 114),
+                next=_environment_optional_int("STAGEPILOT_MIDI_NEXT_NOTE", 115),
+                reload_plan=_environment_optional_int("STAGEPILOT_MIDI_RELOAD_PLAN_NOTE", 116),
+                stop_timer=_environment_optional_int("STAGEPILOT_MIDI_STOP_TIMER_NOTE", 117),
+            ),
+            debounce_ms=int(os.getenv("STAGEPILOT_MIDI_DEBOUNCE_MS", "250")),
         ),
     )

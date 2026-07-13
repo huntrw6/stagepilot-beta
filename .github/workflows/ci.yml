@@ -64,6 +64,9 @@ jobs:
       - name: Run lint
         run: npm --prefix frontend run lint
 
+      - name: Run tests
+        run: npm --prefix frontend test
+
       - name: Run type checking
         run: npm --prefix frontend run typecheck
 

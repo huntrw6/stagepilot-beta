@@ -65,7 +65,46 @@ class PluginManager:
         )
 
     async def health(self) -> list[PluginHealth]:
-        return [value.model_copy(deep=True) for value in self._health.values()]
+        return list(
+            await asyncio.gather(
+                *(self._plugin_health(plugin) for plugin in self._plugins.values())
+            )
+        )
+
+    async def _plugin_health(self, plugin: Plugin) -> PluginHealth:
+        managed = self._health[plugin.name]
+        if managed.status is not PluginStatus.RUNNING:
+            return managed.model_copy(deep=True)
+
+        try:
+            reported = await plugin.health()
+        except Exception as exc:  # one failed health probe must not hide the other plugins
+            self._logger.warning(
+                "plugin_health_failed",
+                plugin=plugin.name,
+                error_type=type(exc).__name__,
+            )
+            current = self._health[plugin.name]
+            if current.status is not PluginStatus.RUNNING:
+                return current.model_copy(deep=True)
+            return PluginHealth(
+                name=plugin.name,
+                version=plugin.version,
+                status=PluginStatus.ERROR,
+                last_error="Plugin health check failed.",
+                last_activity_at=current.last_activity_at,
+            )
+
+        current = self._health[plugin.name]
+        if current.status is not PluginStatus.RUNNING:
+            return current.model_copy(deep=True)
+        return PluginHealth(
+            name=plugin.name,
+            version=plugin.version,
+            status=reported.status,
+            last_error=reported.last_error,
+            last_activity_at=reported.last_activity_at or current.last_activity_at,
+        )
 
     async def _start_plugin(self, plugin: Plugin) -> None:
         await self._set_health(plugin, PluginStatus.STARTING)

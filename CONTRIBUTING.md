@@ -49,10 +49,11 @@ uv run pytest
 cd ..
 
 npm --prefix frontend run lint
+npm --prefix frontend test
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
 
-cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
+cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
 cargo check --manifest-path desktop/src-tauri/Cargo.toml
 ```
 
