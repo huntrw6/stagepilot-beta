@@ -242,6 +242,7 @@ async def test_start_connects_exact_input_reports_health_and_safe_discovery() ->
         assert harness.backend.open_calls == ["Playback"]
         assert snapshot.enabled is True
         assert snapshot.channel == 1
+        assert snapshot.note == 112
         assert snapshot.configured_input_name == "Playback"
         assert playback.id == hashlib.sha256(b"Playback").hexdigest()
         assert playback.selected is True
@@ -268,8 +269,8 @@ async def test_dispatches_all_six_configured_notes_in_fifo_order() -> None:
         await wait_until(lambda: len(harness.backend.ports) == 1)
         port = harness.backend.ports[0]
 
-        for note in range(112, 118):
-            port.emit(note=note)
+        for velocity in range(100, 106):
+            port.emit(note=112, velocity=velocity)
 
         await wait_until(lambda: len(harness.dispatcher.calls) == 6)
         assert harness.dispatcher.calls == [
@@ -297,13 +298,15 @@ async def test_filters_other_channels_and_unmapped_notes_before_dispatch() -> No
         await wait_until(lambda: len(harness.backend.ports) == 1)
         port = harness.backend.ports[0]
 
-        port.emit(channel=2, note=112)
-        port.emit(channel=1, note=99)
-        port.emit(channel=1, note=115)
+        port.emit(channel=2, note=112, velocity=100)
+        port.emit(channel=1, note=100, velocity=127)
+        port.emit(channel=1, note=112, velocity=103)
 
         await wait_until(lambda: len(harness.dispatcher.calls) == 1)
         assert harness.dispatcher.calls == [DispatchCall(ActionName.NEXT, "midi_playback")]
-        assert [(event.channel, event.note) for event in note_events(harness)] == [(1, 115)]
+        assert [(event.channel, event.note, event.velocity) for event in note_events(harness)] == [
+            (1, 112, 103)
+        ]
     finally:
         await harness.close()
 
@@ -340,7 +343,7 @@ async def test_monitor_records_received_notes_and_why_they_were_ignored() -> Non
             (112, "E7"),
         ]
         assert messages[1].action is ActionName.START_NEXT
-        assert messages[2].detail == "Ignored: this note is not mapped to a StagePilot cue."
+        assert messages[2].detail == "Ignored: StagePilot listens for MIDI note E7 (112)."
         assert messages[3].channel == 2
         assert messages[3].velocity == 90
         assert messages[3].input_name == "Playback"
@@ -379,7 +382,7 @@ async def test_note_release_latching_and_monotonic_debounce_prevent_duplicates()
         port.emit(note=112)
         port.emit("note_off", note=112, velocity=0)
         port.emit(note=112)
-        port.emit(note=114)
+        port.emit(note=112, velocity=102)
 
         await wait_until(lambda: len(harness.dispatcher.calls) == 2)
         assert harness.dispatcher.calls == [
@@ -420,7 +423,8 @@ async def test_simulation_uses_the_mapping_event_dispatch_and_duplicate_pipeline
         assert len(note_events(harness)) == 3
         assert all(event.simulated is True for event in note_events(harness))
         assert all(event.connection_id is None for event in note_events(harness))
-        assert all(event.note == 116 for event in note_events(harness))
+        assert all(event.note == 112 for event in note_events(harness))
+        assert all(event.velocity == 104 for event in note_events(harness))
     finally:
         await harness.close()
 
@@ -458,15 +462,16 @@ async def test_stale_callback_is_rejected_after_reconnect() -> None:
         await wait_for_health(harness.plugin, PluginStatus.RUNNING)
         new_port = harness.backend.ports[1]
         old_port.emit(note=112)
-        new_port.emit(note=113)
-        new_port.emit(note=114)
+        new_port.emit(note=112, velocity=101)
+        new_port.emit(note=112, velocity=102)
 
         await wait_until(lambda: len(harness.dispatcher.calls) == 2)
         assert harness.dispatcher.calls == [
             DispatchCall(ActionName.RESTART_CURRENT, "midi_playback"),
             DispatchCall(ActionName.PREVIOUS, "midi_playback"),
         ]
-        assert [event.note for event in note_events(harness)] == [113, 114]
+        assert [event.note for event in note_events(harness)] == [112, 112]
+        assert [event.velocity for event in note_events(harness)] == [101, 102]
         assert old_port.close_calls == 1
     finally:
         await harness.close()
@@ -491,7 +496,7 @@ async def test_missing_input_degrades_health_then_reconnects_when_it_appears() -
         await wait_until(lambda: len(harness.backend.ports) == 1)
         await wait_for_health(harness.plugin, PluginStatus.RUNNING)
 
-        harness.backend.ports[0].emit(note=117)
+        harness.backend.ports[0].emit(note=112, velocity=105)
         await wait_until(lambda: len(harness.dispatcher.calls) == 1)
         assert harness.dispatcher.calls == [DispatchCall(ActionName.STOP_TIMER, "midi_playback")]
         assert [event.status for event in connection_events(harness)][-2:] == [

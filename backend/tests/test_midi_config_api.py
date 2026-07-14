@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import time
@@ -201,6 +201,7 @@ def test_midi_settings_have_safe_disabled_defaults() -> None:
     assert midi.enabled is False
     assert midi.input_name is None
     assert midi.channel == 1
+    assert midi.note == 112
     assert midi.debounce_ms == 250
     assert midi.mappings.configured() == (
         (MidiCueName.START_NEXT, 100),
@@ -219,12 +220,13 @@ def test_environment_loads_every_midi_setting(monkeypatch: pytest.MonkeyPatch) -
         "STAGEPILOT_MIDI_ENABLED": "yes",
         "STAGEPILOT_MIDI_INPUT_NAME": "  Playback MIDI  ",
         "STAGEPILOT_MIDI_CHANNEL": "16",
-        "STAGEPILOT_MIDI_START_NEXT_NOTE": "10",
-        "STAGEPILOT_MIDI_RESTART_CURRENT_NOTE": "11",
-        "STAGEPILOT_MIDI_PREVIOUS_NOTE": "12",
-        "STAGEPILOT_MIDI_NEXT_NOTE": "13",
-        "STAGEPILOT_MIDI_RELOAD_PLAN_NOTE": "14",
-        "STAGEPILOT_MIDI_STOP_TIMER_NOTE": "15",
+        "STAGEPILOT_MIDI_NOTE": "72",
+        "STAGEPILOT_MIDI_START_NEXT_VELOCITY": "10",
+        "STAGEPILOT_MIDI_RESTART_CURRENT_VELOCITY": "11",
+        "STAGEPILOT_MIDI_PREVIOUS_VELOCITY": "12",
+        "STAGEPILOT_MIDI_NEXT_VELOCITY": "13",
+        "STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY": "14",
+        "STAGEPILOT_MIDI_STOP_TIMER_VELOCITY": "15",
         "STAGEPILOT_MIDI_DEBOUNCE_MS": "0",
     }
     for name, value in environment.items():
@@ -238,6 +240,7 @@ def test_environment_loads_every_midi_setting(monkeypatch: pytest.MonkeyPatch) -
     assert midi.enabled is True
     assert midi.input_name == MIDI_INPUT_NAME
     assert midi.channel == 16
+    assert midi.note == 72
     assert midi.debounce_ms == 0
     assert dict(midi.mappings.configured()) == {
         MidiCueName.START_NEXT: 10,
@@ -264,14 +267,20 @@ def test_midi_channel_and_debounce_are_bounded(field: str, value: int) -> None:
 
 
 @pytest.mark.parametrize("note", [-1, 128])
-def test_midi_notes_are_bounded(note: int) -> None:
+def test_midi_trigger_note_is_bounded(note: int) -> None:
     with pytest.raises(ValidationError):
-        MidiNoteMappings(start_next=note)
+        MidiSettings(note=note)
 
 
-def test_midi_notes_must_be_unique() -> None:
-    with pytest.raises(ValidationError, match="distinct note"):
-        MidiNoteMappings(start_next=60, next=60)
+@pytest.mark.parametrize("velocity", [0, 128])
+def test_midi_velocities_are_bounded(velocity: int) -> None:
+    with pytest.raises(ValidationError):
+        MidiNoteMappings(start_next=velocity)
+
+
+def test_midi_velocities_must_be_unique() -> None:
+    with pytest.raises(ValidationError, match="distinct velocity"):
+        MidiNoteMappings(start_next=100, next=100)
 
 
 def test_disabled_midi_never_constructs_hardware_and_rejects_simulation(
@@ -386,6 +395,7 @@ def test_enabled_production_app_registers_midi_and_exposes_safe_discovery_and_si
     inputs = MidiInputsResponse.model_validate(inputs_response.json())
     assert inputs.enabled is True
     assert inputs.channel == 9
+    assert inputs.note == 112
     assert inputs.configured_input_name == MIDI_INPUT_NAME
     assert [value.name for value in inputs.inputs] == ["Backup Controller", MIDI_INPUT_NAME]
     selected = next(value for value in inputs.inputs if value.selected)

@@ -263,7 +263,7 @@ def test_refresh_selects_opaque_id_switches_promptly_and_rejects_old_callback() 
 
         before = ApplicationState.model_validate(client.get("/api/v1/state").json())
         old_port.emit(note=112)
-        backend.ports[-1].emit(note=117)
+        backend.ports[-1].emit(note=112, velocity=105)
 
         latest = before
 

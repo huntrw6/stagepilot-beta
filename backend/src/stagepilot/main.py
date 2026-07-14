@@ -19,15 +19,13 @@ from stagepilot.core.plugin import PluginManager
 from stagepilot.core.runtime import Runtime
 from stagepilot.core.state import StateStore
 from stagepilot.plugins.demo import DemoPlugin
-from stagepilot.plugins.midi_playback import (
-    MidiBackendFactory,
-    MidiPlaybackPlugin,
-)
+from stagepilot.plugins.midi_playback import MidiBackendFactory, MidiPlaybackPlugin
 from stagepilot.plugins.planning_center import (
     PlanningCenterClientFactory,
     PlanningCenterPlugin,
     TodayProvider,
 )
+from stagepilot.plugins.propresenter import ProPresenterClientFactory, ProPresenterPlugin
 from stagepilot.services.state_service import StateService
 
 
@@ -37,6 +35,7 @@ def create_app(
     planning_center_client_factory: PlanningCenterClientFactory | None = None,
     planning_center_today_provider: TodayProvider | None = None,
     midi_backend_factory: MidiBackendFactory | None = None,
+    propresenter_client_factory: ProPresenterClientFactory | None = None,
 ) -> FastAPI:
     """Create an independently testable StagePilot application instance."""
 
@@ -53,8 +52,16 @@ def create_app(
     )
     plugin_manager = PluginManager(event_bus)
     midi_plugin: MidiPlaybackPlugin | None = None
+
     if resolved_settings.demo_mode:
-        plugin_manager.register(DemoPlugin(event_bus, state_store))
+        plugin_manager.register(
+            DemoPlugin(
+                event_bus,
+                state_store,
+                simulate_midi=resolved_settings.demo.simulate_midi,
+                simulate_propresenter=resolved_settings.demo.simulate_propresenter,
+            )
+        )
     else:
         plugin_manager.register(
             PlanningCenterPlugin(
@@ -66,15 +73,34 @@ def create_app(
                 today_provider=planning_center_today_provider,
             )
         )
-        if resolved_settings.midi.enabled:
-            midi_plugin = MidiPlaybackPlugin(
+
+    real_midi_enabled = resolved_settings.midi.enabled and (
+        not resolved_settings.demo_mode or not resolved_settings.demo.simulate_midi
+    )
+    if real_midi_enabled:
+        midi_plugin = MidiPlaybackPlugin(
+            event_bus,
+            state_store,
+            resolved_settings.midi,
+            state_service,
+            backend_factory=midi_backend_factory,
+        )
+        plugin_manager.register(midi_plugin)
+
+    real_propresenter_enabled = resolved_settings.propresenter.enabled and (
+        not resolved_settings.demo_mode
+        or not resolved_settings.demo.simulate_propresenter
+    )
+    if real_propresenter_enabled:
+        plugin_manager.register(
+            ProPresenterPlugin(
                 event_bus,
                 state_store,
-                resolved_settings.midi,
-                state_service,
-                backend_factory=midi_backend_factory,
+                resolved_settings.propresenter,
+                client_factory=propresenter_client_factory,
             )
-            plugin_manager.register(midi_plugin)
+        )
+
     runtime = Runtime(
         settings=resolved_settings,
         event_bus=event_bus,

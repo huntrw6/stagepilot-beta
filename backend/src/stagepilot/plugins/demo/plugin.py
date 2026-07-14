@@ -25,33 +25,56 @@ class DemoPlugin(Plugin):
     name = "demo"
     version = "0.1.0"
 
-    def __init__(self, event_bus: EventBus, state_store: StateStore) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        state_store: StateStore,
+        *,
+        simulate_midi: bool = True,
+        simulate_propresenter: bool = True,
+    ) -> None:
         super().__init__(event_bus, state_store)
         self._status = PluginStatus.STOPPED
         self._last_error: str | None = None
         self._last_activity_at: datetime | None = None
         self._subscriptions: list[Subscription] = []
+        self._simulate_midi = simulate_midi
+        self._simulate_propresenter = simulate_propresenter
 
     async def start(self) -> None:
         self._status = PluginStatus.STARTING
-        self._subscriptions.extend(
-            [
-                await self.event_bus.subscribe(EventType.SONG_STARTED, self._on_song_started),
-                await self.event_bus.subscribe(EventType.SONG_RESTARTED, self._on_song_started),
-                await self.event_bus.subscribe(
-                    EventType.TIMER_STOP_REQUESTED, self._on_timer_stop_requested
-                ),
-                await self.event_bus.subscribe(
-                    EventType.SERVICE_RELOAD_REQUESTED, self._on_reload_requested
-                ),
-            ]
+        self._subscriptions.append(
+            await self.event_bus.subscribe(
+                EventType.SERVICE_RELOAD_REQUESTED,
+                self._on_reload_requested,
+            )
         )
+        if self._simulate_propresenter:
+            self._subscriptions.extend(
+                [
+                    await self.event_bus.subscribe(
+                        EventType.SONG_STARTED,
+                        self._on_song_started,
+                    ),
+                    await self.event_bus.subscribe(
+                        EventType.SONG_RESTARTED,
+                        self._on_song_started,
+                    ),
+                    await self.event_bus.subscribe(
+                        EventType.TIMER_STOP_REQUESTED,
+                        self._on_timer_stop_requested,
+                    ),
+                ]
+            )
         plan = demo_service_plan()
         await self.event_bus.publish(service_loaded(plan))
         await self.event_bus.publish(service_load_ready(plan))
-        for integration in ("planning_center", "midi", "propresenter"):
-            await self.event_bus.publish(connection_ready(integration))
-        await self.event_bus.publish(timer_stopped())
+        await self.event_bus.publish(connection_ready("planning_center"))
+        if self._simulate_midi:
+            await self.event_bus.publish(connection_ready("midi"))
+        if self._simulate_propresenter:
+            await self.event_bus.publish(connection_ready("propresenter"))
+            await self.event_bus.publish(timer_stopped())
         self._status = PluginStatus.RUNNING
         self._last_activity_at = datetime.now(UTC)
 

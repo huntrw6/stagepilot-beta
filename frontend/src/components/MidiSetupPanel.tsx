@@ -158,26 +158,26 @@ export function MidiSetupPanel({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Cue test</p>
-              <p className="mt-1 text-xs text-slate-500">Uses the same action path as hardware notes.</p>
+              <p className="mt-1 text-xs text-slate-500">Uses the same fixed-note and velocity action path as hardware input.</p>
             </div>
             <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-xs font-bold text-violet-300">
-              Channel {midi?.channel ?? "—"}
+              Channel {midi?.channel ?? "—"} · Note {midi?.note ?? "—"}
             </span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             {cues.map(([cue, label]) => {
-              const note = midi?.mappings[cue];
+              const velocity = midi?.mappings[cue];
               return (
                 <button
                   className="flex items-center justify-between gap-2 rounded-lg border border-white/7 bg-white/[0.035] px-3 py-2 text-left text-sm text-slate-200 transition hover:border-violet-400/25 hover:bg-violet-400/10 disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={!enabled || pendingCue !== null || note == null}
+                  disabled={!enabled || pendingCue !== null || velocity == null}
                   key={cue}
                   onClick={() => onSimulate(cue)}
-                  title={note == null ? "No MIDI note is configured for this cue." : undefined}
+                  title={velocity == null ? "No MIDI velocity is configured for this cue." : undefined}
                   type="button"
                 >
                   <span>{pendingCue === cue ? "Sending…" : label}</span>
-                  <span className="font-mono text-xs text-violet-300">{note ?? "—"}</span>
+                  <span className="font-mono text-xs text-violet-300">{velocity == null ? "—" : `v${velocity}`}</span>
                 </button>
               );
             })}
