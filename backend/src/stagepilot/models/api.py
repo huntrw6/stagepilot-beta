@@ -15,6 +15,7 @@ from stagepilot.models.state import (
     ApplicationStatus,
     ConnectionStatus,
     PluginHealth,
+    ServicePlanCandidate,
 )
 
 
@@ -56,6 +57,26 @@ class PlanningCenterStatusResponse(BaseModel):
     detail: str | None = None
 
 
+class PlanningCenterTestRequest(BaseModel):
+    """Temporary credentials used only for one authentication test."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    app_id: str | None = Field(default=None, min_length=1, max_length=255)
+    secret: SecretStr | None = Field(default=None, min_length=1, max_length=255)
+
+
+class PlanningCenterServiceTypeResponse(BaseModel):
+    id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=500)
+
+
+class PlanningCenterTestResponse(BaseModel):
+    authenticated: Literal[True] = True
+    message: str
+    service_types: list[PlanningCenterServiceTypeResponse]
+
+
 class ActionResponse(BaseModel):
     action: ActionName
     accepted: bool
@@ -75,6 +96,13 @@ class PlanSelectionResponse(BaseModel):
     accepted: bool
     message: str
     state: ApplicationState
+
+
+class PendingPlanSelectionResponse(BaseModel):
+    pending: bool
+    target_date: str | None = None
+    candidates: list[ServicePlanCandidate]
+    message: str | None = None
 
 
 class MidiInputResponse(BaseModel):

@@ -77,29 +77,18 @@ uv run --project backend uvicorn stagepilot.main:app --reload --host 127.0.0.1 -
 The backend is intentionally bound to loopback. Check it at
 `http://127.0.0.1:8765/api/v1/health`.
 
-### Try the MIDI Playback backend slice
+### Configure MIDI Playback
 
-MIDI input is disabled by default and is currently registered only outside demo
-mode. Keep any existing Planning Center production variables, then enable MIDI
-in the PowerShell session that launches the backend:
-
-```powershell
-$env:STAGEPILOT_DEMO_MODE = "false"
-$env:STAGEPILOT_MIDI_ENABLED = "true"
-$env:STAGEPILOT_MIDI_CHANNEL = "1"
-# Optional startup default; the dashboard can select a port for this session:
-$env:STAGEPILOT_MIDI_INPUT_NAME = "<your Playback MIDI input name>"
-uv run --project backend stagepilot
-```
-
-The dashboard MIDI setup panel can refresh, select, and disconnect an input.
+MIDI input is disabled by default. Open the dashboard's **MIDI / Playback**
+connection panel, select **Real MIDI / Playback**, save the mode, and restart
+StagePilot. The dashboard can then refresh, select, and disconnect an input.
 The same flow is available through `POST /api/v1/midi/inputs/refresh` and
-`POST /api/v1/midi/input-selection`. Dashboard/API selections last only for the
-current backend session; a new backend process again uses
-`STAGEPILOT_MIDI_INPUT_NAME` as its startup default. The cue-simulation endpoint
+`POST /api/v1/midi/input-selection`. Accepted selections persist in
+`%APPDATA%\StagePilot\settings.json`. The cue-simulation endpoint
 exercises a named cue through the same application-action path as hardware
-input. MIDI environment changes take effect only after the backend process is
-restarted. See
+input. Integration-mode changes take effect after the backend process is
+restarted. Environment variables remain available as higher-priority
+development overrides. See
 [docs/configuration.md](docs/configuration.md#midi-playback-variables) for the
 six default note mappings, endpoint examples, and validation limits.
 
@@ -171,10 +160,11 @@ sidecar packaging remain v1.0 work.
 
 ## Configuration and security
 
-Configuration is expected to layer defaults, a local configuration file,
-environment-variable overrides, and validated runtime settings. Planning Center
-credentials are secrets: do not commit, log, or return them through frontend API
-responses. Remote access is disabled by binding to `127.0.0.1` by default.
+Configuration layers defaults, `%APPDATA%\StagePilot\settings.json`,
+environment-variable overrides, and validated session changes. Planning Center
+PAT secrets live in Windows Credential Manager and are never returned through
+frontend API responses. Remote access is disabled by binding to `127.0.0.1` by
+default.
 
 Read [docs/configuration.md](docs/configuration.md) and
 [docs/security.md](docs/security.md) before adding credentials or enabling LAN
@@ -182,17 +172,17 @@ access.
 
 ## Project status
 
-Milestone 1 foundation work is complete. Milestone 2 currently includes
+Milestone 1 foundation work is complete. The current v0.5 work includes
 validated, secret-aware PAT configuration, service-type discovery, and a typed
 client that parses ordered songs and discovers today's plan first, then the
 nearest upcoming plan within a configurable window. The window defaults to 30
-days. The production plugin now loads on startup outside demo mode, handles
+days. The dashboard can test Planning Center credentials, populate the service
+type dropdown, save independent integration modes, and persist MIDI and
+ProPresenter setup without PowerShell variables. The production plugin loads
+when Planning Center mode is selected, handles
 reloads without discarding an active last-known-good plan, and exposes ambiguous
-same-date plan selection in the dashboard. The first Milestone 3 backend slice
-adds disabled-by-default MIDI input discovery, a session-only dashboard setup
-panel, environment-based startup defaults and cue mapping, reconnect behavior,
-and manual cue simulation. Broader hardware testing, persistent settings, and
-the wider setup interface remain in progress. See
+same-date plan selection in the dashboard. Disk-backed last-known-good plan
+caching and preference-aware ambiguity resolution remain in progress. See
 [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for scope and progress.
 
 ## Contributing

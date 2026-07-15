@@ -21,6 +21,12 @@ from stagepilot.core.events import (
     new_event,
 )
 from stagepilot.core.logging import get_logger
+from stagepilot.core.plan_cache import (
+    CachedServicePlan,
+    MemoryPlanCacheStore,
+    PlanCacheError,
+    PlanCacheStore,
+)
 from stagepilot.core.plugin import Plugin
 from stagepilot.core.state import StateStore
 from stagepilot.models.state import (
@@ -29,6 +35,7 @@ from stagepilot.models.state import (
     PluginHealth,
     PluginStatus,
     ServiceLoadStatus,
+    ServicePlan,
     ServicePlanCandidate,
     SkippedServiceItem,
 )
@@ -87,6 +94,7 @@ class PlanningCenterPlugin(Plugin):
         timezone_name: str,
         client_factory: PlanningCenterClientFactory | None = None,
         today_provider: TodayProvider | None = None,
+        plan_cache_store: PlanCacheStore | None = None,
     ) -> None:
         super().__init__(event_bus, state_store)
         self._settings = settings
@@ -94,6 +102,8 @@ class PlanningCenterPlugin(Plugin):
         self._timezone = ZoneInfo(timezone_name)
         self._client_factory = client_factory or PlanningCenterClient
         self._today_provider = today_provider or _local_today
+        self._plan_cache_store = plan_cache_store or MemoryPlanCacheStore()
+        self._cache_warning: str | None = None
         self._client: PlanningCenterClientContract | None = None
         self._subscriptions: list[Subscription] = []
         self._active_refresh_task: asyncio.Task[None] | None = None
@@ -109,6 +119,7 @@ class PlanningCenterPlugin(Plugin):
         self._status = PluginStatus.STARTING
         self._stopping = False
         try:
+            await self._restore_cached_plan()
             self._validate_configuration()
             self._client = self._client_factory(self._settings)
             self._subscriptions.extend(
@@ -124,7 +135,7 @@ class PlanningCenterPlugin(Plugin):
                 ]
             )
         except PlanningCenterError as exc:
-            await self._handle_start_failure(str(exc))
+            await self._handle_start_failure(self._with_cache_warning(str(exc)))
             raise
         except Exception:
             detail = "Planning Center plugin initialization failed unexpectedly."
@@ -307,6 +318,16 @@ class PlanningCenterPlugin(Plugin):
                 selected_plan_id=selected_plan_id,
                 lookahead_days=self._settings.upcoming_lookahead_days,
             )
+            if isinstance(result, PlanAmbiguousResult) and selected_plan_id is None:
+                preferred = self._preferred_candidate(result.candidates)
+                if preferred is not None:
+                    result = await client.load_plan_for_date(
+                        service_type,
+                        search_date,
+                        self._timezone_name,
+                        selected_plan_id=preferred.id,
+                        lookahead_days=self._settings.upcoming_lookahead_days,
+                    )
         except PlanningCenterPlanSelectionError as exc:
             self._record_error(str(exc))
             await self._publish_connection(ConnectionStatus.CONNECTED, str(exc))
@@ -322,7 +343,7 @@ class PlanningCenterPlugin(Plugin):
             )
             return
         except PlanningCenterError as exc:
-            detail = str(exc)
+            detail = self._with_cache_warning(str(exc))
             self._record_error(detail)
             connection_status = (
                 ConnectionStatus.CONNECTED
@@ -346,7 +367,7 @@ class PlanningCenterPlugin(Plugin):
             )
             return
         except Exception:
-            detail = "Planning Center plan loading failed unexpectedly."
+            detail = self._with_cache_warning("Planning Center plan loading failed unexpectedly.")
             self._logger.error("planning_center_unexpected_load_failure")
             self._record_error(detail)
             await self._publish_connection(ConnectionStatus.ERROR, detail)
@@ -492,8 +513,9 @@ class PlanningCenterPlugin(Plugin):
                 )
                 for item in result.skipped_items
             ],
-            message=(
-                f'Loaded "{result.plan.title}" for {loaded_date.isoformat()} from Planning Center.'
+            message=self._cache_fresh_plan(
+                result.plan,
+                projected.last_successful_plan_reload_at or datetime.now(UTC),
             ),
         )
 
@@ -589,6 +611,36 @@ class PlanningCenterPlugin(Plugin):
             )
         return service_type
 
+    def _preferred_candidate(
+        self,
+        candidates: list[PlanningCenterPlanCandidate],
+    ) -> PlanningCenterPlanCandidate | None:
+        title_preference = self._settings.plan_title_preference
+        time_preference = self._settings.preferred_service_time
+        if title_preference is None and time_preference is None:
+            return None
+
+        normalized_title = title_preference.casefold().strip() if title_preference else None
+        scores: list[tuple[int, PlanningCenterPlanCandidate]] = []
+        for candidate in candidates:
+            score = 0
+            if (
+                normalized_title is not None
+                and candidate.title.casefold().strip() == normalized_title
+            ):
+                score += 1
+            if time_preference is not None and any(
+                value.strftime("%H:%M") == time_preference for value in candidate.service_times
+            ):
+                score += 1
+            scores.append((score, candidate))
+
+        highest_score = max((score for score, _candidate in scores), default=0)
+        if highest_score == 0:
+            return None
+        matches = [candidate for score, candidate in scores if score == highest_score]
+        return matches[0] if len(matches) == 1 else None
+
     @staticmethod
     def _candidate(candidate: PlanningCenterPlanCandidate) -> ServicePlanCandidate:
         return ServicePlanCandidate(
@@ -616,6 +668,77 @@ class PlanningCenterPlugin(Plugin):
             "planning_center_load_failed",
             error_type="safe_planning_center_error",
         )
+
+    async def _restore_cached_plan(self) -> None:
+        try:
+            cached = self._plan_cache_store.load()
+        except PlanCacheError as exc:
+            self._cache_warning = str(exc)
+            return
+        if cached is None:
+            return
+
+        today = self._safe_today()
+        if cached.plan.date < today:
+            self._cache_warning = (
+                f'The cached service "{cached.plan.title}" expired on '
+                f"{cached.plan.date.isoformat()} and was not loaded."
+            )
+            return
+        if cached.plan.service_type_id != self._settings.service_type_id:
+            self._cache_warning = (
+                "The cached service belongs to a different Planning Center service type "
+                "and was not loaded."
+            )
+            return
+
+        report = await self.event_bus.publish(
+            new_event(
+                EventType.SERVICE_LOADED,
+                source=self.name,
+                payload=ServicePayload(plan=cached.plan),
+            )
+        )
+        state = await self.state_store.snapshot()
+        if report.failures or state.plan != cached.plan:
+            self._cache_warning = "The last-known-good service could not be restored."
+            return
+
+        def restore_refresh_timestamp(application_state: ApplicationState) -> None:
+            application_state.last_successful_plan_reload_at = cached.last_successful_refresh
+
+        await self.state_store.mutate(restore_refresh_timestamp)
+        await self._publish_load_state(
+            ServiceLoadStatus.LOADING,
+            cached.plan.date,
+            message=(
+                f'Loaded cached service "{cached.plan.title}" from '
+                f"{cached.last_successful_refresh.isoformat()}; refreshing Planning Center."
+            ),
+            is_stale=True,
+        )
+        self._cache_warning = (
+            "The displayed service was loaded from the last-known-good cache and may be stale."
+        )
+
+    def _cache_fresh_plan(self, plan: ServicePlan, refreshed_at: datetime) -> str:
+        try:
+            self._plan_cache_store.save(
+                CachedServicePlan(
+                    plan=plan,
+                    last_successful_refresh=refreshed_at,
+                )
+            )
+            self._cache_warning = None
+        except PlanCacheError as exc:
+            self._cache_warning = str(exc)
+        message = f'Loaded "{plan.title}" for {plan.date.isoformat()} from Planning Center.'
+        return self._with_cache_warning(message)
+
+    def _with_cache_warning(self, detail: str) -> str:
+        if self._cache_warning is None:
+            return detail
+        return f"{detail} {self._cache_warning}"
 
     async def _cleanup_resources(self) -> None:
         for subscription in self._subscriptions:

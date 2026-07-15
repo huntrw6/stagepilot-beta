@@ -139,6 +139,89 @@ export interface HealthResponse {
   plugins: PluginHealth[];
 }
 
+export type ServiceSource = "demo" | "planning_center";
+export type MidiSource = "simulated" | "real";
+export type TimerOutput = "simulated" | "propresenter";
+
+export interface IntegrationModes {
+  service_source: ServiceSource;
+  midi_source: MidiSource;
+  timer_output: TimerOutput;
+}
+
+export interface PlanningCenterPublicSettings {
+  app_id: string | null;
+  service_type_id: string | null;
+  plan_title_preference: string | null;
+  preferred_service_time: string | null;
+  upcoming_lookahead_days: number;
+  request_timeout_seconds: number;
+}
+
+export interface PersistentSettings {
+  schema_version: 1;
+  integration_modes: IntegrationModes;
+  timezone: string;
+  log_level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+  server_port: number;
+  planning_center: PlanningCenterPublicSettings;
+  midi: {
+    enabled: boolean;
+    input_name: string | null;
+    channel: number;
+    note: number;
+    mappings: Partial<Record<MidiCueName, number | null>>;
+    debounce_ms: number;
+  };
+  propresenter: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    timer_name: string;
+    request_timeout_seconds: number;
+    reconnect_initial_seconds: number;
+    reconnect_max_seconds: number;
+    health_check_interval_seconds: number;
+  };
+}
+
+export interface SettingsResponse {
+  settings: PersistentSettings;
+  planning_center_secret_saved: boolean;
+  warning: string | null;
+  restart_required: boolean;
+}
+
+export interface PlanningCenterStatusResponse {
+  connection_status: ConnectionStatus;
+  configured: boolean;
+  app_id: string | null;
+  service_type_id: string | null;
+  planning_center_secret_saved: boolean;
+  detail: string | null;
+}
+
+export interface PlanningCenterServiceType {
+  id: string;
+  name: string;
+}
+
+export interface PlanningCenterTestInput {
+  app_id?: string;
+  secret?: string;
+}
+
+export interface PlanningCenterTestResponse {
+  authenticated: true;
+  message: string;
+  service_types: PlanningCenterServiceType[];
+}
+
+export interface PlanningCenterSettingsInput extends PlanningCenterPublicSettings {
+  secret?: string;
+  remove_secret?: boolean;
+}
+
 export interface StateEnvelope {
   type: "state.snapshot";
   data: ApplicationState;

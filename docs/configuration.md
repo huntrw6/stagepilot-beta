@@ -19,6 +19,12 @@ write. A corrupt or invalid file is left untouched and StagePilot starts from
 safe defaults with a warning. `STAGEPILOT_SETTINGS_PATH` may point development
 and test processes at a different file.
 
+The most recently loaded Planning Center service is cached separately at
+`%APPDATA%\StagePilot\last-known-good-service.json`. It contains only the plan,
+service times, songs, durations, source IDs, and last refresh timestamp. A
+Planning Center outage restores a non-expired cache as stale and shows a
+warning; expired or mismatched service-type caches are not loaded.
+
 `GET /api/v1/settings` returns ordinary settings and whether a Planning Center
 secret has been saved. `PUT /api/v1/settings` validates and persists ordinary
 settings. It never accepts or returns the PAT secret. Settings that affect
@@ -80,7 +86,10 @@ URLs, logs, API responses, and outward-facing credential-backend errors.
 `POST /api/v1/planning-center/settings` saves the non-secret Planning Center
 fields and can replace or remove the credential-store secret. `GET
 /api/v1/planning-center/status` returns only a boolean saved-secret state plus
-the public setup fields. The typed client can discover service types,
+the public setup fields. `POST /api/v1/planning-center/test` tests temporary or
+saved credentials without persisting temporary values. `GET
+/api/v1/planning-center/service-types` uses the effective saved credentials and
+returns active service types for the dashboard dropdown. The typed client can discover service types,
 prefer plans with service times on today's configured local date, fall back to
 the nearest upcoming service date within the lookahead window, surface
 same-date ambiguous matches, and parse a selected plan's ordered songs. Past
@@ -123,6 +132,15 @@ Planning Center documents Personal Access Tokens as appropriate for local tools
 used with one organization. A future multi-organization StagePilot distribution
 must use OAuth instead of collecting PAT credentials. See Planning Center's
 [authentication documentation](https://api.planningcenteronline.com/docs/overview/authentication).
+
+The dashboard onboarding order is:
+
+1. Open the **Planning Center** connection panel.
+2. Enter the PAT application ID and secret, then select **Test connection**.
+3. Select a service type from the returned dropdown.
+4. Choose the timezone and optional title/time preferences.
+5. Select **Planning Center** as the service source and save.
+6. Restart StagePilot, then use **Load today's plan** if a manual refresh is needed.
 
 ## MIDI Playback variables
 

@@ -4,7 +4,7 @@ import asyncio
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -20,6 +20,7 @@ from stagepilot.core.events import (
     StagePilotEvent,
     new_event,
 )
+from stagepilot.core.plan_cache import CachedServicePlan, MemoryPlanCacheStore, PlanCacheStore
 from stagepilot.core.state import StateStore
 from stagepilot.models.state import (
     ApplicationState,
@@ -236,6 +237,7 @@ def plan(
         title=f"Plan {identifier}",
         date=target_date,
         service_type="Weekend Services",
+        service_type_id="42",
         service_times=["09:00"],
         duration_source="Planning Center scheduled item length",
         songs=[
@@ -297,6 +299,7 @@ async def plugin_harness(
     *,
     today: MutableToday | None = None,
     settings: PlanningCenterSettings | None = None,
+    plan_cache_store: PlanCacheStore | None = None,
 ) -> PluginHarness:
     event_bus = EventBus()
     state_store = StateStore()
@@ -317,6 +320,7 @@ async def plugin_harness(
         timezone_name=TIMEZONE_NAME,
         client_factory=factory,
         today_provider=resolved_today,
+        plan_cache_store=plan_cache_store,
     )
     return PluginHarness(
         event_bus=event_bus,
@@ -444,6 +448,122 @@ async def test_ambiguity_exposes_safe_candidates_without_loading_a_plan() -> Non
         ]
         assert state.plan is None
         assert planning_center_events(harness, EventType.SERVICE_LOADED) == []
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_preferred_service_time_resolves_one_ambiguous_plan() -> None:
+    client = FakePlanningCenterClient(
+        [
+            ambiguous_result(),
+            loaded_result("plan-evening", warning_id="preferred-warning"),
+        ]
+    )
+    settings = configured_settings().model_copy(update={"preferred_service_time": "18:00"})
+    harness = await plugin_harness(client, settings=settings)
+    try:
+        await harness.plugin.start()
+
+        state = await harness.state_store.snapshot()
+        assert [call.selected_plan_id for call in client.load_calls] == [
+            None,
+            "plan-evening",
+        ]
+        assert state.service_load.status is ServiceLoadStatus.LOADED
+        assert state.plan and state.plan.id == "plan-evening"
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_equally_scored_preferences_remain_ambiguous() -> None:
+    client = FakePlanningCenterClient([ambiguous_result()])
+    settings = configured_settings().model_copy(
+        update={
+            "plan_title_preference": "Plan plan-morning",
+            "preferred_service_time": "18:00",
+        }
+    )
+    harness = await plugin_harness(client, settings=settings)
+    try:
+        await harness.plugin.start()
+
+        state = await harness.state_store.snapshot()
+        assert len(client.load_calls) == 1
+        assert state.service_load.status is ServiceLoadStatus.AMBIGUOUS
+        assert [candidate.id for candidate in state.service_load.candidates] == [
+            "plan-morning",
+            "plan-evening",
+        ]
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_planning_center_outage_restores_last_known_good_service() -> None:
+    refreshed_at = datetime(2026, 7, 11, 18, tzinfo=UTC)
+    cache = MemoryPlanCacheStore(
+        CachedServicePlan(
+            plan=plan("cached-plan", SERVICE_DATE),
+            last_successful_refresh=refreshed_at,
+        )
+    )
+    harness = await plugin_harness(
+        FakePlanningCenterClient([PlanningCenterTimeoutError("Planning Center timed out.")]),
+        plan_cache_store=cache,
+    )
+    try:
+        await harness.plugin.start()
+
+        state = await harness.state_store.snapshot()
+        assert state.plan and state.plan.id == "cached-plan"
+        assert state.service_load.status is ServiceLoadStatus.ERROR
+        assert state.service_load.is_stale is True
+        assert "last-known-good cache" in (state.service_load.message or "")
+        assert state.last_successful_plan_reload_at == refreshed_at
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_successful_refresh_replaces_the_cached_service() -> None:
+    cache = MemoryPlanCacheStore()
+    harness = await plugin_harness(
+        FakePlanningCenterClient([loaded_result("fresh-plan")]),
+        plan_cache_store=cache,
+    )
+    try:
+        await harness.plugin.start()
+
+        assert cache.cached is not None
+        assert cache.cached.plan.id == "fresh-plan"
+        assert cache.cached.last_successful_refresh.tzinfo is not None
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_expired_cache_is_not_loaded_and_surfaces_a_warning() -> None:
+    cache = MemoryPlanCacheStore(
+        CachedServicePlan(
+            plan=plan("expired-plan", SERVICE_DATE),
+            last_successful_refresh=datetime(2026, 7, 12, 18, tzinfo=UTC),
+        )
+    )
+    today = MutableToday(NEXT_DATE)
+    harness = await plugin_harness(
+        FakePlanningCenterClient([PlanningCenterTimeoutError("Planning Center timed out.")]),
+        today=today,
+        plan_cache_store=cache,
+    )
+    try:
+        await harness.plugin.start()
+
+        state = await harness.state_store.snapshot()
+        assert state.plan is None
+        assert state.service_load.is_stale is False
+        assert "expired on 2026-07-12" in (state.service_load.message or "")
     finally:
         await harness.close()
 

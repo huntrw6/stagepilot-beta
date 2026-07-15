@@ -229,13 +229,20 @@ def test_valid_planning_center_selection_loads_the_requested_candidate(
     )
 
     with TestClient(app) as client:
+        pending = client.get("/api/v1/planning-center/plans/pending-selection")
         response = client.post(
-            "/api/v1/planning-center/plan-selection",
+            "/api/v1/planning-center/plans/select",
             json={"plan_id": "plan-early"},
         )
         health = client.get("/api/v1/health")
 
     assert response.status_code == 200
+    assert pending.status_code == 200
+    assert pending.json()["pending"] is True
+    assert [value["id"] for value in pending.json()["candidates"]] == [
+        "plan-early",
+        "plan-late",
+    ]
     assert health.status_code == 200
     assert health.json()["status"] == "healthy"
     body = response.json()
@@ -247,6 +254,17 @@ def test_valid_planning_center_selection_loads_the_requested_candidate(
     assert body["state"]["plan"]["songs"][0]["title"] == "Battle Belongs"
     assert planning_center_client.selected_plan_ids == [None, "plan-early"]
     assert planning_center_client.closed is True
+
+
+def test_planning_center_reload_endpoint_dispatches_the_reload_action() -> None:
+    app = create_app(Settings(demo_mode=True))
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/planning-center/plan/reload")
+
+    assert response.status_code == 200
+    assert response.json()["action"] == "reload_plan"
+    assert response.json()["accepted"] is True
 
 
 def _ready_production_plan() -> ServicePlan:

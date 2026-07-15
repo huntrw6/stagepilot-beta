@@ -5,11 +5,18 @@ import type {
   ApplicationState,
   ConnectionStatus,
   HealthResponse,
+  IntegrationModes,
   MidiCueName,
   MidiInputsResponse,
   MidiMonitorMessage,
+  PlanningCenterServiceType,
+  PlanningCenterSettingsInput,
+  PlanningCenterStatusResponse,
+  PlanningCenterTestInput,
   ProPresenterSettingsInput,
   ProPresenterStatusResponse,
+  ServiceSource,
+  SettingsResponse,
   Song,
 } from "../types";
 import { BackendSetupPanel } from "./BackendSetupPanel";
@@ -112,6 +119,15 @@ export function Dashboard({
   actionMessage,
   pendingAction,
   pendingPlanId,
+  settings = null,
+  settingsError = null,
+  settingsMessage = null,
+  pendingSettingsOperation = false,
+  planningCenterStatus = null,
+  planningCenterServiceTypes = [],
+  planningCenterError = null,
+  planningCenterMessage = null,
+  pendingPlanningCenterOperation = null,
   midi,
   midiMessages,
   midiError,
@@ -124,6 +140,10 @@ export function Dashboard({
   pendingProPresenterOperation = null,
   dispatch,
   selectPlan,
+  saveIntegrationModes = () => undefined,
+  testPlanningCenterConnection = () => undefined,
+  loadPlanningCenterServiceTypes = () => undefined,
+  savePlanningCenter = () => undefined,
   refreshMidi,
   selectMidi,
   simulateMidi,
@@ -138,6 +158,15 @@ export function Dashboard({
   actionMessage: string | null;
   pendingAction: ActionName | null;
   pendingPlanId: string | null;
+  settings?: SettingsResponse | null;
+  settingsError?: string | null;
+  settingsMessage?: string | null;
+  pendingSettingsOperation?: boolean;
+  planningCenterStatus?: PlanningCenterStatusResponse | null;
+  planningCenterServiceTypes?: PlanningCenterServiceType[];
+  planningCenterError?: string | null;
+  planningCenterMessage?: string | null;
+  pendingPlanningCenterOperation?: "test" | "load-types" | "save" | null;
   midi: MidiInputsResponse | null;
   midiMessages: MidiMonitorMessage[];
   midiError: string | null;
@@ -150,6 +179,14 @@ export function Dashboard({
   pendingProPresenterOperation?: "save" | "test" | "refresh" | null;
   dispatch: (action: ActionName) => void;
   selectPlan: (planId: string) => void;
+  saveIntegrationModes?: (modes: IntegrationModes) => void;
+  testPlanningCenterConnection?: (input: PlanningCenterTestInput) => void;
+  loadPlanningCenterServiceTypes?: () => void;
+  savePlanningCenter?: (
+    input: PlanningCenterSettingsInput,
+    serviceSource: ServiceSource,
+    timezone: string,
+  ) => void;
   refreshMidi: () => void;
   selectMidi: (inputId: string | null) => void;
   simulateMidi: (cue: MidiCueName) => void;
@@ -302,12 +339,21 @@ export function Dashboard({
 
       {activeConnection === "planning-center" && (
         <PlanningCenterSetupPanel
+          error={planningCenterError}
+          message={planningCenterMessage}
           onClose={closeConnection}
+          onLoadServiceTypes={loadPlanningCenterServiceTypes}
           onReload={() => dispatch("reload_plan")}
+          onSave={savePlanningCenter}
           onSelectPlan={selectPlan}
+          onTest={testPlanningCenterConnection}
           pendingAction={pendingAction}
+          pendingOperation={pendingPlanningCenterOperation}
           pendingPlanId={pendingPlanId}
+          serviceTypes={planningCenterServiceTypes}
+          settings={settings}
           state={state}
+          status={planningCenterStatus}
         />
       )}
 
@@ -316,13 +362,24 @@ export function Dashboard({
           error={midiError}
           message={midiMessage}
           midi={midi}
+          modeError={settingsError}
+          modeMessage={settingsMessage}
           messages={midiMessages}
           onClose={closeConnection}
           onRefresh={refreshMidi}
           onSelect={selectMidi}
           onSimulate={simulateMidi}
+          onSourceChange={(source) => {
+            if (!settings) return;
+            saveIntegrationModes({
+              ...settings.settings.integration_modes,
+              midi_source: source,
+            });
+          }}
           pendingCue={pendingMidiCue}
+          pendingModeSave={pendingSettingsOperation}
           pendingOperation={pendingMidiOperation}
+          source={settings?.settings.integration_modes.midi_source ?? null}
         />
       )}
 
@@ -330,10 +387,21 @@ export function Dashboard({
         <ProPresenterSetupPanel
           error={propresenterError}
           message={propresenterMessage}
+          modeError={settingsError}
+          modeMessage={settingsMessage}
           onClose={closeConnection}
           onRefreshTimers={refreshProPresenter}
           onSave={saveProPresenter}
           onTest={runProPresenterTest}
+          onOutputChange={(output) => {
+            if (!settings) return;
+            saveIntegrationModes({
+              ...settings.settings.integration_modes,
+              timer_output: output,
+            });
+          }}
+          output={settings?.settings.integration_modes.timer_output ?? null}
+          pendingModeSave={pendingSettingsOperation}
           pendingOperation={pendingProPresenterOperation}
           propresenter={propresenter}
         />

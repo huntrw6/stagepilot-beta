@@ -85,4 +85,36 @@ describe("ProPresenterSetupPanel", () => {
     expect(screen.getByText("Not found")).toBeInTheDocument();
     expect(screen.getByText(/API connected, but timer/i)).toBeInTheDocument();
   });
+
+  it("saves output mode and connection settings before the plugin is running", async () => {
+    const onOutputChange = vi.fn();
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ProPresenterSetupPanel
+        error={null}
+        message={null}
+        onOutputChange={onOutputChange}
+        onRefreshTimers={vi.fn()}
+        onSave={onSave}
+        onTest={vi.fn()}
+        output="simulated"
+        pendingOperation={null}
+        propresenter={{ ...status, enabled: false, connection_status: "disconnected" }}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText("Timer output"), "propresenter");
+    await user.click(screen.getByRole("button", { name: "Save timer mode" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(onOutputChange).toHaveBeenCalledWith("propresenter");
+    expect(onSave).toHaveBeenCalledWith({
+      host: "127.0.0.1",
+      port: 1025,
+      timer_name: "Song Countdown",
+      request_timeout_seconds: 3,
+    });
+  });
 });

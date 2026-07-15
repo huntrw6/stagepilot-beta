@@ -501,6 +501,13 @@ class SettingsService:
             return self.snapshot()
         return PersistentSettings.from_runtime(self._runtime)
 
+    def effective_runtime_settings(self) -> Settings:
+        """Return an internal runtime copy, including masked secret values."""
+
+        if self._runtime is None:
+            self._runtime = self._resolve(self._persistent, self._secret)
+        return self._runtime.model_copy(deep=True)
+
     def save(self, settings: PersistentSettings) -> None:
         self._store.save(settings)
         self._persistent = settings.model_copy(deep=True)

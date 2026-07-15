@@ -11,6 +11,7 @@ from stagepilot.core.plugin import PluginManager
 from stagepilot.core.propresenter import ProPresenterController
 from stagepilot.core.settings import SettingsService
 from stagepilot.core.state import StateStore
+from stagepilot.services.planning_center_setup import PlanningCenterSetupService
 from stagepilot.services.state_service import StateService
 
 
@@ -22,5 +23,6 @@ class Runtime:
     state_service: StateService
     plugin_manager: PluginManager
     settings_service: SettingsService
+    planning_center_setup: PlanningCenterSetupService
     midi_controller: MidiController | None
     propresenter_controller: ProPresenterController | None = None

@@ -1,39 +1,122 @@
-import type { ApplicationState } from "../types";
+import { useEffect, useMemo, useState } from "react";
+
+import type {
+  ApplicationState,
+  PlanningCenterServiceType,
+  PlanningCenterSettingsInput,
+  PlanningCenterStatusResponse,
+  PlanningCenterTestInput,
+  ServiceSource,
+  SettingsResponse,
+} from "../types";
 
 const formatTimestamp = (value: string | null) =>
   value ? new Date(value).toLocaleString() : "Not yet";
 
 export function PlanningCenterSetupPanel({
   state,
+  settings,
+  status,
+  serviceTypes,
+  error,
+  message,
+  pendingOperation,
   pendingAction,
   pendingPlanId,
   onClose,
+  onTest,
+  onLoadServiceTypes,
+  onSave,
   onReload,
   onSelectPlan,
 }: {
   state: ApplicationState;
+  settings: SettingsResponse | null;
+  status: PlanningCenterStatusResponse | null;
+  serviceTypes: PlanningCenterServiceType[];
+  error: string | null;
+  message: string | null;
+  pendingOperation: "test" | "load-types" | "save" | null;
   pendingAction: string | null;
   pendingPlanId: string | null;
   onClose: () => void;
+  onTest: (input: PlanningCenterTestInput) => void;
+  onLoadServiceTypes: () => void;
+  onSave: (
+    input: PlanningCenterSettingsInput,
+    serviceSource: ServiceSource,
+    timezone: string,
+  ) => void;
   onReload: () => void;
   onSelectPlan: (planId: string) => void;
 }) {
   const serviceLoad = state.service_load;
+  const publicSettings = settings?.settings.planning_center;
+  const [appId, setAppId] = useState("");
+  const [secret, setSecret] = useState("");
+  const [serviceTypeId, setServiceTypeId] = useState("");
+  const [timezone, setTimezone] = useState("America/Los_Angeles");
+  const [titlePreference, setTitlePreference] = useState("");
+  const [preferredTime, setPreferredTime] = useState("");
+  const [serviceSource, setServiceSource] = useState<ServiceSource>("demo");
+  const [removeSecret, setRemoveSecret] = useState(false);
+
+  useEffect(() => {
+    if (!settings) return;
+    setAppId(settings.settings.planning_center.app_id ?? "");
+    setServiceTypeId(settings.settings.planning_center.service_type_id ?? "");
+    setTimezone(settings.settings.timezone);
+    setTitlePreference(settings.settings.planning_center.plan_title_preference ?? "");
+    setPreferredTime(settings.settings.planning_center.preferred_service_time ?? "");
+    setServiceSource(settings.settings.integration_modes.service_source);
+  }, [settings]);
+
+  const selectedServiceTypeKnown = serviceTypes.some((value) => value.id === serviceTypeId);
+  const valid = useMemo(
+    () => Boolean(appId.trim() && serviceTypeId && timezone.trim()),
+    [appId, serviceTypeId, timezone],
+  );
+  const busy = pendingOperation !== null;
+
+  const testInput = (): PlanningCenterTestInput => ({
+    ...(appId.trim() ? { app_id: appId.trim() } : {}),
+    ...(secret ? { secret } : {}),
+  });
+
+  const save = () => {
+    if (!publicSettings || !valid) return;
+    onSave(
+      {
+        app_id: appId.trim(),
+        service_type_id: serviceTypeId,
+        plan_title_preference: titlePreference.trim() || null,
+        preferred_service_time: preferredTime || null,
+        upcoming_lookahead_days: publicSettings.upcoming_lookahead_days,
+        request_timeout_seconds: publicSettings.request_timeout_seconds,
+        ...(secret ? { secret } : {}),
+        ...(removeSecret ? { remove_secret: true } : {}),
+      },
+      serviceSource,
+      timezone.trim(),
+    );
+    setSecret("");
+  };
 
   return (
     <section
+      aria-busy={busy}
       aria-labelledby="planning-center-setup-heading"
       className="mt-5 rounded-xl border border-amber-400/15 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.09),transparent_45%),#111923] p-5 shadow-panel"
       id="planning-center-configuration"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-300">Production setup</p>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-300">Persistent setup</p>
           <h2 className="mt-1 text-lg font-semibold text-slate-100" id="planning-center-setup-heading">
             Planning Center Services
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            Review the active service plan, reload it, or choose a matching plan when discovery is ambiguous.
+            Test your PAT, discover service types, and save the weekly service configuration securely.
           </p>
         </div>
         <button
@@ -47,14 +130,155 @@ export function PlanningCenterSetupPanel({
         </button>
       </div>
 
+      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Service source</span>
+          <select
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
+            disabled={busy}
+            onChange={(event) => setServiceSource(event.target.value as ServiceSource)}
+            value={serviceSource}
+          >
+            <option value="demo">Demo service</option>
+            <option value="planning_center">Planning Center</option>
+          </select>
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Application ID</span>
+          <input
+            autoComplete="username"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            disabled={busy}
+            onChange={(event) => setAppId(event.target.value)}
+            value={appId}
+          />
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Secret</span>
+          <input
+            autoComplete="current-password"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            disabled={busy || removeSecret}
+            onChange={(event) => setSecret(event.target.value)}
+            placeholder={status?.planning_center_secret_saved ? "Saved securely — leave blank to keep" : "Enter PAT secret"}
+            type="password"
+            value={secret}
+          />
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Service type</span>
+          <select
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 disabled:opacity-50"
+            disabled={busy || serviceTypes.length === 0}
+            onChange={(event) => setServiceTypeId(event.target.value)}
+            value={serviceTypeId}
+          >
+            <option value="">Load and choose a service type</option>
+            {serviceTypeId && !selectedServiceTypeKnown && (
+              <option value={serviceTypeId}>Saved service type ({serviceTypeId})</option>
+            )}
+            {serviceTypes.map((serviceType) => (
+              <option key={serviceType.id} value={serviceType.id}>{serviceType.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timezone</span>
+          <input
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            disabled={busy}
+            onChange={(event) => setTimezone(event.target.value)}
+            value={timezone}
+          />
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Plan title preference</span>
+          <input
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            disabled={busy}
+            onChange={(event) => setTitlePreference(event.target.value)}
+            placeholder="Optional, for example Sunday Morning"
+            value={titlePreference}
+          />
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Preferred service time</span>
+          <input
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            disabled={busy}
+            onChange={(event) => setPreferredTime(event.target.value)}
+            type="time"
+            value={preferredTime}
+          />
+        </label>
+        <label className="flex items-center gap-2 self-end rounded-lg border border-white/7 bg-black/20 px-3 py-2.5 text-sm text-slate-300">
+          <input
+            checked={removeSecret}
+            disabled={busy || !status?.planning_center_secret_saved}
+            onChange={(event) => {
+              setRemoveSecret(event.target.checked);
+              if (event.target.checked) setSecret("");
+            }}
+            type="checkbox"
+          />
+          Remove saved secret
+        </label>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button
+          className="rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+          disabled={busy || (!secret && !status?.planning_center_secret_saved)}
+          onClick={() => onTest(testInput())}
+          type="button"
+        >
+          {pendingOperation === "test" ? "Testing…" : "Test connection"}
+        </button>
+        <button
+          className="rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+          disabled={busy || !status?.planning_center_secret_saved}
+          onClick={onLoadServiceTypes}
+          type="button"
+        >
+          {pendingOperation === "load-types" ? "Loading…" : "Load service types"}
+        </button>
+        <button
+          className="rounded-lg border border-amber-400/40 bg-amber-300 px-3.5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:opacity-40"
+          disabled={busy || !valid || (removeSecret && serviceSource === "planning_center")}
+          onClick={save}
+          type="button"
+        >
+          {pendingOperation === "save" ? "Saving…" : "Save settings"}
+        </button>
+        <button
+          className="rounded-lg border border-amber-400/35 bg-amber-400/15 px-3.5 py-2.5 text-sm font-semibold text-amber-200 transition hover:bg-amber-400/25 disabled:opacity-40"
+          disabled={pendingAction !== null || !state.plugins.planning_center}
+          onClick={onReload}
+          type="button"
+        >
+          {pendingAction === "reload_plan" ? "Loading…" : "Load today’s plan"}
+        </button>
+      </div>
+
+      {(error || message) && (
+        <p className={`mt-4 rounded-lg border px-3 py-2 text-sm ${error ? "border-rose-400/20 bg-rose-400/10 text-rose-200" : "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"}`}>
+          {error ?? message}
+        </p>
+      )}
+      {serviceSource === "planning_center" && !state.plugins.planning_center && (
+        <p className="mt-3 text-xs text-amber-200">
+          Planning Center mode will start after StagePilot is restarted.
+        </p>
+      )}
+
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-3">
           <p className="text-xs uppercase tracking-wider text-slate-500">Connection</p>
-          <p className="mt-1 capitalize text-slate-200">{state.planning_center_status}</p>
+          <p className="mt-1 capitalize text-slate-200">{status?.connection_status ?? state.planning_center_status}</p>
         </div>
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-3">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Service type</p>
-          <p className="mt-1 text-slate-200">{state.plan?.service_type ?? "Configured at startup"}</p>
+          <p className="text-xs uppercase tracking-wider text-slate-500">Credential</p>
+          <p className="mt-1 text-slate-200">{status?.planning_center_secret_saved ? "Saved securely" : "Not saved"}</p>
         </div>
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-3">
           <p className="text-xs uppercase tracking-wider text-slate-500">Target date</p>
@@ -77,7 +301,7 @@ export function PlanningCenterSetupPanel({
                   <p className="text-xs text-slate-500">{candidate.service_type_name} · {candidate.service_times.join(", ")}</p>
                 </div>
                 <button
-                  className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-amber-200 disabled:cursor-wait disabled:opacity-50"
+                  className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50"
                   disabled={pendingPlanId !== null}
                   onClick={() => onSelectPlan(candidate.id)}
                   type="button"
@@ -89,20 +313,6 @@ export function PlanningCenterSetupPanel({
           </div>
         </div>
       )}
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          className="rounded-lg border border-amber-400/35 bg-amber-400/15 px-3.5 py-2.5 text-sm font-semibold text-amber-200 transition hover:bg-amber-400/25 disabled:cursor-wait disabled:opacity-40"
-          disabled={pendingAction !== null}
-          onClick={onReload}
-          type="button"
-        >
-          {pendingAction === "reload_plan" ? "Reloading…" : "Reload service plan"}
-        </button>
-        <p className="text-xs text-slate-500">
-          Credentials and the startup service type remain protected in the backend environment configuration.
-        </p>
-      </div>
     </section>
   );
 }

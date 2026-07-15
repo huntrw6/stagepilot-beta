@@ -151,8 +151,25 @@ def test_disabled_propresenter_returns_safe_status() -> None:
     app = create_app(Settings())
     with TestClient(app) as client:
         response = client.get("/api/v1/propresenter")
+        saved = client.post(
+            "/api/v1/propresenter/settings",
+            json={
+                "host": "192.168.1.20",
+                "port": 1026,
+                "timer_name": "Worship",
+                "request_timeout_seconds": 4,
+            },
+        )
         assert response.status_code == 200
         payload = response.json()
         assert payload["enabled"] is False
         assert payload["connection_status"] == "disconnected"
         assert payload["timer_found"] is False
+        assert saved.status_code == 200
+        assert saved.json()["accepted"] is True
+        assert "Restart StagePilot" in saved.json()["message"]
+
+    persisted = app.state.runtime.settings_service.snapshot().propresenter
+    assert persisted.host == "192.168.1.20"
+    assert persisted.port == 1026
+    assert persisted.timer_name == "Worship"

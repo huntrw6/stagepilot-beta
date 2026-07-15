@@ -11,7 +11,7 @@ StagePilot controls one reusable ProPresenter countdown timer through ProPresent
 
 ## StagePilot configuration
 
-The production setup panel supports session-level changes to:
+The production setup panel persistently stores:
 
 - Host
 - Port
@@ -20,10 +20,12 @@ The production setup panel supports session-level changes to:
 - Connection test
 - Timer rediscovery
 
-Environment defaults are available for unattended startup:
+Select **ProPresenter** as the timer output in the panel, save the connection
+settings, and restart StagePilot. Environment overrides remain available for
+development or unattended startup:
 
 ```dotenv
-STAGEPILOT_PROPRESENTER_ENABLED=true
+STAGEPILOT_TIMER_OUTPUT=propresenter
 STAGEPILOT_PROPRESENTER_HOST=127.0.0.1
 STAGEPILOT_PROPRESENTER_PORT=1025
 STAGEPILOT_PROPRESENTER_TIMER_NAME=Song Countdown
@@ -33,11 +35,11 @@ STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS=30
 STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS=10
 ```
 
-When demo mode supplies the service plan but real ProPresenter output is desired, also set:
+When the demo service plan and real ProPresenter output are desired together:
 
 ```dotenv
-STAGEPILOT_DEMO_MODE=true
-STAGEPILOT_DEMO_SIMULATE_PROPRESENTER=false
+STAGEPILOT_SERVICE_SOURCE=demo
+STAGEPILOT_TIMER_OUTPUT=propresenter
 ```
 
 ## Timer sequence

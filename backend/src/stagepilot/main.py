@@ -15,6 +15,12 @@ from stagepilot.core.config import MidiSource, ServiceSource, Settings, TimerOut
 from stagepilot.core.event_bus import EventBus
 from stagepilot.core.events import EventType, new_event
 from stagepilot.core.logging import configure_logging, get_logger
+from stagepilot.core.plan_cache import (
+    FilePlanCacheStore,
+    MemoryPlanCacheStore,
+    PlanCacheStore,
+    default_plan_cache_path,
+)
 from stagepilot.core.plugin import PluginManager
 from stagepilot.core.runtime import Runtime
 from stagepilot.core.settings import SettingsService
@@ -27,6 +33,7 @@ from stagepilot.plugins.planning_center import (
     TodayProvider,
 )
 from stagepilot.plugins.propresenter import ProPresenterClientFactory, ProPresenterPlugin
+from stagepilot.services.planning_center_setup import PlanningCenterSetupService
 from stagepilot.services.state_service import StateService
 
 
@@ -38,6 +45,7 @@ def create_app(
     midi_backend_factory: MidiBackendFactory | None = None,
     propresenter_client_factory: ProPresenterClientFactory | None = None,
     settings_service: SettingsService | None = None,
+    plan_cache_store: PlanCacheStore | None = None,
 ) -> FastAPI:
     """Create an independently testable StagePilot application instance."""
 
@@ -58,6 +66,11 @@ def create_app(
     plugin_manager = PluginManager(event_bus)
     midi_plugin: MidiPlaybackPlugin | None = None
     propresenter_plugin: ProPresenterPlugin | None = None
+    resolved_plan_cache_store = plan_cache_store or (
+        MemoryPlanCacheStore()
+        if settings is not None
+        else FilePlanCacheStore(default_plan_cache_path())
+    )
 
     if resolved_settings.integration_modes.service_source is ServiceSource.DEMO:
         plugin_manager.register(
@@ -81,6 +94,7 @@ def create_app(
                 timezone_name=resolved_settings.timezone,
                 client_factory=planning_center_client_factory,
                 today_provider=planning_center_today_provider,
+                plan_cache_store=resolved_plan_cache_store,
             )
         )
 
@@ -118,6 +132,10 @@ def create_app(
         state_service=state_service,
         plugin_manager=plugin_manager,
         settings_service=resolved_settings_service,
+        planning_center_setup=PlanningCenterSetupService(
+            resolved_settings_service,
+            client_factory=planning_center_client_factory,
+        ),
         midi_controller=midi_plugin,
         propresenter_controller=propresenter_plugin,
     )
@@ -154,7 +172,7 @@ def create_app(
             "tauri://localhost",
         ],
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Content-Type"],
     )
     application.include_router(api_router)

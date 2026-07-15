@@ -8,10 +8,17 @@ import type {
   MidiInputSelectionResponse,
   MidiInputsResponse,
   MidiMonitorResponse,
+  PersistentSettings,
+  PlanningCenterServiceType,
+  PlanningCenterSettingsInput,
+  PlanningCenterStatusResponse,
+  PlanningCenterTestInput,
+  PlanningCenterTestResponse,
   PlanSelectionResponse,
   ProPresenterOperationResponse,
   ProPresenterSettingsInput,
   ProPresenterStatusResponse,
+  SettingsResponse,
 } from "./types";
 
 const configuredOrigin = import.meta.env.VITE_STAGEPILOT_API_URL as string | undefined;
@@ -44,10 +51,33 @@ export const getState = () => requestJson<ApplicationState>("/api/v1/state");
 export const performAction = (action: ActionName) =>
   requestJson<ActionResponse>(`/api/v1/actions/${action}`, { method: "POST" });
 export const selectPlanningCenterPlan = (planId: string) =>
-  requestJson<PlanSelectionResponse>("/api/v1/planning-center/plan-selection", {
+  requestJson<PlanSelectionResponse>("/api/v1/planning-center/plans/select", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ plan_id: planId }),
+  });
+export const getSettings = () => requestJson<SettingsResponse>("/api/v1/settings");
+export const updateSettings = (settings: PersistentSettings) =>
+  requestJson<SettingsResponse>("/api/v1/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+export const getPlanningCenterStatus = () =>
+  requestJson<PlanningCenterStatusResponse>("/api/v1/planning-center/status");
+export const testPlanningCenter = (settings: PlanningCenterTestInput) =>
+  requestJson<PlanningCenterTestResponse>("/api/v1/planning-center/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+export const getPlanningCenterServiceTypes = () =>
+  requestJson<PlanningCenterServiceType[]>("/api/v1/planning-center/service-types");
+export const updatePlanningCenterSettings = (settings: PlanningCenterSettingsInput) =>
+  requestJson<SettingsResponse>("/api/v1/planning-center/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
   });
 
 export const getMidiInputs = () => requestJson<MidiInputsResponse>("/api/v1/midi/inputs");

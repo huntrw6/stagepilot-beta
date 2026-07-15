@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 
-import type { MidiCueName, MidiInputsResponse, MidiMonitorMessage } from "../types";
+import type {
+  MidiCueName,
+  MidiInputsResponse,
+  MidiMonitorMessage,
+  MidiSource,
+} from "../types";
 
 const cues: ReadonlyArray<readonly [MidiCueName, string]> = [
   ["start_next", "Start next"],
@@ -28,6 +33,11 @@ export function MidiSetupPanel({
   onSelect,
   onSimulate,
   onClose,
+  source = null,
+  pendingModeSave = false,
+  modeError = null,
+  modeMessage = null,
+  onSourceChange,
 }: {
   midi: MidiInputsResponse | null;
   messages: MidiMonitorMessage[];
@@ -39,12 +49,22 @@ export function MidiSetupPanel({
   onSelect: (inputId: string | null) => void;
   onSimulate: (cue: MidiCueName) => void;
   onClose?: () => void;
+  source?: MidiSource | null;
+  pendingModeSave?: boolean;
+  modeError?: string | null;
+  modeMessage?: string | null;
+  onSourceChange?: (source: MidiSource) => void;
 }) {
   const [candidateId, setCandidateId] = useState("");
+  const [candidateSource, setCandidateSource] = useState<MidiSource>(source ?? "simulated");
 
   useEffect(() => {
     setCandidateId(midi?.inputs.find((input) => input.selected)?.id ?? "");
   }, [midi]);
+
+  useEffect(() => {
+    if (source) setCandidateSource(source);
+  }, [source]);
 
   const enabled = midi?.enabled ?? false;
   const selectedInput = midi?.inputs.find((input) => input.selected) ?? null;
@@ -67,7 +87,7 @@ export function MidiSetupPanel({
             MIDI playback input
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            Input changes apply only to this StagePilot session and reset when the backend restarts.
+            The selected source and accepted input device persist between StagePilot launches.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -93,6 +113,37 @@ export function MidiSetupPanel({
         </div>
       </div>
 
+      {onSourceChange && (
+        <div className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-violet-400/15 bg-violet-400/[0.05] p-3">
+          <label className="min-w-56 flex-1 text-sm text-slate-300">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">MIDI source</span>
+            <select
+              className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
+              disabled={pendingModeSave}
+              onChange={(event) => setCandidateSource(event.target.value as MidiSource)}
+              value={candidateSource}
+            >
+              <option value="simulated">Simulated</option>
+              <option value="real">Real MIDI / Playback</option>
+            </select>
+          </label>
+          <button
+            className="rounded-lg border border-violet-400/30 bg-violet-400/15 px-3.5 py-2.5 text-sm font-semibold text-violet-200 disabled:opacity-40"
+            disabled={pendingModeSave || source === candidateSource}
+            onClick={() => onSourceChange(candidateSource)}
+            type="button"
+          >
+            {pendingModeSave ? "Saving…" : "Save MIDI mode"}
+          </button>
+        </div>
+      )}
+
+      {(modeError || modeMessage) && (
+        <p className={`mt-3 rounded-lg border px-3 py-2 text-sm ${modeError ? "border-rose-400/20 bg-rose-400/10 text-rose-200" : "border-violet-400/20 bg-violet-400/10 text-violet-200"}`}>
+          {modeError ?? modeMessage}
+        </p>
+      )}
+
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <div>
           {!midi && !error && (
@@ -103,7 +154,7 @@ export function MidiSetupPanel({
 
           {midi && !enabled && (
             <p className="rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-3 text-sm text-amber-200">
-              The MIDI Playback plugin is disabled. Enable it in the backend configuration, then restart StagePilot.
+              Select Real MIDI / Playback above, save the mode, and restart StagePilot.
             </p>
           )}
 

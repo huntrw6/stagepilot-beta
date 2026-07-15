@@ -4,7 +4,10 @@ import {
   getHealth,
   getMidiInputs,
   getMidiMessages,
+  getPlanningCenterServiceTypes,
+  getPlanningCenterStatus,
   getProPresenterStatus,
+  getSettings,
   getState,
   performAction,
   refreshMidiInputs,
@@ -12,8 +15,11 @@ import {
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
+  testPlanningCenter,
   testProPresenter,
+  updatePlanningCenterSettings,
   updateProPresenterSettings,
+  updateSettings,
   websocketUrl,
 } from "../api";
 import type {
@@ -21,11 +27,18 @@ import type {
   ApplicationState,
   ConnectionStatus,
   HealthResponse,
+  IntegrationModes,
   MidiCueName,
   MidiInputsResponse,
   MidiMonitorMessage,
+  PlanningCenterServiceType,
+  PlanningCenterSettingsInput,
+  PlanningCenterStatusResponse,
+  PlanningCenterTestInput,
   ProPresenterSettingsInput,
   ProPresenterStatusResponse,
+  ServiceSource,
+  SettingsResponse,
   StateEnvelope,
 } from "../types";
 
@@ -41,6 +54,22 @@ export function useStagePilot() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<ActionName | null>(null);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+
+  const [settings, setSettings] = useState<SettingsResponse | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [pendingSettingsOperation, setPendingSettingsOperation] = useState(false);
+
+  const [planningCenterStatus, setPlanningCenterStatus] =
+    useState<PlanningCenterStatusResponse | null>(null);
+  const [planningCenterServiceTypes, setPlanningCenterServiceTypes] = useState<
+    PlanningCenterServiceType[]
+  >([]);
+  const [planningCenterError, setPlanningCenterError] = useState<string | null>(null);
+  const [planningCenterMessage, setPlanningCenterMessage] = useState<string | null>(null);
+  const [pendingPlanningCenterOperation, setPendingPlanningCenterOperation] = useState<
+    "test" | "load-types" | "save" | null
+  >(null);
 
   const [midi, setMidi] = useState<MidiInputsResponse | null>(null);
   const [midiMessages, setMidiMessages] = useState<MidiMonitorMessage[]>([]);
@@ -99,6 +128,26 @@ export function useStagePilot() {
     }
   }, []);
 
+  const loadSettings = useCallback(async () => {
+    try {
+      setSettings(await getSettings());
+      setSettingsError(null);
+    } catch (cause) {
+      setSettingsError(cause instanceof Error ? cause.message : "Settings unavailable.");
+    }
+  }, []);
+
+  const loadPlanningCenterStatus = useCallback(async () => {
+    try {
+      setPlanningCenterStatus(await getPlanningCenterStatus());
+      setPlanningCenterError(null);
+    } catch (cause) {
+      setPlanningCenterError(
+        cause instanceof Error ? cause.message : "Planning Center status unavailable.",
+      );
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     let socket: WebSocket | null = null;
@@ -153,6 +202,8 @@ export function useStagePilot() {
     void loadMidiInputs();
     void loadMidiMessages();
     void loadProPresenter();
+    void loadSettings();
+    void loadPlanningCenterStatus();
     connect();
 
     return () => {
@@ -160,7 +211,14 @@ export function useStagePilot() {
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [applyState, loadMidiInputs, loadMidiMessages, loadProPresenter]);
+  }, [
+    applyState,
+    loadMidiInputs,
+    loadMidiMessages,
+    loadPlanningCenterStatus,
+    loadProPresenter,
+    loadSettings,
+  ]);
 
   useEffect(() => {
     if (!midi?.enabled) return;
@@ -237,6 +295,100 @@ export function useStagePilot() {
       }
     },
     [applyState],
+  );
+
+  const saveIntegrationModes = useCallback(
+    async (integrationModes: IntegrationModes) => {
+      if (!settings) return;
+      setPendingSettingsOperation(true);
+      setSettingsError(null);
+      setSettingsMessage(null);
+      try {
+        const response = await updateSettings({
+          ...settings.settings,
+          integration_modes: integrationModes,
+        });
+        setSettings(response);
+        setSettingsMessage("Integration modes saved. Restart StagePilot to apply them.");
+      } catch (cause) {
+        setSettingsError(cause instanceof Error ? cause.message : "Settings update failed.");
+      } finally {
+        setPendingSettingsOperation(false);
+      }
+    },
+    [settings],
+  );
+
+  const testPlanningCenterConnection = useCallback(
+    async (input: PlanningCenterTestInput) => {
+      setPendingPlanningCenterOperation("test");
+      setPlanningCenterError(null);
+      setPlanningCenterMessage(null);
+      try {
+        const response = await testPlanningCenter(input);
+        setPlanningCenterServiceTypes(response.service_types);
+        setPlanningCenterMessage(response.message);
+      } catch (cause) {
+        setPlanningCenterError(
+          cause instanceof Error ? cause.message : "Planning Center connection test failed.",
+        );
+      } finally {
+        setPendingPlanningCenterOperation(null);
+      }
+    },
+    [],
+  );
+
+  const loadPlanningCenterServiceTypes = useCallback(async () => {
+    setPendingPlanningCenterOperation("load-types");
+    setPlanningCenterError(null);
+    setPlanningCenterMessage(null);
+    try {
+      const serviceTypes = await getPlanningCenterServiceTypes();
+      setPlanningCenterServiceTypes(serviceTypes);
+      setPlanningCenterMessage(`Loaded ${serviceTypes.length} Planning Center service types.`);
+    } catch (cause) {
+      setPlanningCenterError(
+        cause instanceof Error ? cause.message : "Service types could not be loaded.",
+      );
+    } finally {
+      setPendingPlanningCenterOperation(null);
+    }
+  }, []);
+
+  const savePlanningCenter = useCallback(
+    async (
+      input: PlanningCenterSettingsInput,
+      serviceSource: ServiceSource,
+      timezone: string,
+    ) => {
+      setPendingPlanningCenterOperation("save");
+      setPlanningCenterError(null);
+      setPlanningCenterMessage(null);
+      try {
+        const planningCenterResponse = await updatePlanningCenterSettings(input);
+        const response = await updateSettings({
+          ...planningCenterResponse.settings,
+          timezone,
+          integration_modes: {
+            ...planningCenterResponse.settings.integration_modes,
+            service_source: serviceSource,
+          },
+        });
+        setSettings(response);
+        setPlanningCenterStatus(await getPlanningCenterStatus());
+        setPlanningCenterMessage(
+          "Planning Center settings saved securely. Restart StagePilot to apply the service source.",
+        );
+      } catch (cause) {
+        setPlanningCenterError(
+          cause instanceof Error ? cause.message : "Planning Center settings could not be saved.",
+        );
+      } finally {
+        setPendingPlanningCenterOperation(null);
+      }
+    },
+    [],
   );
 
   const refreshMidi = useCallback(async () => {
@@ -351,6 +503,15 @@ export function useStagePilot() {
     actionMessage,
     pendingAction,
     pendingPlanId,
+    settings,
+    settingsError,
+    settingsMessage,
+    pendingSettingsOperation,
+    planningCenterStatus,
+    planningCenterServiceTypes,
+    planningCenterError,
+    planningCenterMessage,
+    pendingPlanningCenterOperation,
     midi,
     midiMessages,
     midiError,
@@ -363,6 +524,10 @@ export function useStagePilot() {
     pendingProPresenterOperation,
     dispatch,
     selectPlan,
+    saveIntegrationModes,
+    testPlanningCenterConnection,
+    loadPlanningCenterServiceTypes,
+    savePlanningCenter,
     refreshMidi,
     selectMidi,
     simulateMidi,

@@ -36,12 +36,16 @@ function renderPanel({
   onSelect = vi.fn(),
   onSimulate = vi.fn(),
   messages = [],
+  source,
+  onSourceChange,
 }: {
   value?: MidiInputsResponse;
   onRefresh?: () => void;
   onSelect?: (inputId: string | null) => void;
   onSimulate?: (cue: "start_next" | "restart_current" | "previous" | "next" | "reload_plan" | "stop_timer") => void;
   messages?: MidiMonitorMessage[];
+  source?: "simulated" | "real";
+  onSourceChange?: (source: "simulated" | "real") => void;
 } = {}) {
   render(
     <MidiSetupPanel
@@ -52,20 +56,22 @@ function renderPanel({
       onRefresh={onRefresh}
       onSelect={onSelect}
       onSimulate={onSimulate}
+      onSourceChange={onSourceChange}
       pendingCue={null}
       pendingOperation={null}
+      source={source}
     />,
   );
 }
 
 describe("MidiSetupPanel", () => {
-  it("shows the session-only configuration and connects an available input", async () => {
+  it("shows persistent configuration and connects an available input", async () => {
     const onRefresh = vi.fn();
     const onSelect = vi.fn();
     const user = userEvent.setup();
     renderPanel({ onRefresh, onSelect });
 
-    expect(screen.getByText(/apply only to this StagePilot session/i)).toBeInTheDocument();
+    expect(screen.getByText(/persist between StagePilot launches/i)).toBeInTheDocument();
     expect(
       screen.getByText((_, element) => {
         const text = element?.textContent?.replace(/\s+/g, " ").trim();
@@ -130,9 +136,24 @@ describe("MidiSetupPanel", () => {
   it("disables setup and cue tests when the MIDI plugin is disabled", () => {
     renderPanel({ value: { ...midi, enabled: false } });
 
-    expect(screen.getByText(/MIDI Playback plugin is disabled/i)).toBeInTheDocument();
+    expect(screen.getByText(/Select Real MIDI \/ Playback above/i)).toBeInTheDocument();
     expect(screen.getByLabelText("Available input")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Start next/ })).toBeDisabled();
+  });
+
+  it("saves the real MIDI source from the disabled setup panel", async () => {
+    const onSourceChange = vi.fn();
+    const user = userEvent.setup();
+    renderPanel({
+      onSourceChange,
+      source: "simulated",
+      value: { ...midi, enabled: false },
+    });
+
+    await user.selectOptions(screen.getByLabelText("MIDI source"), "real");
+    await user.click(screen.getByRole("button", { name: "Save MIDI mode" }));
+
+    expect(onSourceChange).toHaveBeenCalledWith("real");
   });
 
   it("shows an omitted mapping and disables its cue test", () => {

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, cast
+from typing import Literal, NoReturn, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request
@@ -35,8 +35,12 @@ from stagepilot.models.api import (
     MidiInputsResponse,
     MidiMonitorMessageResponse,
     MidiMonitorResponse,
+    PendingPlanSelectionResponse,
+    PlanningCenterServiceTypeResponse,
     PlanningCenterSettingsUpdateRequest,
     PlanningCenterStatusResponse,
+    PlanningCenterTestRequest,
+    PlanningCenterTestResponse,
     PlanSelectionRequest,
     PlanSelectionResponse,
     ProPresenterOperationResponse,
@@ -51,6 +55,13 @@ from stagepilot.models.state import (
     ConnectionStatus,
     PluginStatus,
     ServiceLoadStatus,
+)
+from stagepilot.plugins.planning_center.errors import (
+    PlanningCenterAuthenticationError,
+    PlanningCenterConfigurationError,
+    PlanningCenterError,
+    PlanningCenterPermissionError,
+    PlanningCenterRateLimitError,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -81,6 +92,22 @@ def _settings_response(
         warning=runtime.settings_service.warning,
         restart_required=restart_required,
     )
+
+
+def _raise_planning_center_http_error(exc: PlanningCenterError) -> NoReturn:
+    status_code = 502
+    headers: dict[str, str] | None = None
+    if isinstance(exc, PlanningCenterConfigurationError):
+        status_code = 409
+    elif isinstance(exc, PlanningCenterAuthenticationError):
+        status_code = 401
+    elif isinstance(exc, PlanningCenterPermissionError):
+        status_code = 403
+    elif isinstance(exc, PlanningCenterRateLimitError):
+        status_code = 429
+        if exc.retry_after_seconds is not None:
+            headers = {"Retry-After": str(exc.retry_after_seconds)}
+    raise HTTPException(status_code=status_code, detail=str(exc), headers=headers) from exc
 
 
 def _production_service_ready(state: ApplicationState, current_date: date) -> bool:
@@ -149,7 +176,7 @@ async def _propresenter_status(
 ) -> ProPresenterStatusResponse:
     controller = runtime.propresenter_controller
     if controller is None:
-        settings = runtime.settings.propresenter
+        settings = runtime.settings_service.effective_runtime_settings().propresenter
         return ProPresenterStatusResponse(
             enabled=False,
             host=settings.host,
@@ -220,11 +247,11 @@ async def planning_center_status(request: Request) -> PlanningCenterStatusRespon
     runtime = _runtime(request)
     state = await runtime.state_store.snapshot()
     settings = runtime.settings_service.effective_snapshot().planning_center
+    runtime_settings = runtime.settings_service.effective_runtime_settings().planning_center
     return PlanningCenterStatusResponse(
         connection_status=state.planning_center_status,
         configured=(
-            runtime.settings.planning_center.is_configured
-            and runtime.settings.planning_center.service_type_id is not None
+            runtime_settings.is_configured and runtime_settings.service_type_id is not None
         ),
         app_id=settings.app_id,
         service_type_id=settings.service_type_id,
@@ -256,6 +283,45 @@ async def update_planning_center_settings(
     except (CredentialStoreError, SettingsFileError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _settings_response(runtime, persisted=True, restart_required=True)
+
+
+@router.post("/planning-center/test", response_model=PlanningCenterTestResponse)
+async def test_planning_center(
+    settings: PlanningCenterTestRequest,
+    request: Request,
+) -> PlanningCenterTestResponse:
+    runtime = _runtime(request)
+    try:
+        service_types = await runtime.planning_center_setup.test_connection(
+            app_id=settings.app_id,
+            secret=settings.secret,
+        )
+    except PlanningCenterError as exc:
+        _raise_planning_center_http_error(exc)
+    return PlanningCenterTestResponse(
+        message="Planning Center authentication succeeded.",
+        service_types=[
+            PlanningCenterServiceTypeResponse(id=value.id, name=value.name)
+            for value in service_types
+        ],
+    )
+
+
+@router.get(
+    "/planning-center/service-types",
+    response_model=list[PlanningCenterServiceTypeResponse],
+)
+async def planning_center_service_types(
+    request: Request,
+) -> list[PlanningCenterServiceTypeResponse]:
+    runtime = _runtime(request)
+    try:
+        service_types = await runtime.planning_center_setup.list_service_types()
+    except PlanningCenterError as exc:
+        _raise_planning_center_http_error(exc)
+    return [
+        PlanningCenterServiceTypeResponse(id=value.id, name=value.name) for value in service_types
+    ]
 
 
 @router.get("/midi/inputs", response_model=MidiInputsResponse)
@@ -419,19 +485,9 @@ async def update_propresenter_settings(
 ) -> ProPresenterOperationResponse:
     runtime = _runtime(request)
     controller = runtime.propresenter_controller
-    if controller is None:
-        status = await _propresenter_status(runtime)
-        return ProPresenterOperationResponse(
-            accepted=False,
-            message=(
-                "The ProPresenter plugin is disabled. Enable it at startup before "
-                "changing session settings."
-            ),
-            propresenter=status,
-        )
-    current = runtime.settings.propresenter
+    current = runtime.settings_service.effective_runtime_settings().propresenter
     updated = ProPresenterSettings(
-        enabled=True,
+        enabled=current.enabled,
         host=settings.host,
         port=settings.port,
         timer_name=settings.timer_name,
@@ -440,6 +496,17 @@ async def update_propresenter_settings(
         reconnect_max_seconds=current.reconnect_max_seconds,
         health_check_interval_seconds=current.health_check_interval_seconds,
     )
+    if controller is None:
+        try:
+            runtime.settings_service.persist_propresenter(updated)
+        except SettingsFileError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        status = await _propresenter_status(runtime)
+        return ProPresenterOperationResponse(
+            accepted=True,
+            message="ProPresenter settings saved. Restart StagePilot to apply the output mode.",
+            propresenter=status,
+        )
     snapshot = await controller.reconfigure(updated)
     runtime.settings.propresenter = updated
     try:
@@ -471,8 +538,35 @@ async def perform_action(action: ActionName, request: Request) -> ActionResponse
     )
 
 
+@router.post("/planning-center/plan/reload", response_model=ActionResponse)
+async def reload_planning_center_plan(request: Request) -> ActionResponse:
+    return await perform_action(ActionName.RELOAD_PLAN, request)
+
+
+@router.get(
+    "/planning-center/plans/pending-selection",
+    response_model=PendingPlanSelectionResponse,
+)
+async def pending_planning_center_plan_selection(
+    request: Request,
+) -> PendingPlanSelectionResponse:
+    state = await _runtime(request).state_store.snapshot()
+    pending = state.service_load.status is ServiceLoadStatus.AMBIGUOUS
+    target_date = state.service_load.target_date if pending else None
+    return PendingPlanSelectionResponse(
+        pending=pending,
+        target_date=target_date.isoformat() if target_date is not None else None,
+        candidates=state.service_load.candidates if pending else [],
+        message=state.service_load.message if pending else None,
+    )
+
+
 @router.post(
     "/planning-center/plan-selection",
+    response_model=PlanSelectionResponse,
+)
+@router.post(
+    "/planning-center/plans/select",
     response_model=PlanSelectionResponse,
 )
 async def select_planning_center_plan(

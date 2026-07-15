@@ -4,10 +4,13 @@ import {
   apiOrigin,
   getMidiInputs,
   getMidiMessages,
+  getPlanningCenterServiceTypes,
   refreshMidiInputs,
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
+  testPlanningCenter,
+  updatePlanningCenterSettings,
 } from "./api";
 import type {
   MidiCueSimulationResponse,
@@ -19,6 +22,78 @@ import type {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("Planning Center onboarding API", () => {
+  it("tests temporary credentials and loads saved service types", async () => {
+    const tested = {
+      authenticated: true as const,
+      message: "Planning Center authentication succeeded.",
+      service_types: [{ id: "sunday", name: "Sunday Morning" }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue(tested),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue(tested.service_types),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      testPlanningCenter({ app_id: "app-id", secret: "private-secret" }),
+    ).resolves.toEqual(tested);
+    await expect(getPlanningCenterServiceTypes()).resolves.toEqual(tested.service_types);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `${apiOrigin}/api/v1/planning-center/test`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ app_id: "app-id", secret: "private-secret" }),
+      },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `${apiOrigin}/api/v1/planning-center/service-types`,
+      { headers: { Accept: "application/json" } },
+    );
+  });
+
+  it("sends the credential only to the protected settings endpoint", async () => {
+    const response = { planning_center_secret_saved: true };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(response),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const input = {
+      app_id: "app-id",
+      service_type_id: "sunday",
+      plan_title_preference: null,
+      preferred_service_time: "09:00",
+      upcoming_lookahead_days: 30,
+      request_timeout_seconds: 10,
+      secret: "private-secret",
+    };
+
+    await updatePlanningCenterSettings(input);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${apiOrigin}/api/v1/planning-center/settings`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  });
 });
 
 describe("selectPlanningCenterPlan", () => {
@@ -70,7 +145,7 @@ describe("selectPlanningCenterPlan", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledWith(
-      `${apiOrigin}/api/v1/planning-center/plan-selection`,
+      `${apiOrigin}/api/v1/planning-center/plans/select`,
       {
         method: "POST",
         headers: {

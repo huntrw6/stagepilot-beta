@@ -5,18 +5,25 @@ import {
   getHealth,
   getMidiInputs,
   getMidiMessages,
+  getPlanningCenterServiceTypes,
+  getPlanningCenterStatus,
+  getSettings,
   getState,
   performAction,
   refreshMidiInputs,
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
+  testPlanningCenter,
+  updatePlanningCenterSettings,
+  updateSettings,
 } from "../api";
 import type {
   ApplicationState,
   HealthResponse,
   MidiInputsResponse,
   PlanSelectionResponse,
+  SettingsResponse,
 } from "../types";
 import { useStagePilot } from "./useStagePilot";
 
@@ -24,12 +31,22 @@ vi.mock("../api", () => ({
   getHealth: vi.fn(),
   getMidiInputs: vi.fn(),
   getMidiMessages: vi.fn(),
+  getPlanningCenterServiceTypes: vi.fn(),
+  getPlanningCenterStatus: vi.fn(),
+  getSettings: vi.fn(),
   getState: vi.fn(),
   performAction: vi.fn(),
   refreshMidiInputs: vi.fn(),
   selectMidiInput: vi.fn(),
   selectPlanningCenterPlan: vi.fn(),
   simulateMidiCue: vi.fn(),
+  testPlanningCenter: vi.fn(),
+  updatePlanningCenterSettings: vi.fn(),
+  updateSettings: vi.fn(),
+  getProPresenterStatus: vi.fn(),
+  testProPresenter: vi.fn(),
+  refreshProPresenterTimers: vi.fn(),
+  updateProPresenterSettings: vi.fn(),
   websocketUrl: "ws://127.0.0.1:8765/ws",
 }));
 
@@ -86,6 +103,49 @@ const midi: MidiInputsResponse = {
   },
 };
 
+const settings: SettingsResponse = {
+  settings: {
+    schema_version: 1,
+    integration_modes: {
+      service_source: "demo",
+      midi_source: "simulated",
+      timer_output: "simulated",
+    },
+    timezone: "America/Los_Angeles",
+    log_level: "INFO",
+    server_port: 8765,
+    planning_center: {
+      app_id: null,
+      service_type_id: null,
+      plan_title_preference: null,
+      preferred_service_time: null,
+      upcoming_lookahead_days: 30,
+      request_timeout_seconds: 10,
+    },
+    midi: {
+      enabled: false,
+      input_name: null,
+      channel: 1,
+      note: 112,
+      mappings: midi.mappings,
+      debounce_ms: 250,
+    },
+    propresenter: {
+      enabled: false,
+      host: "127.0.0.1",
+      port: 1025,
+      timer_name: "Song Countdown",
+      request_timeout_seconds: 3,
+      reconnect_initial_seconds: 1,
+      reconnect_max_seconds: 30,
+      health_check_interval_seconds: 10,
+    },
+  },
+  planning_center_secret_saved: false,
+  warning: null,
+  restart_required: false,
+};
+
 function applicationState(revision: number): ApplicationState {
   return {
     revision,
@@ -134,12 +194,18 @@ function deferred<T>() {
 const mockedGetHealth = vi.mocked(getHealth);
 const mockedGetMidiInputs = vi.mocked(getMidiInputs);
 const mockedGetMidiMessages = vi.mocked(getMidiMessages);
+const mockedGetPlanningCenterServiceTypes = vi.mocked(getPlanningCenterServiceTypes);
+const mockedGetPlanningCenterStatus = vi.mocked(getPlanningCenterStatus);
+const mockedGetSettings = vi.mocked(getSettings);
 const mockedGetState = vi.mocked(getState);
 const mockedPerformAction = vi.mocked(performAction);
 const mockedRefreshMidiInputs = vi.mocked(refreshMidiInputs);
 const mockedSelectMidiInput = vi.mocked(selectMidiInput);
 const mockedSelectPlanningCenterPlan = vi.mocked(selectPlanningCenterPlan);
 const mockedSimulateMidiCue = vi.mocked(simulateMidiCue);
+const mockedTestPlanningCenter = vi.mocked(testPlanningCenter);
+const mockedUpdatePlanningCenterSettings = vi.mocked(updatePlanningCenterSettings);
+const mockedUpdateSettings = vi.mocked(updateSettings);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -148,6 +214,16 @@ beforeEach(() => {
   mockedGetHealth.mockResolvedValue(health);
   mockedGetMidiInputs.mockResolvedValue(midi);
   mockedGetMidiMessages.mockResolvedValue({ messages: [] });
+  mockedGetSettings.mockResolvedValue(settings);
+  mockedGetPlanningCenterStatus.mockResolvedValue({
+    connection_status: "disconnected",
+    configured: false,
+    app_id: null,
+    service_type_id: null,
+    planning_center_secret_saved: false,
+    detail: null,
+  });
+  mockedGetPlanningCenterServiceTypes.mockResolvedValue([]);
   mockedGetState.mockResolvedValue(applicationState(1));
 });
 
@@ -289,7 +365,99 @@ describe("useStagePilot", () => {
 
     act(() => socket!.sendState(disconnectedState));
 
-    await waitFor(() => expect(mockedGetMidiInputs).toHaveBeenCalledTimes(2));
-    expect(result.current.midi?.selected_input_name).toBe("Playback Controller");
+    await waitFor(() =>
+      expect(result.current.midi?.selected_input_name).toBe("Playback Controller"),
+    );
+    expect(mockedGetMidiInputs).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists independent integration modes", async () => {
+    const updated: SettingsResponse = {
+      ...settings,
+      settings: {
+        ...settings.settings,
+        integration_modes: {
+          service_source: "demo",
+          midi_source: "real",
+          timer_output: "propresenter",
+        },
+      },
+      restart_required: true,
+    };
+    mockedUpdateSettings.mockResolvedValueOnce(updated);
+    const { result } = renderHook(() => useStagePilot());
+    await waitFor(() => expect(result.current.settings).toEqual(settings));
+
+    await act(async () =>
+      result.current.saveIntegrationModes(updated.settings.integration_modes),
+    );
+
+    expect(mockedUpdateSettings).toHaveBeenCalledWith(updated.settings);
+    expect(result.current.settings).toEqual(updated);
+    expect(result.current.settingsMessage).toMatch(/Restart StagePilot/i);
+  });
+
+  it("tests credentials, discovers service types, and saves the selected setup", async () => {
+    mockedTestPlanningCenter.mockResolvedValueOnce({
+      authenticated: true,
+      message: "Planning Center authentication succeeded.",
+      service_types: [{ id: "sunday", name: "Sunday Morning" }],
+    });
+    const planningCenterSettings: SettingsResponse = {
+      ...settings,
+      planning_center_secret_saved: true,
+      settings: {
+        ...settings.settings,
+        planning_center: {
+          ...settings.settings.planning_center,
+          app_id: "app-id",
+          service_type_id: "sunday",
+        },
+      },
+    };
+    const finalSettings: SettingsResponse = {
+      ...planningCenterSettings,
+      restart_required: true,
+      settings: {
+        ...planningCenterSettings.settings,
+        integration_modes: {
+          ...planningCenterSettings.settings.integration_modes,
+          service_source: "planning_center",
+        },
+      },
+    };
+    mockedUpdatePlanningCenterSettings.mockResolvedValueOnce(planningCenterSettings);
+    mockedUpdateSettings.mockResolvedValueOnce(finalSettings);
+    const { result } = renderHook(() => useStagePilot());
+    await waitFor(() => expect(result.current.settings).toEqual(settings));
+
+    await act(async () =>
+      result.current.testPlanningCenterConnection({
+        app_id: "app-id",
+        secret: "private-secret",
+      }),
+    );
+    expect(result.current.planningCenterServiceTypes).toEqual([
+      { id: "sunday", name: "Sunday Morning" },
+    ]);
+
+    await act(async () =>
+      result.current.savePlanningCenter(
+        {
+          ...planningCenterSettings.settings.planning_center,
+          secret: "private-secret",
+        },
+        "planning_center",
+        "America/Los_Angeles",
+      ),
+    );
+
+    expect(mockedUpdatePlanningCenterSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ secret: "private-secret", service_type_id: "sunday" }),
+    );
+    expect(JSON.stringify(mockedUpdateSettings.mock.calls[0]?.[0])).not.toContain(
+      "private-secret",
+    );
+    expect(result.current.settings).toEqual(finalSettings);
   });
 });
