@@ -11,12 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from stagepilot.api.routes import router as api_router
 from stagepilot.api.websocket import router as websocket_router
-from stagepilot.core.config import Settings, get_settings
+from stagepilot.core.config import MidiSource, ServiceSource, Settings, TimerOutput, get_settings
 from stagepilot.core.event_bus import EventBus
 from stagepilot.core.events import EventType, new_event
 from stagepilot.core.logging import configure_logging, get_logger
 from stagepilot.core.plugin import PluginManager
 from stagepilot.core.runtime import Runtime
+from stagepilot.core.settings import SettingsService
 from stagepilot.core.state import StateStore
 from stagepilot.plugins.demo import DemoPlugin
 from stagepilot.plugins.midi_playback import MidiBackendFactory, MidiPlaybackPlugin
@@ -36,10 +37,14 @@ def create_app(
     planning_center_today_provider: TodayProvider | None = None,
     midi_backend_factory: MidiBackendFactory | None = None,
     propresenter_client_factory: ProPresenterClientFactory | None = None,
+    settings_service: SettingsService | None = None,
 ) -> FastAPI:
     """Create an independently testable StagePilot application instance."""
 
-    resolved_settings = settings or get_settings()
+    resolved_settings_service = settings_service or (
+        SettingsService.ephemeral(settings) if settings is not None else SettingsService.default()
+    )
+    resolved_settings = settings or resolved_settings_service.load()
     configure_logging(resolved_settings.log_level)
     logger = get_logger("application")
     event_bus = EventBus()
@@ -54,13 +59,17 @@ def create_app(
     midi_plugin: MidiPlaybackPlugin | None = None
     propresenter_plugin: ProPresenterPlugin | None = None
 
-    if resolved_settings.demo_mode:
+    if resolved_settings.integration_modes.service_source is ServiceSource.DEMO:
         plugin_manager.register(
             DemoPlugin(
                 event_bus,
                 state_store,
-                simulate_midi=resolved_settings.demo.simulate_midi,
-                simulate_propresenter=resolved_settings.demo.simulate_propresenter,
+                simulate_midi=(
+                    resolved_settings.integration_modes.midi_source is MidiSource.SIMULATED
+                ),
+                simulate_propresenter=(
+                    resolved_settings.integration_modes.timer_output is TimerOutput.SIMULATED
+                ),
             )
         )
     else:
@@ -75,8 +84,9 @@ def create_app(
             )
         )
 
-    real_midi_enabled = resolved_settings.midi.enabled and (
-        not resolved_settings.demo_mode or not resolved_settings.demo.simulate_midi
+    real_midi_enabled = (
+        resolved_settings.midi.enabled
+        and resolved_settings.integration_modes.midi_source is MidiSource.REAL
     )
     if real_midi_enabled:
         midi_plugin = MidiPlaybackPlugin(
@@ -88,8 +98,9 @@ def create_app(
         )
         plugin_manager.register(midi_plugin)
 
-    real_propresenter_enabled = resolved_settings.propresenter.enabled and (
-        not resolved_settings.demo_mode or not resolved_settings.demo.simulate_propresenter
+    real_propresenter_enabled = (
+        resolved_settings.propresenter.enabled
+        and resolved_settings.integration_modes.timer_output is TimerOutput.PROPRESENTER
     )
     if real_propresenter_enabled:
         propresenter_plugin = ProPresenterPlugin(
@@ -106,6 +117,7 @@ def create_app(
         state_store=state_store,
         state_service=state_service,
         plugin_manager=plugin_manager,
+        settings_service=resolved_settings_service,
         midi_controller=midi_plugin,
         propresenter_controller=propresenter_plugin,
     )

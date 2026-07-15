@@ -9,6 +9,7 @@ from stagepilot.core.event_bus import EventBus
 from stagepilot.core.midi import MidiController
 from stagepilot.core.plugin import PluginManager
 from stagepilot.core.propresenter import ProPresenterController
+from stagepilot.core.settings import SettingsService
 from stagepilot.core.state import StateStore
 from stagepilot.services.state_service import StateService
 
@@ -20,5 +21,6 @@ class Runtime:
     state_store: StateStore
     state_service: StateService
     plugin_manager: PluginManager
+    settings_service: SettingsService
     midi_controller: MidiController | None
     propresenter_controller: ProPresenterController | None = None

@@ -27,6 +27,7 @@ export function MidiSetupPanel({
   onRefresh,
   onSelect,
   onSimulate,
+  onClose,
 }: {
   midi: MidiInputsResponse | null;
   messages: MidiMonitorMessage[];
@@ -37,6 +38,7 @@ export function MidiSetupPanel({
   onRefresh: () => void;
   onSelect: (inputId: string | null) => void;
   onSimulate: (cue: MidiCueName) => void;
+  onClose?: () => void;
 }) {
   const [candidateId, setCandidateId] = useState("");
 
@@ -54,6 +56,7 @@ export function MidiSetupPanel({
       aria-busy={controlsPending || pendingCue !== null}
       aria-labelledby="midi-setup-heading"
       className="mt-5 rounded-xl border border-violet-400/15 bg-[radial-gradient(circle_at_top_right,rgba(167,139,250,0.09),transparent_45%),#111923] p-4 shadow-panel"
+      id="midi-configuration"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -67,14 +70,27 @@ export function MidiSetupPanel({
             Input changes apply only to this StagePilot session and reset when the backend restarts.
           </p>
         </div>
-        <button
-          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-wait disabled:opacity-40"
-          disabled={controlsPending}
-          onClick={onRefresh}
-          type="button"
-        >
-          {pendingOperation === "refresh" ? "Refreshing…" : "Refresh inputs"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-wait disabled:opacity-40"
+            disabled={controlsPending}
+            onClick={onRefresh}
+            type="button"
+          >
+            {pendingOperation === "refresh" ? "Refreshing…" : "Refresh inputs"}
+          </button>
+          {onClose && (
+            <button
+              aria-label="Close MIDI / Playback configuration"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/5 text-lg text-slate-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+              onClick={onClose}
+              title="Close"
+              type="button"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+from enum import StrEnum
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -16,6 +16,35 @@ class DemoSettings(BaseModel):
 
     simulate_midi: bool = True
     simulate_propresenter: bool = True
+
+
+class ServiceSource(StrEnum):
+    """Source used to populate the weekly service plan."""
+
+    DEMO = "demo"
+    PLANNING_CENTER = "planning_center"
+
+
+class MidiSource(StrEnum):
+    """Source used to trigger StagePilot actions."""
+
+    SIMULATED = "simulated"
+    REAL = "real"
+
+
+class TimerOutput(StrEnum):
+    """Destination used for countdown timer output."""
+
+    SIMULATED = "simulated"
+    PROPRESENTER = "propresenter"
+
+
+class IntegrationModes(BaseModel):
+    """Independent integration modes used for safe mixed-mode testing."""
+
+    service_source: ServiceSource = ServiceSource.DEMO
+    midi_source: MidiSource = MidiSource.SIMULATED
+    timer_output: TimerOutput = TimerOutput.SIMULATED
 
 
 class MidiVelocityMappings(BaseModel):
@@ -123,6 +152,8 @@ class PlanningCenterSettings(BaseModel):
     app_id: SecretStr | None = None
     secret: SecretStr | None = None
     service_type_id: str | None = Field(default=None, min_length=1)
+    plan_title_preference: str | None = Field(default=None, max_length=255)
+    preferred_service_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     upcoming_lookahead_days: int = Field(default=30, ge=0, le=365)
     request_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     user_agent: str = Field(
@@ -141,20 +172,18 @@ class PlanningCenterSettings(BaseModel):
             return stripped or None
         return value
 
-    @field_validator("service_type_id", mode="before")
+    @field_validator(
+        "service_type_id",
+        "plan_title_preference",
+        "preferred_service_time",
+        mode="before",
+    )
     @classmethod
     def empty_service_type_is_unset(cls, value: object) -> object:
         if isinstance(value, str):
             stripped = value.strip()
             return stripped or None
         return value
-
-    @model_validator(mode="after")
-    def credentials_are_complete(self) -> PlanningCenterSettings:
-        if (self.app_id is None) != (self.secret is None):
-            msg = "Planning Center application ID and secret must be configured together."
-            raise ValueError(msg)
-        return self
 
     @property
     def is_configured(self) -> bool:
@@ -179,14 +208,45 @@ class Settings(BaseModel):
     bind_host: str = "127.0.0.1"
     bind_port: int = Field(default=8765, ge=1, le=65535)
     log_level: str = "INFO"
-    demo_mode: bool = True
-    demo: DemoSettings = Field(default_factory=DemoSettings)
+    integration_modes: IntegrationModes = Field(default_factory=IntegrationModes)
+    demo_mode: bool | None = Field(default=None, exclude=True, repr=False)
+    demo: DemoSettings = Field(default_factory=DemoSettings, exclude=True, repr=False)
     timezone: str = "America/Los_Angeles"
     planning_center: PlanningCenterSettings = Field(default_factory=PlanningCenterSettings)
     midi: MidiSettings = Field(default_factory=MidiSettings)
     propresenter: ProPresenterSettings = Field(default_factory=ProPresenterSettings)
     recent_event_limit: int = Field(default=100, ge=1, le=1000)
     recent_error_limit: int = Field(default=50, ge=1, le=500)
+
+    @model_validator(mode="after")
+    def legacy_demo_settings_map_to_independent_modes(self) -> Settings:
+        """Keep v0.4 constructors working while v0.5 adopts independent modes."""
+
+        if self.demo_mode is None:
+            return self
+        midi_source = (
+            MidiSource.REAL
+            if (not self.demo_mode and self.midi.enabled) or not self.demo.simulate_midi
+            else MidiSource.SIMULATED
+        )
+        timer_output = (
+            TimerOutput.PROPRESENTER
+            if (not self.demo_mode and self.propresenter.enabled)
+            or not self.demo.simulate_propresenter
+            else TimerOutput.SIMULATED
+        )
+        self.integration_modes = IntegrationModes(
+            service_source=(
+                ServiceSource.DEMO if self.demo_mode else ServiceSource.PLANNING_CENTER
+            ),
+            midi_source=midi_source,
+            timer_output=timer_output,
+        )
+        return self
+
+    @property
+    def uses_demo_service(self) -> bool:
+        return self.integration_modes.service_source is ServiceSource.DEMO
 
     @field_validator("timezone")
     @classmethod
@@ -199,87 +259,10 @@ class Settings(BaseModel):
         return value
 
 
-def _environment_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.casefold() in {"1", "true", "yes", "on"}
-
-
-def _environment_optional(name: str) -> str | None:
-    value = os.getenv(name)
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
-
-
-def _environment_optional_int(name: str, default: int | None) -> int | None:
-    value = _environment_optional(name)
-    return default if value is None else int(value)
-
-
 @lru_cache
 def get_settings() -> Settings:
-    """Load application settings from StagePilot environment variables."""
+    """Resolve defaults, saved settings, credentials, and environment overrides."""
 
-    return Settings(
-        bind_host=os.getenv("STAGEPILOT_HOST", "127.0.0.1"),
-        bind_port=int(os.getenv("STAGEPILOT_PORT", "8765")),
-        log_level=os.getenv("STAGEPILOT_LOG_LEVEL", "INFO").upper(),
-        demo_mode=_environment_bool("STAGEPILOT_DEMO_MODE", True),
-        demo=DemoSettings(
-            simulate_midi=_environment_bool("STAGEPILOT_DEMO_SIMULATE_MIDI", True),
-            simulate_propresenter=_environment_bool("STAGEPILOT_DEMO_SIMULATE_PROPRESENTER", True),
-        ),
-        timezone=os.getenv("STAGEPILOT_TIMEZONE", "America/Los_Angeles"),
-        planning_center=PlanningCenterSettings(
-            app_id=_environment_optional("STAGEPILOT_PCO_APP_ID"),
-            secret=_environment_optional("STAGEPILOT_PCO_SECRET"),
-            service_type_id=_environment_optional("STAGEPILOT_PCO_SERVICE_TYPE_ID"),
-            upcoming_lookahead_days=int(os.getenv("STAGEPILOT_PCO_LOOKAHEAD_DAYS", "30")),
-            request_timeout_seconds=float(os.getenv("STAGEPILOT_PCO_TIMEOUT_SECONDS", "10.0")),
-            user_agent=os.getenv(
-                "STAGEPILOT_PCO_USER_AGENT",
-                "StagePilot/0.1.0 (https://github.com/huntrw6/stage-pilot)",
-            ),
-        ),
-        midi=MidiSettings(
-            enabled=_environment_bool("STAGEPILOT_MIDI_ENABLED", False),
-            input_name=_environment_optional("STAGEPILOT_MIDI_INPUT_NAME"),
-            channel=int(os.getenv("STAGEPILOT_MIDI_CHANNEL", "1")),
-            note=int(os.getenv("STAGEPILOT_MIDI_NOTE", "112")),
-            mappings=MidiVelocityMappings(
-                start_next=_environment_optional_int("STAGEPILOT_MIDI_START_NEXT_VELOCITY", 100),
-                restart_current=_environment_optional_int(
-                    "STAGEPILOT_MIDI_RESTART_CURRENT_VELOCITY", 101
-                ),
-                previous=_environment_optional_int("STAGEPILOT_MIDI_PREVIOUS_VELOCITY", 102),
-                next=_environment_optional_int("STAGEPILOT_MIDI_NEXT_VELOCITY", 103),
-                reload_plan=_environment_optional_int("STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY", 104),
-                stop_timer=_environment_optional_int("STAGEPILOT_MIDI_STOP_TIMER_VELOCITY", 105),
-            ),
-            debounce_ms=int(os.getenv("STAGEPILOT_MIDI_DEBOUNCE_MS", "250")),
-        ),
-        propresenter=ProPresenterSettings(
-            enabled=_environment_bool("STAGEPILOT_PROPRESENTER_ENABLED", False),
-            host=os.getenv("STAGEPILOT_PROPRESENTER_HOST", "127.0.0.1"),
-            port=int(os.getenv("STAGEPILOT_PROPRESENTER_PORT", "1025")),
-            timer_name=os.getenv(
-                "STAGEPILOT_PROPRESENTER_TIMER_NAME",
-                "Song Countdown",
-            ),
-            request_timeout_seconds=float(
-                os.getenv("STAGEPILOT_PROPRESENTER_TIMEOUT_SECONDS", "3.0")
-            ),
-            reconnect_initial_seconds=float(
-                os.getenv("STAGEPILOT_PROPRESENTER_RECONNECT_INITIAL_SECONDS", "1.0")
-            ),
-            reconnect_max_seconds=float(
-                os.getenv("STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS", "30.0")
-            ),
-            health_check_interval_seconds=float(
-                os.getenv("STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS", "10.0")
-            ),
-        ),
-    )
+    from stagepilot.core.settings import load_runtime_settings
+
+    return load_runtime_settings()

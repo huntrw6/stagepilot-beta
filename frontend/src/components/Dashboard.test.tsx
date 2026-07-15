@@ -205,12 +205,15 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.queryByText("All systems ready")).not.toBeInTheDocument();
   });
 
-  it("does not require the demo integration in production mode", () => {
+  it("does not require the demo integration in production mode", async () => {
+    const user = userEvent.setup();
     renderDashboard(loadedServiceState, {
       state: applicationState(loadedServiceState, { plugins: {} }),
     });
 
     expect(screen.getByText(/Production mode/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^MIDI \/ Playback connected/ }));
     expect(screen.getByRole("heading", { name: "MIDI playback input" })).toBeInTheDocument();
     expect(screen.getByText("No input selected")).toBeInTheDocument();
     expect(screen.queryByText("Demo integration running")).not.toBeInTheDocument();
@@ -218,11 +221,16 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.getByText("All systems ready")).toBeInTheDocument();
   });
 
-  it("does not render production MIDI setup in demo mode", () => {
+  it("keeps MIDI setup closed until its connection card is clicked", async () => {
+    const user = userEvent.setup();
     renderDashboard(loadedServiceState);
 
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
     expect(screen.getByText("Listening for demo actions")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^MIDI \/ Playback connected/ }));
+
+    expect(screen.getByRole("heading", { name: "MIDI playback input" })).toBeInTheDocument();
   });
 
   it("displays a loaded upcoming plan as ready", () => {
@@ -278,6 +286,76 @@ describe("Dashboard Planning Center plan states", () => {
 
     expect(screen.getByText("2 non-song items were skipped")).toBeInTheDocument();
     expect(screen.getByText(/Welcome/)).toHaveTextContent("Announcements");
+  });
+});
+
+describe("Dashboard connection configuration panels", () => {
+  it("opens only the clicked connection and toggles it closed on a second click", async () => {
+    const user = userEvent.setup();
+    renderDashboard(loadedServiceState, {
+      state: applicationState(loadedServiceState, { plugins: {} }),
+    });
+
+    const planningCenter = screen.getByRole("button", { name: /^Planning Center connected/ });
+    const midiConnection = screen.getByRole("button", { name: /^MIDI \/ Playback connected/ });
+
+    expect(planningCenter).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("heading", { name: "Planning Center Services" })).not.toBeInTheDocument();
+
+    await user.click(planningCenter);
+
+    expect(planningCenter).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("heading", { name: "Planning Center Services" })).toBeInTheDocument();
+
+    await user.click(midiConnection);
+
+    expect(planningCenter).toHaveAttribute("aria-expanded", "false");
+    expect(midiConnection).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("heading", { name: "Planning Center Services" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "MIDI playback input" })).toBeInTheDocument();
+
+    await user.click(midiConnection);
+
+    expect(midiConnection).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
+  });
+
+  it("provides close buttons for all four connection panels", async () => {
+    const user = userEvent.setup();
+    renderDashboard(loadedServiceState, {
+      state: applicationState(loadedServiceState, { plugins: {} }),
+    });
+
+    const panels = [
+      {
+        card: /^Planning Center connected/,
+        close: "Close Planning Center configuration",
+        heading: "Planning Center Services",
+      },
+      {
+        card: /^MIDI \/ Playback connected/,
+        close: "Close MIDI / Playback configuration",
+        heading: "MIDI playback input",
+      },
+      {
+        card: /^ProPresenter connected/,
+        close: "Close ProPresenter configuration",
+        heading: "ProPresenter countdown",
+      },
+      {
+        card: /^StagePilot backend connected/,
+        close: "Close StagePilot backend configuration",
+        heading: "StagePilot backend",
+      },
+    ] as const;
+
+    for (const panel of panels) {
+      await user.click(screen.getByRole("button", { name: panel.card }));
+      expect(screen.getByRole("heading", { name: panel.heading })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: panel.close }));
+      expect(screen.queryByRole("heading", { name: panel.heading })).not.toBeInTheDocument();
+    }
   });
 });
 

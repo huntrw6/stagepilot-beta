@@ -19,6 +19,7 @@ export function ProPresenterSetupPanel({
   onSave,
   onTest,
   onRefreshTimers,
+  onClose,
 }: {
   propresenter: ProPresenterStatusResponse | null;
   error: string | null;
@@ -27,24 +28,29 @@ export function ProPresenterSetupPanel({
   onSave: (settings: ProPresenterSettingsInput) => void;
   onTest: () => void;
   onRefreshTimers: () => void;
+  onClose?: () => void;
 }) {
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("1025");
   const [timerName, setTimerName] = useState("Song Countdown");
   const [timeout, setTimeout] = useState("3");
+  const configuredHost = propresenter?.host;
+  const configuredPort = propresenter?.port;
+  const configuredTimerName = propresenter?.timer_name;
+  const configuredTimeout = propresenter?.request_timeout_seconds;
 
   useEffect(() => {
-    if (!propresenter) return;
-    setHost(propresenter.host);
-    setPort(String(propresenter.port));
-    setTimerName(propresenter.timer_name);
-    setTimeout(String(propresenter.request_timeout_seconds));
-  }, [
-    propresenter?.host,
-    propresenter?.port,
-    propresenter?.request_timeout_seconds,
-    propresenter?.timer_name,
-  ]);
+    if (
+      configuredHost === undefined
+      || configuredPort === undefined
+      || configuredTimerName === undefined
+      || configuredTimeout === undefined
+    ) return;
+    setHost(configuredHost);
+    setPort(String(configuredPort));
+    setTimerName(configuredTimerName);
+    setTimeout(String(configuredTimeout));
+  }, [configuredHost, configuredPort, configuredTimeout, configuredTimerName]);
 
   const parsedSettings = useMemo<ProPresenterSettingsInput | null>(() => {
     const parsedPort = Number(port);
@@ -64,7 +70,7 @@ export function ProPresenterSetupPanel({
   const busy = pendingOperation !== null;
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 shadow-2xl shadow-black/20">
+    <section className="mt-5 rounded-2xl border border-white/10 bg-slate-950/50 p-5 shadow-2xl shadow-black/20" id="propresenter-configuration">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">Production setup</p>
@@ -73,13 +79,26 @@ export function ProPresenterSetupPanel({
             Settings apply to this StagePilot backend session. Environment defaults return after a restart.
           </p>
         </div>
-        <div className="text-right text-sm">
-          <p className={`font-semibold ${statusTone(propresenter?.connection_status ?? "disconnected")}`}>
-            {propresenter?.connection_status ?? "loading"}
-          </p>
-          <p className="mt-1 max-w-md text-xs text-slate-500">
-            {propresenter?.detail ?? "Loading ProPresenter configuration…"}
-          </p>
+        <div className="flex items-start gap-3">
+          <div className="text-right text-sm">
+            <p className={`font-semibold ${statusTone(propresenter?.connection_status ?? "disconnected")}`}>
+              {propresenter?.connection_status ?? "loading"}
+            </p>
+            <p className="mt-1 max-w-md text-xs text-slate-500">
+              {propresenter?.detail ?? "Loading ProPresenter configuration…"}
+            </p>
+          </div>
+          {onClose && (
+            <button
+              aria-label="Close ProPresenter configuration"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-lg text-slate-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+              onClick={onClose}
+              title="Close"
+              type="button"
+            >
+              ×
+            </button>
+          )}
         </div>
       </div>
 

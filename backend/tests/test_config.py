@@ -6,11 +6,12 @@ from pydantic import ValidationError
 from stagepilot.core.config import PlanningCenterSettings, Settings, get_settings
 
 
-def test_planning_center_credentials_must_be_configured_together() -> None:
-    with pytest.raises(ValidationError, match="must be configured together") as captured:
-        PlanningCenterSettings(app_id="app-id")
+def test_incomplete_planning_center_credentials_are_valid_for_onboarding() -> None:
+    settings = PlanningCenterSettings(app_id="app-id")
 
-    assert "app-id" not in str(captured.value)
+    assert settings.is_configured is False
+    with pytest.raises(ValueError, match="not configured"):
+        settings.credentials()
 
 
 def test_planning_center_secrets_are_masked() -> None:

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type {
   ActionName,
@@ -12,9 +12,13 @@ import type {
   ProPresenterStatusResponse,
   Song,
 } from "../types";
+import { BackendSetupPanel } from "./BackendSetupPanel";
 import { MidiSetupPanel } from "./MidiSetupPanel";
+import { PlanningCenterSetupPanel } from "./PlanningCenterSetupPanel";
 import { ProPresenterSetupPanel } from "./ProPresenterSetupPanel";
 import { StatusCard } from "./StatusCard";
+
+type ConnectionPanel = "planning-center" | "midi" | "propresenter" | "backend";
 
 const formatDuration = (seconds: number | null | undefined) => {
   if (seconds == null) return "—:——";
@@ -153,6 +157,7 @@ export function Dashboard({
   runProPresenterTest?: () => void;
   refreshProPresenter?: () => void;
 }) {
+  const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
   const plugin = state.plugins.demo;
   const backendStatus: ConnectionStatus = state.application_status === "running" && live
     ? "connected"
@@ -191,6 +196,10 @@ export function Dashboard({
             : midi.selected_input_name
               ? `Waiting for ${midi.selected_input_name}`
               : "No input selected";
+  const toggleConnection = (connection: ConnectionPanel) => {
+    setActiveConnection((current) => current === connection ? null : connection);
+  };
+  const closeConnection = () => setActiveConnection(null);
 
   return (
     <main className="mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
@@ -253,18 +262,62 @@ export function Dashboard({
       )}
 
       <section aria-label="Connections" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatusCard title="Planning Center" status={state.planning_center_status} detail={connectionDetail(state.planning_center_status, state.last_successful_plan_reload_at, serviceLoad.message)} icon={<Glyph>PC</Glyph>} />
-        <StatusCard title="MIDI / Playback" status={state.midi_status} detail={midiDetail} icon={<Glyph>MI</Glyph>} />
-        <StatusCard title="ProPresenter" status={state.propresenter_status} detail={state.timer.status === "running" ? "Song Countdown running" : `Timer ${state.timer.status}`} icon={<Glyph>PP</Glyph>} />
-        <StatusCard title="StagePilot backend" status={backendStatus} detail={health ? `v${health.version} · state revision ${state.revision}` : "Connecting to local API"} icon={<Glyph>API</Glyph>} />
+        <StatusCard
+          active={activeConnection === "planning-center"}
+          controls="planning-center-configuration"
+          detail={connectionDetail(state.planning_center_status, state.last_successful_plan_reload_at, serviceLoad.message)}
+          icon={<Glyph>PC</Glyph>}
+          onClick={() => toggleConnection("planning-center")}
+          status={state.planning_center_status}
+          title="Planning Center"
+        />
+        <StatusCard
+          active={activeConnection === "midi"}
+          controls="midi-configuration"
+          detail={midiDetail}
+          icon={<Glyph>MI</Glyph>}
+          onClick={() => toggleConnection("midi")}
+          status={state.midi_status}
+          title="MIDI / Playback"
+        />
+        <StatusCard
+          active={activeConnection === "propresenter"}
+          controls="propresenter-configuration"
+          detail={state.timer.status === "running" ? "Song Countdown running" : `Timer ${state.timer.status}`}
+          icon={<Glyph>PP</Glyph>}
+          onClick={() => toggleConnection("propresenter")}
+          status={state.propresenter_status}
+          title="ProPresenter"
+        />
+        <StatusCard
+          active={activeConnection === "backend"}
+          controls="backend-configuration"
+          detail={health ? `v${health.version} · state revision ${state.revision}` : "Connecting to local API"}
+          icon={<Glyph>API</Glyph>}
+          onClick={() => toggleConnection("backend")}
+          status={backendStatus}
+          title="StagePilot backend"
+        />
       </section>
 
-      {!plugin && (
+      {activeConnection === "planning-center" && (
+        <PlanningCenterSetupPanel
+          onClose={closeConnection}
+          onReload={() => dispatch("reload_plan")}
+          onSelectPlan={selectPlan}
+          pendingAction={pendingAction}
+          pendingPlanId={pendingPlanId}
+          state={state}
+        />
+      )}
+
+      {activeConnection === "midi" && (
         <MidiSetupPanel
           error={midiError}
           message={midiMessage}
           midi={midi}
           messages={midiMessages}
+          onClose={closeConnection}
           onRefresh={refreshMidi}
           onSelect={selectMidi}
           onSimulate={simulateMidi}
@@ -273,18 +326,26 @@ export function Dashboard({
         />
       )}
 
-      {state.plugins.propresenter && (
-        <div className="mt-5">
-          <ProPresenterSetupPanel
-            error={propresenterError}
-            message={propresenterMessage}
-            onRefreshTimers={refreshProPresenter}
-            onSave={saveProPresenter}
-            onTest={runProPresenterTest}
-            pendingOperation={pendingProPresenterOperation}
-            propresenter={propresenter}
-          />
-        </div>
+      {activeConnection === "propresenter" && (
+        <ProPresenterSetupPanel
+          error={propresenterError}
+          message={propresenterMessage}
+          onClose={closeConnection}
+          onRefreshTimers={refreshProPresenter}
+          onSave={saveProPresenter}
+          onTest={runProPresenterTest}
+          pendingOperation={pendingProPresenterOperation}
+          propresenter={propresenter}
+        />
+      )}
+
+      {activeConnection === "backend" && (
+        <BackendSetupPanel
+          health={health}
+          live={live}
+          onClose={closeConnection}
+          state={state}
+        />
       )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(350px,0.8fr)]">

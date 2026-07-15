@@ -1,23 +1,28 @@
 # Configuration
 
 StagePilot starts with safe development defaults and validates configuration in
-the backend. Environment overrides now cover the local server, demo mode, time
-zone, the production Planning Center Personal Access Token plugin, and the first
-Playback MIDI input slice. Persistent settings and operating-system credential
-storage remain planned work and should not be treated as implemented.
+the backend. Ordinary settings persist as JSON, while the Planning Center PAT
+secret is stored separately by the operating system. Environment variables
+remain available for development and deployment overrides.
 
 ## Precedence
 
-The intended configuration order, from lowest to highest priority, is:
+The active configuration order, from lowest to highest priority, is:
 
 1. Application defaults committed with the backend.
-2. An ignored local configuration file.
+2. `%APPDATA%\StagePilot\settings.json` on Windows.
 3. Environment variables supplied by the process host.
-4. Validated runtime settings saved through the application.
+4. Temporary validated changes supplied for the current process session.
 
-Only defaults and the documented environment variables are active today. Later
-layers must preserve the same typed validation and secret-redaction rules when
-implemented.
+The settings file is versioned, validated on read, and atomically replaced on
+write. A corrupt or invalid file is left untouched and StagePilot starts from
+safe defaults with a warning. `STAGEPILOT_SETTINGS_PATH` may point development
+and test processes at a different file.
+
+`GET /api/v1/settings` returns ordinary settings and whether a Planning Center
+secret has been saved. `PUT /api/v1/settings` validates and persists ordinary
+settings. It never accepts or returns the PAT secret. Settings that affect
+plugin registration currently take effect after the backend restarts.
 
 ## General variables
 
@@ -26,8 +31,14 @@ implemented.
 | `STAGEPILOT_HOST` | `127.0.0.1` | API bind address. Keep loopback-only by default. |
 | `STAGEPILOT_PORT` | `8765` | Local FastAPI port, from 1 through 65535. |
 | `STAGEPILOT_LOG_LEVEL` | `INFO` | Backend structured-log threshold. |
-| `STAGEPILOT_DEMO_MODE` | `true` | Enables data and behavior that require no vendor connections. |
+| `STAGEPILOT_SERVICE_SOURCE` | `demo` | `demo` or `planning_center`. |
+| `STAGEPILOT_MIDI_SOURCE` | `simulated` | `simulated` or `real`. |
+| `STAGEPILOT_TIMER_OUTPUT` | `simulated` | `simulated` or `propresenter`. |
 | `STAGEPILOT_TIMEZONE` | `America/Los_Angeles` | IANA time zone used for local-date plan selection. |
+
+The older `STAGEPILOT_DEMO_MODE`, `STAGEPILOT_DEMO_SIMULATE_MIDI`, and
+`STAGEPILOT_DEMO_SIMULATE_PROPRESENTER` variables remain compatible during the
+v0.5 migration. Prefer the three independent mode variables for new setups.
 
 The backend reads variables from its process environment. It does not implicitly
 load a root `.env` file. Copy `.env.example` to an ignored `.env`, then use a
@@ -53,13 +64,23 @@ STAGEPILOT_LOG_LEVEL=DEBUG uv run --project backend stagepilot
 | `STAGEPILOT_PCO_APP_ID` | unset | Personal Access Token client ID. Treated as a server-side secret. |
 | `STAGEPILOT_PCO_SECRET` | unset | Personal Access Token secret. Treated as a server-side secret. |
 | `STAGEPILOT_PCO_SERVICE_TYPE_ID` | unset | Service type selected for Planning Center plan loading. |
+| `STAGEPILOT_PCO_PLAN_TITLE` | unset | Optional title preference used to resolve otherwise plausible plan matches. |
+| `STAGEPILOT_PCO_SERVICE_TIME` | unset | Optional preferred local service time in 24-hour `HH:MM` form. |
 | `STAGEPILOT_PCO_LOOKAHEAD_DAYS` | `30` | Future local dates searched when today has no match; accepts 0 through 365. |
 | `STAGEPILOT_PCO_TIMEOUT_SECONDS` | `10` | HTTP request timeout, from 1 through 60 seconds. |
 | `STAGEPILOT_PCO_USER_AGENT` | StagePilot project URL | Required identifying header sent to Planning Center. |
 
-The application ID and secret must be provided together. They use Pydantic
-secret types, remain absent from public application state, and are never placed
-in URLs or outward-facing errors. The typed client can discover service types,
+The application ID may be saved in ordinary settings. The PAT secret is stored
+under the `StagePilot` service in Windows Credential Manager through Python's
+`keyring` package. An incomplete credential set is valid while onboarding is in
+progress, but Planning Center will not connect until both values are present.
+The secret remains absent from the settings file, public application state,
+URLs, logs, API responses, and outward-facing credential-backend errors.
+
+`POST /api/v1/planning-center/settings` saves the non-secret Planning Center
+fields and can replace or remove the credential-store secret. `GET
+/api/v1/planning-center/status` returns only a boolean saved-secret state plus
+the public setup fields. The typed client can discover service types,
 prefer plans with service times on today's configured local date, fall back to
 the nearest upcoming service date within the lookahead window, surface
 same-date ambiguous matches, and parse a selected plan's ordered songs. Past
@@ -81,7 +102,7 @@ For a local production-integration smoke test, set all required values in the
 launching process. Do not paste real values into tracked files:
 
 ```powershell
-$env:STAGEPILOT_DEMO_MODE = "false"
+$env:STAGEPILOT_SERVICE_SOURCE = "planning_center"
 $env:STAGEPILOT_TIMEZONE = "America/Los_Angeles"
 $env:STAGEPILOT_PCO_APP_ID = "<your application id>"
 $env:STAGEPILOT_PCO_SECRET = "<your secret>"
@@ -105,26 +126,26 @@ must use OAuth instead of collecting PAT credentials. See Planning Center's
 
 ## MIDI Playback variables
 
-Playback MIDI support is disabled by default. This first slice is registered
-only when `STAGEPILOT_DEMO_MODE=false` and `STAGEPILOT_MIDI_ENABLED=true`. MIDI
-uses an operating-system input port and needs no client ID, API key, password, or
-other secret. Production mode separately retains its Planning Center settings.
+Real Playback MIDI is disabled by default. Select it independently with
+`STAGEPILOT_MIDI_SOURCE=real`. MIDI uses an operating-system input port and
+needs no client ID, API key, password, or other secret.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `STAGEPILOT_MIDI_ENABLED` | `false` | Registers the MIDI Playback plugin outside demo mode. |
+| `STAGEPILOT_MIDI_SOURCE` | `simulated` | Set to `real` to register the MIDI Playback plugin. |
 | `STAGEPILOT_MIDI_INPUT_NAME` | unset | Exact, unique startup input-port name. An unset name starts disconnected and still allows discovery. |
 | `STAGEPILOT_MIDI_CHANNEL` | `1` | One-based MIDI channel to accept, from 1 through 16. |
-| `STAGEPILOT_MIDI_START_NEXT_NOTE` | `112` (E7) | Starts the next song and its timer. |
-| `STAGEPILOT_MIDI_RESTART_CURRENT_NOTE` | `113` (F7) | Restarts the current song and timer. |
-| `STAGEPILOT_MIDI_PREVIOUS_NOTE` | `114` (F#7) | Selects the previous song. |
-| `STAGEPILOT_MIDI_NEXT_NOTE` | `115` (G7) | Selects the next song. |
-| `STAGEPILOT_MIDI_RELOAD_PLAN_NOTE` | `116` (G#7) | Requests a Planning Center plan reload. |
-| `STAGEPILOT_MIDI_STOP_TIMER_NOTE` | `117` (A7) | Stops the active timer. |
+| `STAGEPILOT_MIDI_NOTE` | `112` (E7 in Playback) | Fixed note accepted for all StagePilot cues. |
+| `STAGEPILOT_MIDI_START_NEXT_VELOCITY` | `100` | Starts the next song and its timer. |
+| `STAGEPILOT_MIDI_RESTART_CURRENT_VELOCITY` | `101` | Restarts the current song and timer. |
+| `STAGEPILOT_MIDI_PREVIOUS_VELOCITY` | `102` | Selects the previous song. |
+| `STAGEPILOT_MIDI_NEXT_VELOCITY` | `103` | Selects the next song. |
+| `STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY` | `104` | Requests a Planning Center plan reload. |
+| `STAGEPILOT_MIDI_STOP_TIMER_VELOCITY` | `105` | Stops the active timer. |
 | `STAGEPILOT_MIDI_DEBOUNCE_MS` | `250` | Duplicate note-on suppression window, from 0 through 2000 milliseconds. |
 
-Mapped notes must be distinct integers from 0 through 127. A qualifying
-note-on must use the configured channel and have a velocity greater than zero;
+Mapped velocities must be distinct integers from 1 through 127. A qualifying
+note-on must use the configured note and channel and have a mapped velocity;
 note-off, including note-on with velocity zero, releases the held-note latch.
 
 `STAGEPILOT_MIDI_INPUT_NAME` is the startup default. The dashboard may override
@@ -134,19 +155,17 @@ production mode, then launch with MIDI enabled. Leave the startup input unset to
 begin disconnected and discover available ports:
 
 ```powershell
-$env:STAGEPILOT_DEMO_MODE = "false"
-$env:STAGEPILOT_MIDI_ENABLED = "true"
+$env:STAGEPILOT_MIDI_SOURCE = "real"
 $env:STAGEPILOT_MIDI_CHANNEL = "1"
 Remove-Item Env:STAGEPILOT_MIDI_INPUT_NAME -ErrorAction SilentlyContinue
 uv run --project backend stagepilot
 ```
 
-The production dashboard includes a MIDI setup panel. Use **Refresh inputs** to
+The dashboard includes a MIDI setup panel. Use **Refresh inputs** to
 enumerate ports, choose an available input to connect, or choose the disconnect
-option to close the current input. The selection is intentionally session-only:
-it is discarded when the backend stops. On the next launch the environment
-startup default is selected again, or the plugin starts disconnected when that
-variable remains unset.
+option to close the current input. An accepted selection is saved to the local
+settings file and reused on the next launch unless an environment override is
+present.
 
 The REST API exposes the same flow. In another PowerShell window, refresh the
 input list and inspect the returned opaque IDs:
@@ -179,9 +198,9 @@ Invoke-RestMethod -Method Post `
 ```
 
 Environment variables are read when the backend starts. Stop and restart the
-backend after changing the startup input, channel, mapping, debounce, or enabled
-value. Dashboard and API input selections take effect during the running session
-and do not require a restart. The plugin monitors the selected port and retries
+backend after changing the channel, note, velocity mapping, debounce, or source
+mode. Dashboard and API input selections take effect immediately and persist
+without requiring a restart. The plugin monitors the selected port and retries
 a missing or failed input with capped backoff; a disconnected device keeps
 health degraded until it reconnects.
 
@@ -255,5 +274,6 @@ STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS=30
 STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS=10
 ```
 
-The dashboard can change host, port, timer name, and request timeout for the current backend session. Persistent application settings are a later v1.0 milestone.
+The dashboard can change host, port, timer name, and request timeout. Accepted
+values are persisted to the local settings file and reused after restart.
 

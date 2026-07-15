@@ -1,8 +1,9 @@
 # StagePilot backend
 
 The StagePilot backend is an independently runnable FastAPI application. Demo
-mode requires no external services or credentials. The initial Planning Center
-client is typed and tested but is not yet registered as a production plugin.
+mode requires no external services or credentials. Ordinary settings persist at
+`%APPDATA%\StagePilot\settings.json` on Windows, and the Planning Center PAT
+secret is kept separately in Windows Credential Manager.
 
 ```bash
 cd backend

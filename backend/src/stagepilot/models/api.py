@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from stagepilot.core.events import ActionName
 from stagepilot.core.midi import MidiCueName, MidiMessageDisposition
+from stagepilot.core.settings import PersistentPlanningCenterSettings, PersistentSettings
 from stagepilot.models.state import (
     ApplicationState,
     ApplicationStatus,
@@ -22,6 +23,37 @@ class HealthResponse(BaseModel):
     version: str
     application_status: ApplicationStatus
     plugins: list[PluginHealth]
+
+
+class SettingsResponse(BaseModel):
+    settings: PersistentSettings
+    planning_center_secret_saved: bool
+    warning: str | None = None
+    restart_required: bool = False
+
+
+class PlanningCenterSettingsUpdateRequest(PersistentPlanningCenterSettings):
+    """Update non-secret settings and optionally replace or remove the saved PAT secret."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    secret: SecretStr | None = None
+    remove_secret: bool = False
+
+    @model_validator(mode="after")
+    def secret_action_is_unambiguous(self) -> PlanningCenterSettingsUpdateRequest:
+        if self.secret is not None and self.remove_secret:
+            raise ValueError("A credential cannot be replaced and removed in one request.")
+        return self
+
+
+class PlanningCenterStatusResponse(BaseModel):
+    connection_status: ConnectionStatus
+    configured: bool
+    app_id: str | None = None
+    service_type_id: str | None = None
+    planning_center_secret_saved: bool
+    detail: str | None = None
 
 
 class ActionResponse(BaseModel):

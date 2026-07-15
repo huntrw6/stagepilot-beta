@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request
@@ -17,6 +18,12 @@ from stagepilot.core.events import (
 from stagepilot.core.midi import MidiInputSnapshot
 from stagepilot.core.propresenter import ProPresenterSnapshot
 from stagepilot.core.runtime import Runtime
+from stagepilot.core.settings import (
+    CredentialStoreError,
+    PersistentPlanningCenterSettings,
+    PersistentSettings,
+    SettingsFileError,
+)
 from stagepilot.models.api import (
     ActionResponse,
     HealthResponse,
@@ -28,12 +35,15 @@ from stagepilot.models.api import (
     MidiInputsResponse,
     MidiMonitorMessageResponse,
     MidiMonitorResponse,
+    PlanningCenterSettingsUpdateRequest,
+    PlanningCenterStatusResponse,
     PlanSelectionRequest,
     PlanSelectionResponse,
     ProPresenterOperationResponse,
     ProPresenterSettingsRequest,
     ProPresenterStatusResponse,
     ProPresenterTimerResponse,
+    SettingsResponse,
 )
 from stagepilot.models.state import (
     ApplicationState,
@@ -52,6 +62,25 @@ def _runtime(request: Request) -> Runtime:
 
 def _current_local_date(timezone_name: str) -> date:
     return datetime.now(ZoneInfo(timezone_name)).date()
+
+
+def _settings_response(
+    runtime: Runtime,
+    *,
+    persisted: bool = False,
+    restart_required: bool = False,
+) -> SettingsResponse:
+    settings = (
+        runtime.settings_service.snapshot()
+        if persisted
+        else runtime.settings_service.effective_snapshot()
+    )
+    return SettingsResponse(
+        settings=settings,
+        planning_center_secret_saved=runtime.settings_service.credential_saved,
+        warning=runtime.settings_service.warning,
+        restart_required=restart_required,
+    )
 
 
 def _production_service_ready(state: ApplicationState, current_date: date) -> bool:
@@ -144,7 +173,7 @@ async def health(request: Request) -> HealthResponse:
     plugins = await runtime.plugin_manager.health()
     service_ready = (
         state.service_load.status is not ServiceLoadStatus.ERROR
-        if runtime.settings.demo_mode
+        if runtime.settings.uses_demo_service
         else _production_service_ready(
             state,
             _current_local_date(runtime.settings.timezone),
@@ -166,6 +195,67 @@ async def health(request: Request) -> HealthResponse:
 @router.get("/state", response_model=ApplicationState)
 async def state(request: Request) -> ApplicationState:
     return await _runtime(request).state_store.snapshot()
+
+
+@router.get("/settings", response_model=SettingsResponse)
+async def settings(request: Request) -> SettingsResponse:
+    return _settings_response(_runtime(request))
+
+
+@router.put("/settings", response_model=SettingsResponse)
+async def update_settings(
+    settings: PersistentSettings,
+    request: Request,
+) -> SettingsResponse:
+    runtime = _runtime(request)
+    try:
+        runtime.settings_service.save(settings)
+    except SettingsFileError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _settings_response(runtime, persisted=True, restart_required=True)
+
+
+@router.get("/planning-center/status", response_model=PlanningCenterStatusResponse)
+async def planning_center_status(request: Request) -> PlanningCenterStatusResponse:
+    runtime = _runtime(request)
+    state = await runtime.state_store.snapshot()
+    settings = runtime.settings_service.effective_snapshot().planning_center
+    return PlanningCenterStatusResponse(
+        connection_status=state.planning_center_status,
+        configured=(
+            runtime.settings.planning_center.is_configured
+            and runtime.settings.planning_center.service_type_id is not None
+        ),
+        app_id=settings.app_id,
+        service_type_id=settings.service_type_id,
+        planning_center_secret_saved=runtime.settings_service.credential_saved,
+        detail=state.service_load.message,
+    )
+
+
+@router.post("/planning-center/settings", response_model=SettingsResponse)
+async def update_planning_center_settings(
+    settings: PlanningCenterSettingsUpdateRequest,
+    request: Request,
+) -> SettingsResponse:
+    runtime = _runtime(request)
+    public_settings = PersistentPlanningCenterSettings(
+        app_id=settings.app_id,
+        service_type_id=settings.service_type_id,
+        plan_title_preference=settings.plan_title_preference,
+        preferred_service_time=settings.preferred_service_time,
+        upcoming_lookahead_days=settings.upcoming_lookahead_days,
+        request_timeout_seconds=settings.request_timeout_seconds,
+    )
+    try:
+        runtime.settings_service.update_planning_center(
+            public_settings,
+            secret=settings.secret,
+            remove_secret=settings.remove_secret,
+        )
+    except (CredentialStoreError, SettingsFileError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _settings_response(runtime, persisted=True, restart_required=True)
 
 
 @router.get("/midi/inputs", response_model=MidiInputsResponse)
@@ -202,7 +292,7 @@ async def midi_messages(request: Request) -> MidiMonitorResponse:
             MidiMonitorMessageResponse(
                 timestamp=message.timestamp,
                 input_name=message.input_name,
-                message_type=message.message_type,
+                message_type=cast(Literal["note_on", "note_off"], message.message_type),
                 channel=message.channel,
                 note=message.note,
                 note_name=message.note_name,
@@ -225,16 +315,22 @@ async def select_midi_input(
     selection: MidiInputSelectionRequest,
     request: Request,
 ) -> MidiInputSelectionResponse:
-    controller = _runtime(request).midi_controller
+    runtime = _runtime(request)
+    controller = runtime.midi_controller
     if controller is None:
         raise HTTPException(status_code=409, detail="The MIDI Playback plugin is disabled.")
     outcome = await controller.select_input(selection.input_id)
     if not outcome.accepted:
         raise HTTPException(status_code=409, detail=outcome.message)
+    snapshot = await controller.input_snapshot()
+    try:
+        runtime.settings_service.persist_midi_input(snapshot.selected_input_name)
+    except SettingsFileError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return MidiInputSelectionResponse(
         accepted=True,
         message=outcome.message,
-        midi=_midi_inputs_response(await controller.input_snapshot()),
+        midi=_midi_inputs_response(snapshot),
     )
 
 
@@ -345,6 +441,11 @@ async def update_propresenter_settings(
         health_check_interval_seconds=current.health_check_interval_seconds,
     )
     snapshot = await controller.reconfigure(updated)
+    runtime.settings.propresenter = updated
+    try:
+        runtime.settings_service.persist_propresenter(updated)
+    except SettingsFileError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     accepted = snapshot.connection_status is ConnectionStatus.CONNECTED and snapshot.timer_found
     message = snapshot.detail or (
         "ProPresenter session settings applied."

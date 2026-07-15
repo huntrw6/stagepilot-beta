@@ -14,14 +14,30 @@ export function StatusCard({
   status,
   detail,
   icon,
+  active,
+  controls,
+  onClick,
 }: {
   title: string;
   status: Status;
   detail: string;
   icon: ReactNode;
+  active: boolean;
+  controls: string;
+  onClick: () => void;
 }) {
   return (
-    <article className="rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
+    <button
+      aria-controls={controls}
+      aria-expanded={active}
+      className={`rounded-xl border bg-stage-850 p-4 text-left shadow-panel transition focus:outline-none focus:ring-2 focus:ring-sky-400/60 ${
+        active
+          ? "border-sky-400/50 bg-sky-400/[0.08]"
+          : "border-white/7 hover:border-white/20 hover:bg-white/[0.035]"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.17em] text-slate-500">{title}</p>
@@ -33,6 +49,6 @@ export function StatusCard({
         </div>
         <span className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-slate-400">{icon}</span>
       </div>
-    </article>
+    </button>
   );
 }

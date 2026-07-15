@@ -140,6 +140,11 @@ def test_session_settings_recreate_client_and_report_missing_timer() -> None:
     assert first.closed is True
     assert len(factory.settings) == 2
     assert factory.settings[-1].timer_name == "Missing Timer"
+    persisted = app.state.runtime.settings_service.snapshot().propresenter
+    assert persisted.host == "192.168.4.40"
+    assert persisted.port == 1026
+    assert persisted.timer_name == "Missing Timer"
+    assert persisted.request_timeout_seconds == 4
 
 
 def test_disabled_propresenter_returns_safe_status() -> None:

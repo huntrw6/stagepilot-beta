@@ -258,6 +258,7 @@ def test_refresh_selects_opaque_id_switches_promptly_and_rejects_old_callback() 
         assert switched.configured_input_name == CONFIGURED_INPUT
         assert selected.name == BACKUP_INPUT
         assert selected.connected is True
+        assert app.state.runtime.settings_service.snapshot().midi.input_name == BACKUP_INPUT
         assert backend.opened_names == [CONFIGURED_INPUT, BACKUP_INPUT]
         assert old_port.close_calls == 1
 
