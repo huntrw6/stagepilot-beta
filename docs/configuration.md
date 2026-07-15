@@ -244,3 +244,16 @@ machine-specific state:
 Exported configuration should omit credentials by default. A future diagnostic
 bundle must use explicit allow-lists and redaction rather than serializing the
 complete settings object.
+
+## ProPresenter recovery settings
+
+The ProPresenter plugin reconnects automatically and periodically rediscovers the configured timer.
+
+```dotenv
+STAGEPILOT_PROPRESENTER_RECONNECT_INITIAL_SECONDS=1
+STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS=30
+STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS=10
+```
+
+The dashboard can change host, port, timer name, and request timeout for the current backend session. Persistent application settings are a later v1.0 milestone.
+

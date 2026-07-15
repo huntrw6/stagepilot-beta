@@ -89,13 +89,17 @@ def create_app(
         logger.info("application_starting", version=resolved_settings.version)
         await state_service.start()
         await plugin_manager.start_all()
-        await event_bus.publish(new_event(EventType.APPLICATION_STARTED, source="application"))
+        await event_bus.publish(
+            new_event(EventType.APPLICATION_STARTED, source="application")
+        )
         logger.info("application_started", version=resolved_settings.version)
         try:
             yield
         finally:
             logger.info("application_stopping")
-            await event_bus.publish(new_event(EventType.APPLICATION_STOPPING, source="application"))
+            await event_bus.publish(
+                new_event(EventType.APPLICATION_STOPPING, source="application")
+            )
             await plugin_manager.stop_all()
             await state_service.stop()
             logger.info("application_stopped")

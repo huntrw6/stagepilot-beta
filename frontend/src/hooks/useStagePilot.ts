@@ -4,12 +4,16 @@ import {
   getHealth,
   getMidiInputs,
   getMidiMessages,
+  getProPresenterStatus,
   getState,
   performAction,
   refreshMidiInputs,
+  refreshProPresenterTimers,
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
+  testProPresenter,
+  updateProPresenterSettings,
   websocketUrl,
 } from "../api";
 import type {
@@ -20,11 +24,14 @@ import type {
   MidiCueName,
   MidiInputsResponse,
   MidiMonitorMessage,
+  ProPresenterSettingsInput,
+  ProPresenterStatusResponse,
   StateEnvelope,
 } from "../types";
 
 const MAX_RECONNECT_DELAY = 10_000;
 const MIDI_MONITOR_INTERVAL = 750;
+const PROPRESENTER_MONITOR_INTERVAL = 3_000;
 
 export function useStagePilot() {
   const [state, setState] = useState<ApplicationState | null>(null);
@@ -34,6 +41,7 @@ export function useStagePilot() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<ActionName | null>(null);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+
   const [midi, setMidi] = useState<MidiInputsResponse | null>(null);
   const [midiMessages, setMidiMessages] = useState<MidiMonitorMessage[]>([]);
   const [midiError, setMidiError] = useState<string | null>(null);
@@ -42,8 +50,17 @@ export function useStagePilot() {
     "refresh" | "connect" | "disconnect" | null
   >(null);
   const [pendingMidiCue, setPendingMidiCue] = useState<MidiCueName | null>(null);
+
+  const [propresenter, setProPresenter] = useState<ProPresenterStatusResponse | null>(null);
+  const [propresenterError, setProPresenterError] = useState<string | null>(null);
+  const [propresenterMessage, setProPresenterMessage] = useState<string | null>(null);
+  const [pendingProPresenterOperation, setPendingProPresenterOperation] = useState<
+    "save" | "test" | "refresh" | null
+  >(null);
+
   const reconnectAttempts = useRef(0);
   const previousMidiStatus = useRef<ConnectionStatus | null>(null);
+  const previousProPresenterStatus = useRef<ConnectionStatus | null>(null);
 
   const applyState = useCallback((nextState: ApplicationState) => {
     setState((currentState) =>
@@ -71,6 +88,17 @@ export function useStagePilot() {
     }
   }, []);
 
+  const loadProPresenter = useCallback(async () => {
+    try {
+      setProPresenter(await getProPresenterStatus());
+      setProPresenterError(null);
+    } catch (cause) {
+      setProPresenterError(
+        cause instanceof Error ? cause.message : "ProPresenter status unavailable.",
+      );
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     let socket: WebSocket | null = null;
@@ -84,7 +112,9 @@ export function useStagePilot() {
         applyState(nextState);
         setError(null);
       } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : "Backend unavailable.");
+        if (active) {
+          setError(cause instanceof Error ? cause.message : "Backend unavailable.");
+        }
       }
     };
 
@@ -110,7 +140,10 @@ export function useStagePilot() {
         if (!active) return;
         setLive(false);
         setError("Live connection interrupted; reconnecting.");
-        const delay = Math.min(1000 * 2 ** reconnectAttempts.current, MAX_RECONNECT_DELAY);
+        const delay = Math.min(
+          1000 * 2 ** reconnectAttempts.current,
+          MAX_RECONNECT_DELAY,
+        );
         reconnectAttempts.current += 1;
         reconnectTimer = window.setTimeout(connect, delay);
       };
@@ -119,13 +152,15 @@ export function useStagePilot() {
     void refresh();
     void loadMidiInputs();
     void loadMidiMessages();
+    void loadProPresenter();
     connect();
+
     return () => {
       active = false;
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [applyState, loadMidiInputs, loadMidiMessages]);
+  }, [applyState, loadMidiInputs, loadMidiMessages, loadProPresenter]);
 
   useEffect(() => {
     if (!midi?.enabled) return;
@@ -134,6 +169,14 @@ export function useStagePilot() {
     }, MIDI_MONITOR_INTERVAL);
     return () => window.clearInterval(timer);
   }, [loadMidiMessages, midi?.enabled]);
+
+  useEffect(() => {
+    if (!propresenter?.enabled) return;
+    const timer = window.setInterval(() => {
+      void loadProPresenter();
+    }, PROPRESENTER_MONITOR_INTERVAL);
+    return () => window.clearInterval(timer);
+  }, [loadProPresenter, propresenter?.enabled]);
 
   useEffect(() => {
     const status = state?.midi_status;
@@ -147,36 +190,54 @@ export function useStagePilot() {
     void loadMidiInputs();
   }, [loadMidiInputs, state?.midi_status]);
 
-  const dispatch = useCallback(async (action: ActionName) => {
-    setPendingAction(action);
-    setActionMessage(null);
-    try {
-      const response = await performAction(action);
-      applyState(response.state);
-      setActionMessage(response.message);
-      if (!response.accepted) setError(response.message);
-      else setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Action failed.");
-    } finally {
-      setPendingAction(null);
+  useEffect(() => {
+    const status = state?.propresenter_status;
+    if (!status) return;
+    if (previousProPresenterStatus.current === null) {
+      previousProPresenterStatus.current = status;
+      return;
     }
-  }, [applyState]);
+    if (previousProPresenterStatus.current === status) return;
+    previousProPresenterStatus.current = status;
+    void loadProPresenter();
+  }, [loadProPresenter, state?.propresenter_status]);
 
-  const selectPlan = useCallback(async (planId: string) => {
-    setPendingPlanId(planId);
-    setActionMessage(null);
-    try {
-      const response = await selectPlanningCenterPlan(planId);
-      applyState(response.state);
-      setActionMessage(response.message);
-      setError(response.accepted ? null : response.message);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Plan selection failed.");
-    } finally {
-      setPendingPlanId(null);
-    }
-  }, [applyState]);
+  const dispatch = useCallback(
+    async (action: ActionName) => {
+      setPendingAction(action);
+      setActionMessage(null);
+      try {
+        const response = await performAction(action);
+        applyState(response.state);
+        setActionMessage(response.message);
+        if (!response.accepted) setError(response.message);
+        else setError(null);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Action failed.");
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [applyState],
+  );
+
+  const selectPlan = useCallback(
+    async (planId: string) => {
+      setPendingPlanId(planId);
+      setActionMessage(null);
+      try {
+        const response = await selectPlanningCenterPlan(planId);
+        applyState(response.state);
+        setActionMessage(response.message);
+        setError(response.accepted ? null : response.message);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Plan selection failed.");
+      } finally {
+        setPendingPlanId(null);
+      }
+    },
+    [applyState],
+  );
 
   const refreshMidi = useCallback(async () => {
     setPendingMidiOperation("refresh");
@@ -208,22 +269,79 @@ export function useStagePilot() {
     }
   }, []);
 
-  const simulateMidi = useCallback(async (cue: MidiCueName) => {
-    setPendingMidiCue(cue);
-    setMidiError(null);
-    setMidiMessage(null);
+  const simulateMidi = useCallback(
+    async (cue: MidiCueName) => {
+      setPendingMidiCue(cue);
+      setMidiError(null);
+      setMidiMessage(null);
+      try {
+        const response = await simulateMidiCue(cue);
+        applyState(response.state);
+        await loadMidiMessages();
+        setMidiMessage(response.message);
+        if (!response.accepted) setMidiError(response.message);
+      } catch (cause) {
+        setMidiError(cause instanceof Error ? cause.message : "MIDI cue simulation failed.");
+      } finally {
+        setPendingMidiCue(null);
+      }
+    },
+    [applyState, loadMidiMessages],
+  );
+
+  const saveProPresenter = useCallback(async (settings: ProPresenterSettingsInput) => {
+    setPendingProPresenterOperation("save");
+    setProPresenterError(null);
+    setProPresenterMessage(null);
     try {
-      const response = await simulateMidiCue(cue);
-      applyState(response.state);
-      await loadMidiMessages();
-      setMidiMessage(response.message);
-      if (!response.accepted) setMidiError(response.message);
+      const response = await updateProPresenterSettings(settings);
+      setProPresenter(response.propresenter);
+      setProPresenterMessage(response.message);
+      if (!response.accepted) setProPresenterError(response.message);
     } catch (cause) {
-      setMidiError(cause instanceof Error ? cause.message : "MIDI cue simulation failed.");
+      setProPresenterError(
+        cause instanceof Error ? cause.message : "ProPresenter settings update failed.",
+      );
     } finally {
-      setPendingMidiCue(null);
+      setPendingProPresenterOperation(null);
     }
-  }, [applyState, loadMidiMessages]);
+  }, []);
+
+  const runProPresenterTest = useCallback(async () => {
+    setPendingProPresenterOperation("test");
+    setProPresenterError(null);
+    setProPresenterMessage(null);
+    try {
+      const response = await testProPresenter();
+      setProPresenter(response.propresenter);
+      setProPresenterMessage(response.message);
+      if (!response.accepted) setProPresenterError(response.message);
+    } catch (cause) {
+      setProPresenterError(
+        cause instanceof Error ? cause.message : "ProPresenter connection test failed.",
+      );
+    } finally {
+      setPendingProPresenterOperation(null);
+    }
+  }, []);
+
+  const refreshProPresenter = useCallback(async () => {
+    setPendingProPresenterOperation("refresh");
+    setProPresenterError(null);
+    setProPresenterMessage(null);
+    try {
+      const response = await refreshProPresenterTimers();
+      setProPresenter(response.propresenter);
+      setProPresenterMessage(response.message);
+      if (!response.accepted) setProPresenterError(response.message);
+    } catch (cause) {
+      setProPresenterError(
+        cause instanceof Error ? cause.message : "ProPresenter timer refresh failed.",
+      );
+    } finally {
+      setPendingProPresenterOperation(null);
+    }
+  }, []);
 
   return {
     state,
@@ -239,10 +357,17 @@ export function useStagePilot() {
     midiMessage,
     pendingMidiOperation,
     pendingMidiCue,
+    propresenter,
+    propresenterError,
+    propresenterMessage,
+    pendingProPresenterOperation,
     dispatch,
     selectPlan,
     refreshMidi,
     selectMidi,
     simulateMidi,
+    saveProPresenter,
+    runProPresenterTest,
+    refreshProPresenter,
   };
 }

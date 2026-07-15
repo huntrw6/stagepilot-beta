@@ -51,11 +51,7 @@ class MidiVelocityMappings(BaseModel):
 
     def cue_for(self, velocity: int) -> MidiCueName | None:
         return next(
-            (
-                cue
-                for cue, mapped_velocity in self.configured()
-                if mapped_velocity == velocity
-            ),
+            (cue for cue, mapped_velocity in self.configured() if mapped_velocity == velocity),
             None,
         )
 
@@ -92,6 +88,17 @@ class ProPresenterSettings(BaseModel):
     port: int = Field(default=1025, ge=1, le=65535)
     timer_name: str = Field(default="Song Countdown", min_length=1, max_length=255)
     request_timeout_seconds: float = Field(default=3.0, gt=0, le=60.0)
+    reconnect_initial_seconds: float = Field(default=1.0, gt=0, le=60.0)
+    reconnect_max_seconds: float = Field(default=30.0, gt=0, le=300.0)
+    health_check_interval_seconds: float = Field(default=10.0, gt=0, le=300.0)
+
+    @model_validator(mode="after")
+    def reconnect_window_is_valid(self) -> ProPresenterSettings:
+        if self.reconnect_max_seconds < self.reconnect_initial_seconds:
+            raise ValueError(
+                "ProPresenter reconnect maximum must be greater than or equal to the initial delay."
+            )
+        return self
 
     @field_validator("host", "timer_name", mode="before")
     @classmethod
@@ -223,9 +230,7 @@ def get_settings() -> Settings:
         demo_mode=_environment_bool("STAGEPILOT_DEMO_MODE", True),
         demo=DemoSettings(
             simulate_midi=_environment_bool("STAGEPILOT_DEMO_SIMULATE_MIDI", True),
-            simulate_propresenter=_environment_bool(
-                "STAGEPILOT_DEMO_SIMULATE_PROPRESENTER", True
-            ),
+            simulate_propresenter=_environment_bool("STAGEPILOT_DEMO_SIMULATE_PROPRESENTER", True),
         ),
         timezone=os.getenv("STAGEPILOT_TIMEZONE", "America/Los_Angeles"),
         planning_center=PlanningCenterSettings(
@@ -245,24 +250,14 @@ def get_settings() -> Settings:
             channel=int(os.getenv("STAGEPILOT_MIDI_CHANNEL", "1")),
             note=int(os.getenv("STAGEPILOT_MIDI_NOTE", "112")),
             mappings=MidiVelocityMappings(
-                start_next=_environment_optional_int(
-                    "STAGEPILOT_MIDI_START_NEXT_VELOCITY", 100
-                ),
+                start_next=_environment_optional_int("STAGEPILOT_MIDI_START_NEXT_VELOCITY", 100),
                 restart_current=_environment_optional_int(
                     "STAGEPILOT_MIDI_RESTART_CURRENT_VELOCITY", 101
                 ),
-                previous=_environment_optional_int(
-                    "STAGEPILOT_MIDI_PREVIOUS_VELOCITY", 102
-                ),
-                next=_environment_optional_int(
-                    "STAGEPILOT_MIDI_NEXT_VELOCITY", 103
-                ),
-                reload_plan=_environment_optional_int(
-                    "STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY", 104
-                ),
-                stop_timer=_environment_optional_int(
-                    "STAGEPILOT_MIDI_STOP_TIMER_VELOCITY", 105
-                ),
+                previous=_environment_optional_int("STAGEPILOT_MIDI_PREVIOUS_VELOCITY", 102),
+                next=_environment_optional_int("STAGEPILOT_MIDI_NEXT_VELOCITY", 103),
+                reload_plan=_environment_optional_int("STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY", 104),
+                stop_timer=_environment_optional_int("STAGEPILOT_MIDI_STOP_TIMER_VELOCITY", 105),
             ),
             debounce_ms=int(os.getenv("STAGEPILOT_MIDI_DEBOUNCE_MS", "250")),
         ),
@@ -277,6 +272,14 @@ def get_settings() -> Settings:
             request_timeout_seconds=float(
                 os.getenv("STAGEPILOT_PROPRESENTER_TIMEOUT_SECONDS", "3.0")
             ),
+            reconnect_initial_seconds=float(
+                os.getenv("STAGEPILOT_PROPRESENTER_RECONNECT_INITIAL_SECONDS", "1.0")
+            ),
+            reconnect_max_seconds=float(
+                os.getenv("STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS", "30.0")
+            ),
+            health_check_interval_seconds=float(
+                os.getenv("STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS", "10.0")
+            ),
         ),
     )
-

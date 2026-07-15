@@ -86,6 +86,7 @@ describe("selectPlanningCenterPlan", () => {
 const midi: MidiInputsResponse = {
   enabled: true,
   channel: 1,
+  note: 112,
   configured_input_name: null,
   selected_input_name: null,
   inputs: [],

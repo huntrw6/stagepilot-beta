@@ -8,6 +8,7 @@ import { MidiSetupPanel } from "./MidiSetupPanel";
 const midi: MidiInputsResponse = {
   enabled: true,
   channel: 3,
+  note: 112,
   configured_input_name: "Startup Controller",
   selected_input_name: null,
   inputs: [
@@ -65,7 +66,12 @@ describe("MidiSetupPanel", () => {
     renderPanel({ onRefresh, onSelect });
 
     expect(screen.getByText(/apply only to this StagePilot session/i)).toBeInTheDocument();
-    expect(screen.getByText("Channel 3")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) => {
+        const text = element?.textContent?.replace(/\s+/g, " ").trim();
+        return element?.tagName === "SPAN" && text === "Channel 3 \u00B7 Note 112";
+      }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Startup default: Startup Controller")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
 
@@ -137,7 +143,7 @@ describe("MidiSetupPanel", () => {
     expect(screen.getByRole("button", { name: /Stop timer/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Stop timer/ })).toHaveAttribute(
       "title",
-      "No MIDI note is configured for this cue.",
+      "No MIDI velocity is configured for this cue.",
     );
   });
 
@@ -171,3 +177,4 @@ describe("MidiSetupPanel", () => {
     );
   });
 });
+

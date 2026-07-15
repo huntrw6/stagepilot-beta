@@ -36,8 +36,12 @@ class DemoPlugin(Plugin):
         self._status = PluginStatus.STARTING
         self._subscriptions.extend(
             [
-                await self.event_bus.subscribe(EventType.SONG_STARTED, self._on_song_started),
-                await self.event_bus.subscribe(EventType.SONG_RESTARTED, self._on_song_started),
+                await self.event_bus.subscribe(
+                    EventType.SONG_STARTED, self._on_song_started
+                ),
+                await self.event_bus.subscribe(
+                    EventType.SONG_RESTARTED, self._on_song_started
+                ),
                 await self.event_bus.subscribe(
                     EventType.TIMER_STOP_REQUESTED, self._on_timer_stop_requested
                 ),
@@ -73,7 +77,10 @@ class DemoPlugin(Plugin):
         )
 
     async def _on_song_started(self, event: StagePilotEvent) -> None:
-        if not isinstance(event.payload, SongPayload) or not event.payload.song.duration_seconds:
+        if (
+            not isinstance(event.payload, SongPayload)
+            or not event.payload.song.duration_seconds
+        ):
             return
         self._last_activity_at = datetime.now(UTC)
         await self.event_bus.publish(timer_started(event.payload.song.duration_seconds))

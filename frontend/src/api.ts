@@ -9,6 +9,9 @@ import type {
   MidiInputsResponse,
   MidiMonitorResponse,
   PlanSelectionResponse,
+  ProPresenterOperationResponse,
+  ProPresenterSettingsInput,
+  ProPresenterStatusResponse,
 } from "./types";
 
 const configuredOrigin = import.meta.env.VITE_STAGEPILOT_API_URL as string | undefined;
@@ -18,7 +21,10 @@ export const websocketUrl = `${apiOrigin.replace(/^http/, "ws")}/ws`;
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiOrigin}${path}`, {
     ...init,
-    headers: { Accept: "application/json", ...init?.headers },
+    headers: {
+      Accept: "application/json",
+      ...init?.headers,
+    },
   });
   if (!response.ok) {
     let detail: string | null = null;
@@ -35,10 +41,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const getHealth = () => requestJson<HealthResponse>("/api/v1/health");
 export const getState = () => requestJson<ApplicationState>("/api/v1/state");
-
 export const performAction = (action: ActionName) =>
   requestJson<ActionResponse>(`/api/v1/actions/${action}`, { method: "POST" });
-
 export const selectPlanningCenterPlan = (planId: string) =>
   requestJson<PlanSelectionResponse>("/api/v1/planning-center/plan-selection", {
     method: "POST",
@@ -46,25 +50,36 @@ export const selectPlanningCenterPlan = (planId: string) =>
     body: JSON.stringify({ plan_id: planId }),
   });
 
-export const getMidiInputs = () =>
-  requestJson<MidiInputsResponse>("/api/v1/midi/inputs");
-
-export const getMidiMessages = () =>
-  requestJson<MidiMonitorResponse>("/api/v1/midi/messages");
-
+export const getMidiInputs = () => requestJson<MidiInputsResponse>("/api/v1/midi/inputs");
+export const getMidiMessages = () => requestJson<MidiMonitorResponse>("/api/v1/midi/messages");
 export const refreshMidiInputs = () =>
   requestJson<MidiInputsResponse>("/api/v1/midi/inputs/refresh", { method: "POST" });
-
 export const selectMidiInput = (inputId: string | null) =>
   requestJson<MidiInputSelectionResponse>("/api/v1/midi/input-selection", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input_id: inputId }),
   });
-
 export const simulateMidiCue = (cue: MidiCueName) =>
   requestJson<MidiCueSimulationResponse>("/api/v1/midi/cue-simulation", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cue }),
+  });
+
+export const getProPresenterStatus = () =>
+  requestJson<ProPresenterStatusResponse>("/api/v1/propresenter");
+export const testProPresenter = () =>
+  requestJson<ProPresenterOperationResponse>("/api/v1/propresenter/test", {
+    method: "POST",
+  });
+export const refreshProPresenterTimers = () =>
+  requestJson<ProPresenterOperationResponse>("/api/v1/propresenter/timers/refresh", {
+    method: "POST",
+  });
+export const updateProPresenterSettings = (settings: ProPresenterSettingsInput) =>
+  requestJson<ProPresenterOperationResponse>("/api/v1/propresenter/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
   });

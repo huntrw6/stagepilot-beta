@@ -206,7 +206,9 @@ async def wait_for_health(
             while (await plugin.health()).status is not status:  # noqa: ASYNC110
                 await asyncio.sleep(0.002)
     except TimeoutError as exc:
-        raise AssertionError(f"Timed out waiting for MIDI health {status.value}.") from exc
+        raise AssertionError(
+            f"Timed out waiting for MIDI health {status.value}."
+        ) from exc
 
 
 def connection_events(harness: PluginHarness) -> list[ConnectionPayload]:
@@ -223,7 +225,8 @@ def note_events(harness: PluginHarness) -> list[MidiNotePayload]:
     return [
         event.payload
         for event in harness.events
-        if event.type is EventType.MIDI_NOTE_RECEIVED and isinstance(event.payload, MidiNotePayload)
+        if event.type is EventType.MIDI_NOTE_RECEIVED
+        and isinstance(event.payload, MidiNotePayload)
     ]
 
 
@@ -302,8 +305,12 @@ async def test_filters_other_channels_and_unmapped_notes_before_dispatch() -> No
         port.emit(channel=1, note=115)
 
         await wait_until(lambda: len(harness.dispatcher.calls) == 1)
-        assert harness.dispatcher.calls == [DispatchCall(ActionName.NEXT, "midi_playback")]
-        assert [(event.channel, event.note) for event in note_events(harness)] == [(1, 115)]
+        assert harness.dispatcher.calls == [
+            DispatchCall(ActionName.NEXT, "midi_playback")
+        ]
+        assert [(event.channel, event.note) for event in note_events(harness)] == [
+            (1, 115)
+        ]
     finally:
         await harness.close()
 
@@ -340,7 +347,10 @@ async def test_monitor_records_received_notes_and_why_they_were_ignored() -> Non
             (112, "E7"),
         ]
         assert messages[1].action is ActionName.START_NEXT
-        assert messages[2].detail == "Ignored: this note is not mapped to a StagePilot cue."
+        assert (
+            messages[2].detail
+            == "Ignored: this note is not mapped to a StagePilot cue."
+        )
         assert messages[3].channel == 2
         assert messages[3].velocity == 90
         assert messages[3].input_name == "Playback"
@@ -367,7 +377,9 @@ def test_note_names_follow_playback_octave_numbering(
 
 
 @pytest.mark.asyncio
-async def test_note_release_latching_and_monotonic_debounce_prevent_duplicates() -> None:
+async def test_note_release_latching_and_monotonic_debounce_prevent_duplicates() -> (
+    None
+):
     clock = MutableClock()
     harness = await plugin_harness(clock=clock)
     try:
@@ -399,7 +411,9 @@ async def test_note_release_latching_and_monotonic_debounce_prevent_duplicates()
 
 
 @pytest.mark.asyncio
-async def test_simulation_uses_the_mapping_event_dispatch_and_duplicate_pipeline() -> None:
+async def test_simulation_uses_the_mapping_event_dispatch_and_duplicate_pipeline() -> (
+    None
+):
     clock = MutableClock()
     harness = await plugin_harness(input_names=[], input_name=None, clock=clock)
     try:
@@ -426,7 +440,9 @@ async def test_simulation_uses_the_mapping_event_dispatch_and_duplicate_pipeline
 
 
 @pytest.mark.asyncio
-async def test_simulation_rejects_an_unmapped_cue_without_publishing_or_dispatching() -> None:
+async def test_simulation_rejects_an_unmapped_cue_without_publishing_or_dispatching() -> (
+    None
+):
     settings = MidiSettings(
         enabled=True,
         input_name=None,
@@ -438,7 +454,9 @@ async def test_simulation_rejects_an_unmapped_cue_without_publishing_or_dispatch
 
         outcome = await harness.plugin.simulate_cue(MidiCueName.STOP_TIMER)
 
-        assert outcome == ActionOutcome(False, 'The MIDI cue "stop_timer" is not mapped.')
+        assert outcome == ActionOutcome(
+            False, 'The MIDI cue "stop_timer" is not mapped.'
+        )
         assert harness.dispatcher.calls == []
         assert note_events(harness) == []
     finally:
@@ -493,7 +511,9 @@ async def test_missing_input_degrades_health_then_reconnects_when_it_appears() -
 
         harness.backend.ports[0].emit(note=117)
         await wait_until(lambda: len(harness.dispatcher.calls) == 1)
-        assert harness.dispatcher.calls == [DispatchCall(ActionName.STOP_TIMER, "midi_playback")]
+        assert harness.dispatcher.calls == [
+            DispatchCall(ActionName.STOP_TIMER, "midi_playback")
+        ]
         assert [event.status for event in connection_events(harness)][-2:] == [
             ConnectionStatus.CONNECTING,
             ConnectionStatus.CONNECTED,
@@ -512,7 +532,11 @@ async def test_ambiguous_discovery_is_safe_and_reports_error_health() -> None:
         await wait_for_health(harness.plugin, PluginStatus.ERROR)
 
         snapshot = await harness.plugin.input_snapshot(refresh=True)
-        assert [value.name for value in snapshot.inputs] == ["alpha", "Playback", "Zulu"]
+        assert [value.name for value in snapshot.inputs] == [
+            "alpha",
+            "Playback",
+            "Zulu",
+        ]
         assert snapshot.inputs[1].ambiguous is True
         assert snapshot.inputs[1].selected is True
         assert snapshot.inputs[1].connected is False

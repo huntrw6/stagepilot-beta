@@ -109,7 +109,9 @@ class MidiPlaybackPlugin(Plugin, MidiController):
         self._selected_input_name = settings.input_name
         self._connected_input_name: str | None = None
         self._available_input_names: list[str] = []
-        self._recent_messages: deque[MidiMonitorMessage] = deque(maxlen=MIDI_MONITOR_CAPACITY)
+        self._recent_messages: deque[MidiMonitorMessage] = deque(
+            maxlen=MIDI_MONITOR_CAPACITY
+        )
         self._held_notes: set[tuple[int, int, int]] = set()
         self._last_triggered_at: dict[tuple[int, int, int], float] = {}
         self._status = PluginStatus.STOPPED
@@ -132,7 +134,9 @@ class MidiPlaybackPlugin(Plugin, MidiController):
         self._selected_input_name = self._settings.input_name
         self._recent_messages.clear()
         self._queue = asyncio.Queue(maxsize=self._queue_capacity)
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stagepilot-midi")
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="stagepilot-midi"
+        )
         try:
             self._backend = await self._run_backend(self._backend_factory)
         except Exception:
@@ -172,7 +176,9 @@ class MidiPlaybackPlugin(Plugin, MidiController):
                 if isinstance(queued, _QueuedMidiMessage):
                     self._complete(
                         queued,
-                        ActionOutcome(False, "MIDI input stopped before the cue was processed."),
+                        ActionOutcome(
+                            False, "MIDI input stopped before the cue was processed."
+                        ),
                     )
             queue.put_nowait(_QUEUE_STOP)
 
@@ -272,12 +278,18 @@ class MidiPlaybackPlugin(Plugin, MidiController):
                         plugin_status=PluginStatus.ERROR,
                     )
                     return ActionOutcome(False, "MIDI inputs could not be refreshed.")
-                matching_names = {name for name in names if self._input_id(name) == input_id}
+                matching_names = {
+                    name for name in names if self._input_id(name) == input_id
+                }
                 if len(matching_names) != 1:
-                    return ActionOutcome(False, "The selected MIDI input is no longer available.")
+                    return ActionOutcome(
+                        False, "The selected MIDI input is no longer available."
+                    )
                 selected_name = next(iter(matching_names))
                 if names.count(selected_name) != 1:
-                    return ActionOutcome(False, "The selected MIDI input name is ambiguous.")
+                    return ActionOutcome(
+                        False, "The selected MIDI input name is ambiguous."
+                    )
 
             if selected_name == self._selected_input_name:
                 if selected_name is None:
@@ -305,7 +317,11 @@ class MidiPlaybackPlugin(Plugin, MidiController):
             return ActionOutcome(True, f'Selected "{selected_name}" for this session.')
 
     async def simulate_cue(self, cue: MidiCueName) -> ActionOutcome:
-        if self._stopping or self._queue is None or self._status is PluginStatus.STOPPED:
+        if (
+            self._stopping
+            or self._queue is None
+            or self._status is PluginStatus.STOPPED
+        ):
             return ActionOutcome(False, "The MIDI Playback plugin is not running.")
         velocity = self._settings.mappings.velocity_for(cue)
         if velocity is None:
@@ -429,15 +445,24 @@ class MidiPlaybackPlugin(Plugin, MidiController):
                     if self._stopping:
                         break
                     try:
-                        closed = await self._run_backend(partial(self._port_is_closed, port))
+                        closed = await self._run_backend(
+                            partial(self._port_is_closed, port)
+                        )
                         await self._refresh_input_names()
                     except Exception:
-                        disconnect_detail = "The MIDI input failed during monitoring; retrying."
+                        disconnect_detail = (
+                            "The MIDI input failed during monitoring; retrying."
+                        )
                         break
                     if configured_name != self._selected_input_name:
-                        disconnect_detail = "The MIDI input selection changed; reconnecting."
+                        disconnect_detail = (
+                            "The MIDI input selection changed; reconnecting."
+                        )
                         break
-                    if closed or self._available_input_names.count(configured_name) != 1:
+                    if (
+                        closed
+                        or self._available_input_names.count(configured_name) != 1
+                    ):
                         break
                     await self._set_connection(
                         ConnectionStatus.CONNECTED,
@@ -475,7 +500,9 @@ class MidiPlaybackPlugin(Plugin, MidiController):
             if self._stopping:
                 self._complete(
                     queued,
-                    ActionOutcome(False, "MIDI input stopped before the cue was processed."),
+                    ActionOutcome(
+                        False, "MIDI input stopped before the cue was processed."
+                    ),
                 )
                 continue
             try:
@@ -498,7 +525,10 @@ class MidiPlaybackPlugin(Plugin, MidiController):
 
     async def _process_message(self, queued: _QueuedMidiMessage) -> ActionOutcome:
         message = queued.message
-        if queued.connection_id is not None and queued.connection_id != self._active_connection_id:
+        if (
+            queued.connection_id is not None
+            and queued.connection_id != self._active_connection_id
+        ):
             return ActionOutcome(False, "A stale MIDI message was ignored.")
 
         if message.type == "note_off" or message.velocity == 0:
@@ -645,10 +675,17 @@ class MidiPlaybackPlugin(Plugin, MidiController):
     def _offer_message(self, queued: _QueuedMidiMessage) -> bool:
         queue = self._queue
         if queue is None or self._stopping:
-            self._complete(queued, ActionOutcome(False, "The MIDI Playback plugin is stopping."))
+            self._complete(
+                queued, ActionOutcome(False, "The MIDI Playback plugin is stopping.")
+            )
             return False
-        if queued.connection_id is not None and queued.connection_id != self._active_connection_id:
-            self._complete(queued, ActionOutcome(False, "A stale MIDI message was ignored."))
+        if (
+            queued.connection_id is not None
+            and queued.connection_id != self._active_connection_id
+        ):
+            self._complete(
+                queued, ActionOutcome(False, "A stale MIDI message was ignored.")
+            )
             return False
         if queue.full():
             if not self._overflow_reported:
@@ -656,7 +693,9 @@ class MidiPlaybackPlugin(Plugin, MidiController):
                 self._spawn_side_task(self._report_queue_overflow())
             self._complete(
                 queued,
-                ActionOutcome(False, "The MIDI input queue is full; the cue was dropped."),
+                ActionOutcome(
+                    False, "The MIDI input queue is full; the cue was dropped."
+                ),
             )
             self._record_message(
                 queued,
@@ -789,7 +828,9 @@ class MidiPlaybackPlugin(Plugin, MidiController):
         self._recent_messages.append(
             MidiMonitorMessage(
                 timestamp=datetime.now(UTC),
-                input_name=("Cue simulation" if queued.simulated else self._connected_input_name),
+                input_name=(
+                    "Cue simulation" if queued.simulated else self._connected_input_name
+                ),
                 message_type=message.type,
                 channel=message.channel,
                 note=message.note,

@@ -206,3 +206,38 @@ export interface MidiCueSimulationResponse {
   message: string;
   state: ApplicationState;
 }
+
+export interface ProPresenterTimer {
+  id: string;
+  name: string;
+  index: number;
+  is_countdown: boolean;
+  state: string | null;
+}
+
+export interface ProPresenterStatusResponse {
+  enabled: boolean;
+  host: string;
+  port: number;
+  timer_name: string;
+  request_timeout_seconds: number;
+  connection_status: ConnectionStatus;
+  detail: string | null;
+  timers: ProPresenterTimer[];
+  selected_timer_id: string | null;
+  timer_found: boolean;
+  last_checked_at: string | null;
+}
+
+export interface ProPresenterSettingsInput {
+  host: string;
+  port: number;
+  timer_name: string;
+  request_timeout_seconds: number;
+}
+
+export interface ProPresenterOperationResponse {
+  accepted: boolean;
+  message: string;
+  propresenter: ProPresenterStatusResponse;
+}

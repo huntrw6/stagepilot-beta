@@ -9,7 +9,12 @@ from pydantic import BaseModel, Field
 
 from stagepilot.core.events import ActionName
 from stagepilot.core.midi import MidiCueName, MidiMessageDisposition
-from stagepilot.models.state import ApplicationState, ApplicationStatus, PluginHealth
+from stagepilot.models.state import (
+    ApplicationState,
+    ApplicationStatus,
+    ConnectionStatus,
+    PluginHealth,
+)
 
 
 class HealthResponse(BaseModel):
@@ -100,6 +105,41 @@ class MidiCueSimulationResponse(BaseModel):
     accepted: bool
     message: str
     state: ApplicationState
+
+
+class ProPresenterTimerResponse(BaseModel):
+    id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=255)
+    index: int = Field(ge=0)
+    is_countdown: bool
+    state: str | None = None
+
+
+class ProPresenterStatusResponse(BaseModel):
+    enabled: bool
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(ge=1, le=65535)
+    timer_name: str = Field(min_length=1, max_length=255)
+    request_timeout_seconds: float = Field(gt=0, le=60.0)
+    connection_status: ConnectionStatus
+    detail: str | None = None
+    timers: list[ProPresenterTimerResponse] = Field(default_factory=list)
+    selected_timer_id: str | None = None
+    timer_found: bool
+    last_checked_at: datetime | None = None
+
+
+class ProPresenterSettingsRequest(BaseModel):
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(ge=1, le=65535)
+    timer_name: str = Field(min_length=1, max_length=255)
+    request_timeout_seconds: float = Field(gt=0, le=60.0)
+
+
+class ProPresenterOperationResponse(BaseModel):
+    accepted: bool
+    message: str
+    propresenter: ProPresenterStatusResponse
 
 
 class StateEnvelope(BaseModel):

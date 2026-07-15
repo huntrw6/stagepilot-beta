@@ -542,10 +542,7 @@ class MidiPlaybackPlugin(Plugin, MidiController):
         if cue is None:
             outcome = ActionOutcome(
                 False,
-                (
-                    f"Ignored: velocity {message.velocity} is not mapped "
-                    "to a StagePilot cue."
-                ),
+                (f"Ignored: velocity {message.velocity} is not mapped to a StagePilot cue."),
             )
             self._record_message(
                 queued,
@@ -622,9 +619,7 @@ class MidiPlaybackPlugin(Plugin, MidiController):
         """Release every velocity latch associated with one MIDI note."""
 
         matching = {
-            trigger
-            for trigger in self._held_notes
-            if trigger[0] == channel and trigger[1] == note
+            trigger for trigger in self._held_notes if trigger[0] == channel and trigger[1] == note
         }
         self._held_notes.difference_update(matching)
 

@@ -8,9 +8,12 @@ import type {
   MidiCueName,
   MidiInputsResponse,
   MidiMonitorMessage,
+  ProPresenterSettingsInput,
+  ProPresenterStatusResponse,
   Song,
 } from "../types";
 import { MidiSetupPanel } from "./MidiSetupPanel";
+import { ProPresenterSetupPanel } from "./ProPresenterSetupPanel";
 import { StatusCard } from "./StatusCard";
 
 const formatDuration = (seconds: number | null | undefined) => {
@@ -111,11 +114,18 @@ export function Dashboard({
   midiMessage,
   pendingMidiOperation,
   pendingMidiCue,
+  propresenter = null,
+  propresenterError = null,
+  propresenterMessage = null,
+  pendingProPresenterOperation = null,
   dispatch,
   selectPlan,
   refreshMidi,
   selectMidi,
   simulateMidi,
+  saveProPresenter = () => undefined,
+  runProPresenterTest = () => undefined,
+  refreshProPresenter = () => undefined,
 }: {
   state: ApplicationState;
   health: HealthResponse | null;
@@ -130,11 +140,18 @@ export function Dashboard({
   midiMessage: string | null;
   pendingMidiOperation: "refresh" | "connect" | "disconnect" | null;
   pendingMidiCue: MidiCueName | null;
+  propresenter?: ProPresenterStatusResponse | null;
+  propresenterError?: string | null;
+  propresenterMessage?: string | null;
+  pendingProPresenterOperation?: "save" | "test" | "refresh" | null;
   dispatch: (action: ActionName) => void;
   selectPlan: (planId: string) => void;
   refreshMidi: () => void;
   selectMidi: (inputId: string | null) => void;
   simulateMidi: (cue: MidiCueName) => void;
+  saveProPresenter?: (settings: ProPresenterSettingsInput) => void;
+  runProPresenterTest?: () => void;
+  refreshProPresenter?: () => void;
 }) {
   const plugin = state.plugins.demo;
   const backendStatus: ConnectionStatus = state.application_status === "running" && live
@@ -153,6 +170,9 @@ export function Dashboard({
     ["Song durations valid", durationReady],
     ["MIDI input connected", state.midi_status === "connected"],
     ["ProPresenter connected", state.propresenter_status === "connected"],
+    ...(state.plugins.propresenter
+      ? [["ProPresenter timer found", Boolean(propresenter?.timer_found)]] as const
+      : []),
     ...(plugin ? [["Demo integration running", plugin.status === "running"]] as const : []),
   ];
   const ready = checks.every(([, passed]) => passed) && live;
@@ -251,6 +271,20 @@ export function Dashboard({
           pendingCue={pendingMidiCue}
           pendingOperation={pendingMidiOperation}
         />
+      )}
+
+      {state.plugins.propresenter && (
+        <div className="mt-5">
+          <ProPresenterSetupPanel
+            error={propresenterError}
+            message={propresenterMessage}
+            onRefreshTimers={refreshProPresenter}
+            onSave={saveProPresenter}
+            onTest={runProPresenterTest}
+            pendingOperation={pendingProPresenterOperation}
+            propresenter={propresenter}
+          />
+        </div>
       )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(350px,0.8fr)]">

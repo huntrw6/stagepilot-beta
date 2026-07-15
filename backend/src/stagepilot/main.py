@@ -52,6 +52,7 @@ def create_app(
     )
     plugin_manager = PluginManager(event_bus)
     midi_plugin: MidiPlaybackPlugin | None = None
+    propresenter_plugin: ProPresenterPlugin | None = None
 
     if resolved_settings.demo_mode:
         plugin_manager.register(
@@ -88,18 +89,16 @@ def create_app(
         plugin_manager.register(midi_plugin)
 
     real_propresenter_enabled = resolved_settings.propresenter.enabled and (
-        not resolved_settings.demo_mode
-        or not resolved_settings.demo.simulate_propresenter
+        not resolved_settings.demo_mode or not resolved_settings.demo.simulate_propresenter
     )
     if real_propresenter_enabled:
-        plugin_manager.register(
-            ProPresenterPlugin(
-                event_bus,
-                state_store,
-                resolved_settings.propresenter,
-                client_factory=propresenter_client_factory,
-            )
+        propresenter_plugin = ProPresenterPlugin(
+            event_bus,
+            state_store,
+            resolved_settings.propresenter,
+            client_factory=propresenter_client_factory,
         )
+        plugin_manager.register(propresenter_plugin)
 
     runtime = Runtime(
         settings=resolved_settings,
@@ -108,6 +107,7 @@ def create_app(
         state_service=state_service,
         plugin_manager=plugin_manager,
         midi_controller=midi_plugin,
+        propresenter_controller=propresenter_plugin,
     )
 
     @asynccontextmanager

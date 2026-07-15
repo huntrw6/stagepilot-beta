@@ -70,6 +70,7 @@ const ambiguousServiceState: ServiceLoadState = {
 const midi: MidiInputsResponse = {
   enabled: true,
   channel: 1,
+  note: 112,
   configured_input_name: null,
   selected_input_name: null,
   inputs: [],
@@ -168,8 +169,8 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.getByText("Sunday Morning")).toBeInTheDocument();
     expect(screen.getByText("Sunday Evening")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Multiple plans match 2026-07-19" })).toBeInTheDocument();
-    expect(screen.getByText("Weekend Services · 09:00")).toBeInTheDocument();
-    expect(screen.getByText("Weekend Services · 18:00")).toBeInTheDocument();
+    expect(screen.getByText("Weekend Services \u00B7 09:00")).toBeInTheDocument();
+    expect(screen.getByText("Weekend Services \u00B7 18:00")).toBeInTheDocument();
 
     expect(screen.getByText(ambiguousServiceState.message!)).toBeInTheDocument();
 
@@ -245,13 +246,13 @@ describe("Dashboard Planning Center plan states", () => {
     });
 
     expect(screen.getByText("Upcoming Sunday Service")).toBeInTheDocument();
-    expect(screen.getByText("Weekend Services · 2026-07-19 · 09:00")).toBeInTheDocument();
+    expect(screen.getByText("Weekend Services \u00B7 2026-07-19 \u00B7 09:00")).toBeInTheDocument();
     expect(screen.getByText("Service plan loaded")).toBeInTheDocument();
     expect(screen.getByText("Service plan")).toBeInTheDocument();
     expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("All systems ready")).toBeInTheDocument();
-    expect(screen.queryByText("Today’s plan loaded")).not.toBeInTheDocument();
-    expect(screen.queryByText("Today’s service")).not.toBeInTheDocument();
+    expect(screen.queryByText("TodayÃ¢â‚¬â„¢s plan loaded")).not.toBeInTheDocument();
+    expect(screen.queryByText("TodayÃ¢â‚¬â„¢s service")).not.toBeInTheDocument();
   });
 
   it("shows skipped service item titles", () => {
@@ -279,3 +280,4 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.getByText(/Welcome/)).toHaveTextContent("Announcements");
   });
 });
+

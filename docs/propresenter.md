@@ -1,88 +1,63 @@
-# ProPresenter countdown integration
+# ProPresenter integration
 
-StagePilot controls one reusable ProPresenter countdown timer through the local
-HTTP API. Playback MIDI stays an input integration; it never calls
-ProPresenter directly.
+StagePilot controls one reusable ProPresenter countdown timer through ProPresenter's local HTTP API.
 
-```text
-Playback MIDI -> StagePilot action -> song.started -> ProPresenter timer
-```
+## Required ProPresenter setup
 
-## ProPresenter setup
+1. Open ProPresenter **Settings → Network** and enable the API.
+2. Note the configured API port. StagePilot defaults to `1025` but does not assume that value.
+3. Create a countdown timer named `Song Countdown`, or select another detected countdown timer in StagePilot.
+4. Link the timer to the desired ProPresenter stage layout.
 
-1. In **Show Controls > Timers**, create a countdown named `Song Countdown`.
-2. Point the stage layout timer text at that timer.
-3. In **ProPresenter Settings > Network**, enable the API and note its port.
-4. Keep ProPresenter open while StagePilot starts. The plugin verifies that the
-   configured countdown exists before it reports a connected state.
+## StagePilot configuration
 
-The exact timer endpoint schema is owned by the ProPresenter version installed
-on the machine. Use the **API Documentation** button in ProPresenter's Network
-settings when troubleshooting a version-specific response.
+The production setup panel supports session-level changes to:
 
-## Normal production configuration
+- Host
+- Port
+- Timer name
+- Request timeout
+- Connection test
+- Timer rediscovery
+
+Environment defaults are available for unattended startup:
 
 ```dotenv
-STAGEPILOT_DEMO_MODE=false
 STAGEPILOT_PROPRESENTER_ENABLED=true
 STAGEPILOT_PROPRESENTER_HOST=127.0.0.1
 STAGEPILOT_PROPRESENTER_PORT=1025
-STAGEPILOT_PROPRESENTER_TIMER_NAME="Song Countdown"
+STAGEPILOT_PROPRESENTER_TIMER_NAME=Song Countdown
 STAGEPILOT_PROPRESENTER_TIMEOUT_SECONDS=3
+STAGEPILOT_PROPRESENTER_RECONNECT_INITIAL_SECONDS=1
+STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS=30
+STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS=10
 ```
 
-When ProPresenter runs on another computer, replace `127.0.0.1` with that
-computer's LAN address and allow the configured API port through its firewall.
-
-## Mixed demo/hardware test
-
-This is the easiest way to test the iPad-to-ProPresenter chain before Planning
-Center credentials are configured. The values below are the settings used by
-`scripts/run-demo-hardware.ps1` (StagePilot does not load `.env` implicitly):
+When demo mode supplies the service plan but real ProPresenter output is desired, also set:
 
 ```dotenv
 STAGEPILOT_DEMO_MODE=true
-STAGEPILOT_DEMO_SIMULATE_MIDI=false
 STAGEPILOT_DEMO_SIMULATE_PROPRESENTER=false
-
-STAGEPILOT_MIDI_ENABLED=true
-STAGEPILOT_MIDI_INPUT_NAME="StagePilot MIDI"
-
-STAGEPILOT_PROPRESENTER_ENABLED=true
-STAGEPILOT_PROPRESENTER_HOST=127.0.0.1
-STAGEPILOT_PROPRESENTER_PORT=1025
-STAGEPILOT_PROPRESENTER_TIMER_NAME="Song Countdown"
 ```
 
-The demo plugin still loads sample songs and durations, while the real MIDI and
-ProPresenter plugins handle hardware I/O.
+## Timer sequence
 
-## Timer behavior
+For `song.started` and `song.restarted`, StagePilot performs:
 
-For `song.started` and `song.restarted`, the plugin performs:
+1. Stop
+2. Set countdown duration
+3. Reset
+4. Start
 
-1. Stop the configured timer.
-2. Update its countdown duration while preserving its UUID and visible name.
-3. Reset it.
-4. Start it.
-5. Publish `timer.started` so the dashboard reflects the result.
+`timer.stop_requested` stops the real ProPresenter timer.
 
-For `timer.stop_requested`, it stops the same timer and publishes
-`timer.stopped`.
+## Recovery
 
-The timer is found by visible name and its identifier is cached. If an operation
-fails because ProPresenter restarted or recreated the timer, StagePilot clears
-the cache, rediscovers it once, and retries the operation.
+StagePilot periodically probes ProPresenter. If ProPresenter is offline at startup or restarts later, the plugin retries with capped exponential backoff. Timer identities are rediscovered by visible name, and failed timer operations clear the cached timer before one immediate retry.
 
-## Default Playback notes
+The dashboard distinguishes:
 
-| Action | Note |
-| --- | ---: |
-| Start next song | 100 |
-| Restart current song | 101 |
-| Previous song | 102 |
-| Next song without starting | 103 |
-| Reload plan | 104 |
-| Stop timer | 105 |
-
-All note mappings remain configurable through environment variables.
+- API unreachable
+- API connected but configured timer missing
+- Timer found and ready
+- Timer command failure

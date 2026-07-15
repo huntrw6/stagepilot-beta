@@ -286,7 +286,9 @@ def test_disabled_midi_never_constructs_hardware_and_rejects_simulation(
     midi_factory = RecordingMidiBackendFactory(midi_backend)
     app = create_app(
         production_settings(),
-        planning_center_client_factory=RecordingPlanningCenterFactory(planning_center_client),
+        planning_center_client_factory=RecordingPlanningCenterFactory(
+            planning_center_client
+        ),
         planning_center_today_provider=fixed_today,
         midi_backend_factory=midi_factory,
     )
@@ -307,7 +309,9 @@ def test_disabled_midi_never_constructs_hardware_and_rejects_simulation(
     assert inputs.inputs == []
     assert inputs.mappings[MidiCueName.START_NEXT] == 100
     assert simulation_response.status_code == 409
-    assert simulation_response.json() == {"detail": "The MIDI Playback plugin is disabled."}
+    assert simulation_response.json() == {
+        "detail": "The MIDI Playback plugin is disabled."
+    }
     assert health.status == "healthy"
     assert [plugin.name for plugin in health.plugins] == ["planning_center"]
     assert midi_factory.calls == 0
@@ -325,7 +329,9 @@ def test_demo_mode_stays_hardware_free_even_when_midi_is_enabled() -> None:
     )
 
     with TestClient(app) as client:
-        inputs = MidiInputsResponse.model_validate(client.get("/api/v1/midi/inputs").json())
+        inputs = MidiInputsResponse.model_validate(
+            client.get("/api/v1/midi/inputs").json()
+        )
         health = HealthResponse.model_validate(client.get("/api/v1/health").json())
 
     assert inputs.enabled is False
@@ -368,7 +374,9 @@ def test_enabled_production_app_registers_midi_and_exposes_safe_discovery_and_si
         monitor = MidiMonitorResponse(messages=[])
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
-            monitor = MidiMonitorResponse.model_validate(client.get("/api/v1/midi/messages").json())
+            monitor = MidiMonitorResponse.model_validate(
+                client.get("/api/v1/midi/messages").json()
+            )
             if monitor.messages:
                 break
             time.sleep(0.01)
@@ -387,7 +395,10 @@ def test_enabled_production_app_registers_midi_and_exposes_safe_discovery_and_si
     assert inputs.enabled is True
     assert inputs.channel == 9
     assert inputs.configured_input_name == MIDI_INPUT_NAME
-    assert [value.name for value in inputs.inputs] == ["Backup Controller", MIDI_INPUT_NAME]
+    assert [value.name for value in inputs.inputs] == [
+        "Backup Controller",
+        MIDI_INPUT_NAME,
+    ]
     selected = next(value for value in inputs.inputs if value.selected)
     assert selected.connected is True
     assert selected.ambiguous is False
@@ -412,7 +423,10 @@ def test_enabled_production_app_registers_midi_and_exposes_safe_discovery_and_si
     assert accepted.state.current_song.title == "Battle Belongs"
 
     assert health.status == "healthy"
-    assert [plugin.name for plugin in health.plugins] == ["planning_center", "midi_playback"]
+    assert [plugin.name for plugin in health.plugins] == [
+        "planning_center",
+        "midi_playback",
+    ]
     assert all(plugin.status is PluginStatus.RUNNING for plugin in health.plugins)
     assert midi_factory.calls == 1
     assert midi_backend.opened_names == [MIDI_INPUT_NAME]
@@ -434,7 +448,9 @@ def test_production_health_stays_degraded_until_configured_midi_connects(
         production_settings(
             midi=MidiSettings(enabled=True, input_name=MIDI_INPUT_NAME),
         ),
-        planning_center_client_factory=RecordingPlanningCenterFactory(LoadedPlanningCenterClient()),
+        planning_center_client_factory=RecordingPlanningCenterFactory(
+            LoadedPlanningCenterClient()
+        ),
         planning_center_today_provider=fixed_today,
         midi_backend_factory=midi_factory,
     )
@@ -442,7 +458,9 @@ def test_production_health_stays_degraded_until_configured_midi_connects(
     with TestClient(app) as client:
         degraded = HealthResponse.model_validate(client.get("/api/v1/health").json())
         assert degraded.status == "degraded"
-        midi_health = next(plugin for plugin in degraded.plugins if plugin.name == "midi_playback")
+        midi_health = next(
+            plugin for plugin in degraded.plugins if plugin.name == "midi_playback"
+        )
         assert midi_health.status is PluginStatus.STARTING
 
         midi_backend.names.append(MIDI_INPUT_NAME)
@@ -450,6 +468,8 @@ def test_production_health_stays_degraded_until_configured_midi_connects(
         healthy = HealthResponse.model_validate(client.get("/api/v1/health").json())
 
     assert healthy.status == "healthy"
-    midi_health = next(plugin for plugin in healthy.plugins if plugin.name == "midi_playback")
+    midi_health = next(
+        plugin for plugin in healthy.plugins if plugin.name == "midi_playback"
+    )
     assert midi_health.status is PluginStatus.RUNNING
     assert midi_factory.calls == 1

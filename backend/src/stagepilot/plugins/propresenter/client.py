@@ -173,9 +173,7 @@ class ProPresenterClient:
                 values = payload.get(key)
                 if isinstance(values, list):
                     return [
-                        cast(dict[str, Any], value)
-                        for value in values
-                        if isinstance(value, dict)
+                        cast(dict[str, Any], value) for value in values if isinstance(value, dict)
                     ]
         raise ProPresenterResponseError("ProPresenter returned an unexpected timer-list response.")
 

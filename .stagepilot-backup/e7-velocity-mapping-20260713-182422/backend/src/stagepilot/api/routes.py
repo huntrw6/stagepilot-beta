@@ -172,7 +172,9 @@ async def select_midi_input(
 ) -> MidiInputSelectionResponse:
     controller = _runtime(request).midi_controller
     if controller is None:
-        raise HTTPException(status_code=409, detail="The MIDI Playback plugin is disabled.")
+        raise HTTPException(
+            status_code=409, detail="The MIDI Playback plugin is disabled."
+        )
     outcome = await controller.select_input(selection.input_id)
     if not outcome.accepted:
         raise HTTPException(status_code=409, detail=outcome.message)
@@ -194,7 +196,9 @@ async def simulate_midi_cue(
     runtime = _runtime(request)
     controller = runtime.midi_controller
     if controller is None:
-        raise HTTPException(status_code=409, detail="The MIDI Playback plugin is disabled.")
+        raise HTTPException(
+            status_code=409, detail="The MIDI Playback plugin is disabled."
+        )
     outcome = await controller.simulate_cue(simulation.cue)
     return MidiCueSimulationResponse(
         cue=simulation.cue,

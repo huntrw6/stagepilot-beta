@@ -6,7 +6,14 @@ import os
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from stagepilot.core.midi import MidiCueName
 
@@ -32,7 +39,9 @@ class MidiVelocityMappings(BaseModel):
     def mapped_velocities_are_unique(self) -> MidiVelocityMappings:
         velocities = [velocity for _cue, velocity in self.configured()]
         if len(velocities) != len(set(velocities)):
-            raise ValueError("Every configured MIDI action must use a distinct velocity.")
+            raise ValueError(
+                "Every configured MIDI action must use a distinct velocity."
+            )
         return self
 
     def configured(self) -> tuple[tuple[MidiCueName, int], ...]:
@@ -44,7 +53,9 @@ class MidiVelocityMappings(BaseModel):
             (MidiCueName.RELOAD_PLAN, self.reload_plan),
             (MidiCueName.STOP_TIMER, self.stop_timer),
         )
-        return tuple((cue, velocity) for cue, velocity in values if velocity is not None)
+        return tuple(
+            (cue, velocity) for cue, velocity in values if velocity is not None
+        )
 
     def velocity_for(self, cue: MidiCueName) -> int | None:
         return dict(self.configured()).get(cue)
@@ -145,7 +156,9 @@ class PlanningCenterSettings(BaseModel):
     @model_validator(mode="after")
     def credentials_are_complete(self) -> PlanningCenterSettings:
         if (self.app_id is None) != (self.secret is None):
-            msg = "Planning Center application ID and secret must be configured together."
+            msg = (
+                "Planning Center application ID and secret must be configured together."
+            )
             raise ValueError(msg)
         return self
 
@@ -175,7 +188,9 @@ class Settings(BaseModel):
     demo_mode: bool = True
     demo: DemoSettings = Field(default_factory=DemoSettings)
     timezone: str = "America/Los_Angeles"
-    planning_center: PlanningCenterSettings = Field(default_factory=PlanningCenterSettings)
+    planning_center: PlanningCenterSettings = Field(
+        default_factory=PlanningCenterSettings
+    )
     midi: MidiSettings = Field(default_factory=MidiSettings)
     propresenter: ProPresenterSettings = Field(default_factory=ProPresenterSettings)
     recent_event_limit: int = Field(default=100, ge=1, le=1000)
@@ -232,8 +247,12 @@ def get_settings() -> Settings:
             app_id=_environment_optional("STAGEPILOT_PCO_APP_ID"),
             secret=_environment_optional("STAGEPILOT_PCO_SECRET"),
             service_type_id=_environment_optional("STAGEPILOT_PCO_SERVICE_TYPE_ID"),
-            upcoming_lookahead_days=int(os.getenv("STAGEPILOT_PCO_LOOKAHEAD_DAYS", "30")),
-            request_timeout_seconds=float(os.getenv("STAGEPILOT_PCO_TIMEOUT_SECONDS", "10.0")),
+            upcoming_lookahead_days=int(
+                os.getenv("STAGEPILOT_PCO_LOOKAHEAD_DAYS", "30")
+            ),
+            request_timeout_seconds=float(
+                os.getenv("STAGEPILOT_PCO_TIMEOUT_SECONDS", "10.0")
+            ),
             user_agent=os.getenv(
                 "STAGEPILOT_PCO_USER_AGENT",
                 "StagePilot/0.1.0 (https://github.com/huntrw6/stage-pilot)",
@@ -254,9 +273,7 @@ def get_settings() -> Settings:
                 previous=_environment_optional_int(
                     "STAGEPILOT_MIDI_PREVIOUS_VELOCITY", 102
                 ),
-                next=_environment_optional_int(
-                    "STAGEPILOT_MIDI_NEXT_VELOCITY", 103
-                ),
+                next=_environment_optional_int("STAGEPILOT_MIDI_NEXT_VELOCITY", 103),
                 reload_plan=_environment_optional_int(
                     "STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY", 104
                 ),
@@ -279,4 +296,3 @@ def get_settings() -> Settings:
             ),
         ),
     )
-

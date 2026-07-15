@@ -198,7 +198,9 @@ def wait_for_snapshot(
     latest = get_inputs(client)
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
-        connected = next((value.name for value in latest.inputs if value.connected), None)
+        connected = next(
+            (value.name for value in latest.inputs if value.connected), None
+        )
         if latest.selected_input_name == selected_name and connected == connected_name:
             return latest
         time.sleep(0.005)
@@ -300,7 +302,9 @@ def test_null_selection_disconnects_hardware_but_keeps_simulation_available() ->
             selected_name=None,
             connected_name=None,
         )
-        assert not any(value.selected or value.connected for value in disconnected.inputs)
+        assert not any(
+            value.selected or value.connected for value in disconnected.inputs
+        )
 
         simulation_response = client.post(
             "/api/v1/midi/cue-simulation",
@@ -308,7 +312,9 @@ def test_null_selection_disconnects_hardware_but_keeps_simulation_available() ->
         )
 
         assert simulation_response.status_code == 200
-        simulation = MidiCueSimulationResponse.model_validate(simulation_response.json())
+        simulation = MidiCueSimulationResponse.model_validate(
+            simulation_response.json()
+        )
         assert simulation.accepted is True
         assert simulation.state.last_action == "stop_timer"
 
@@ -353,7 +359,9 @@ def test_ambiguous_duplicate_name_is_rejected_without_changing_selection() -> No
     with TestClient(app) as client:
         wait_until(lambda: len(backend.ports) == 1)
         inputs = get_inputs(client)
-        duplicate = next(value for value in inputs.inputs if value.name == duplicate_name)
+        duplicate = next(
+            value for value in inputs.inputs if value.name == duplicate_name
+        )
         assert duplicate.ambiguous is True
 
         response = client.post(
@@ -362,10 +370,14 @@ def test_ambiguous_duplicate_name_is_rejected_without_changing_selection() -> No
         )
 
         assert response.status_code == 409
-        assert response.json() == {"detail": "The selected MIDI input name is ambiguous."}
+        assert response.json() == {
+            "detail": "The selected MIDI input name is ambiguous."
+        }
         retained = get_inputs(client)
         assert retained.selected_input_name == CONFIGURED_INPUT
-        configured = next(value for value in retained.inputs if value.name == CONFIGURED_INPUT)
+        configured = next(
+            value for value in retained.inputs if value.name == CONFIGURED_INPUT
+        )
         assert configured.selected is True
         assert configured.connected is True
 

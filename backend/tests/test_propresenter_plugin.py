@@ -35,6 +35,7 @@ class FakeProPresenterClient:
         self.closed = True
 
     async def list_timers(self) -> list[ProPresenterTimer]:
+        self.calls.append(("list", None))
         return [self.timer]
 
     async def find_timer(self, name: str) -> ProPresenterTimer:
@@ -68,7 +69,10 @@ async def test_demo_plan_can_drive_real_propresenter_plugin() -> None:
     settings = Settings(
         demo_mode=True,
         demo=DemoSettings(simulate_propresenter=False),
-        propresenter=ProPresenterSettings(enabled=True),
+        propresenter=ProPresenterSettings(
+            enabled=True,
+            health_check_interval_seconds=300,
+        ),
     )
     app = create_app(
         settings,
@@ -91,7 +95,7 @@ async def test_demo_plan_can_drive_real_propresenter_plugin() -> None:
         assert running.timer.duration_seconds == 281
 
         assert fake.calls == [
-            ("find", "Song Countdown"),
+            ("list", None),
             ("stop", "timer-uuid"),
             ("set", 281),
             ("reset", "timer-uuid"),
