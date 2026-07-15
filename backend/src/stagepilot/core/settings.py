@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from stagepilot.core.config import (
     IntegrationModes,
+    LightsSettings,
     MidiSettings,
     MidiSource,
     PlanningCenterSettings,
@@ -70,12 +71,21 @@ class PersistentPlanningCenterSettings(BaseModel):
         return value
 
 
+class OnboardingSettings(BaseModel):
+    """Small persisted markers that cannot be inferred from validated defaults."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    general_completed: bool = False
+
+
 class PersistentSettings(BaseModel):
     """Versioned ordinary settings persisted outside the repository."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[1] = SETTINGS_SCHEMA_VERSION
+    onboarding: OnboardingSettings = Field(default_factory=OnboardingSettings)
     integration_modes: IntegrationModes = Field(default_factory=IntegrationModes)
     timezone: str = "America/Los_Angeles"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -84,6 +94,7 @@ class PersistentSettings(BaseModel):
         default_factory=PersistentPlanningCenterSettings
     )
     midi: MidiSettings = Field(default_factory=MidiSettings)
+    lights: LightsSettings = Field(default_factory=LightsSettings)
     propresenter: ProPresenterSettings = Field(default_factory=ProPresenterSettings)
 
     @field_validator("timezone")
@@ -119,6 +130,7 @@ class PersistentSettings(BaseModel):
                     "enabled": settings.integration_modes.midi_source is MidiSource.REAL,
                 }
             ),
+            lights=settings.lights,
             propresenter=settings.propresenter.model_copy(
                 update={
                     "enabled": (
@@ -147,6 +159,7 @@ class PersistentSettings(BaseModel):
             midi=self.midi.model_copy(
                 update={"enabled": self.integration_modes.midi_source is MidiSource.REAL}
             ),
+            lights=self.lights,
             propresenter=self.propresenter.model_copy(
                 update={"enabled": self.integration_modes.timer_output is TimerOutput.PROPRESENTER}
             ),
@@ -343,6 +356,23 @@ def _environment_overrides(values: Mapping[str, str]) -> dict[str, object]:
         )
         assign("midi", field, value)
 
+    lights_fields: tuple[tuple[str, str, object], ...] = (
+        ("STAGEPILOT_LIGHTS_OUTPUT_NAME", "output_name", _optional),
+        ("STAGEPILOT_LIGHTS_CHANNEL", "channel", int),
+        ("STAGEPILOT_LIGHTS_PULSE_MS", "pulse_ms", int),
+    )
+    for environment_name, field, converter in lights_fields:
+        if environment_name not in values:
+            continue
+        value = (
+            converter(values, environment_name)
+            if converter is _optional
+            else converter(values[environment_name])  # type: ignore[operator]
+        )
+        assign("lights", field, value)
+    if "STAGEPILOT_LIGHTS_ENABLED" in values:
+        assign("lights", "enabled", _boolean(values["STAGEPILOT_LIGHTS_ENABLED"]))
+
     mapping_names = {
         "STAGEPILOT_MIDI_START_NEXT_VELOCITY": "start_next",
         "STAGEPILOT_MIDI_RESTART_CURRENT_VELOCITY": "restart_current",
@@ -499,7 +529,11 @@ class SettingsService:
     def effective_snapshot(self) -> PersistentSettings:
         if self._runtime is None:
             return self.snapshot()
-        return PersistentSettings.from_runtime(self._runtime)
+        resolved = PersistentSettings.from_runtime(self._runtime)
+        return resolved.model_copy(
+            update={"onboarding": self._persistent.onboarding},
+            deep=True,
+        )
 
     def effective_runtime_settings(self) -> Settings:
         """Return an internal runtime copy, including masked secret values."""
@@ -549,6 +583,14 @@ class SettingsService:
         self.save(
             self._persistent.model_copy(
                 update={"propresenter": settings},
+                deep=True,
+            )
+        )
+
+    def persist_lights(self, settings: LightsSettings) -> None:
+        self.save(
+            self._persistent.model_copy(
+                update={"lights": settings},
                 deep=True,
             )
         )

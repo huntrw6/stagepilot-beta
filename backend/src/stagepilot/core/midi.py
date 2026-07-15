@@ -5,10 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from stagepilot.core.actions import ActionOutcome
 from stagepilot.core.events import ActionName
+
+if TYPE_CHECKING:
+    from stagepilot.core.config import MidiSettings
 
 
 class MidiCueName(StrEnum):
@@ -71,6 +74,8 @@ class MidiInputSnapshot:
 
 
 class MidiController(Protocol):
+    async def reconfigure(self, settings: MidiSettings) -> ActionOutcome: ...
+
     async def input_snapshot(self, *, refresh: bool = False) -> MidiInputSnapshot: ...
 
     async def select_input(self, input_id: str | None) -> ActionOutcome: ...

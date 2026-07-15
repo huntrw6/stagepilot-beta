@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
   MidiCueName,
   MidiInputsResponse,
   MidiMonitorMessage,
-  MidiSource,
+  MidiSettingsInput,
+  SettingsResponse,
 } from "../types";
+import { SetupPanelHeader } from "./SetupPanelHeader";
 
 const cues: ReadonlyArray<readonly [MidiCueName, string]> = [
   ["start_next", "Start next"],
@@ -15,6 +17,16 @@ const cues: ReadonlyArray<readonly [MidiCueName, string]> = [
   ["reload_plan", "Reload plan"],
   ["stop_timer", "Stop timer"],
 ];
+
+const midiNoteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
+
+const midiNoteName = (note: number) =>
+  `${midiNoteNames[note % midiNoteNames.length]}${Math.floor(note / 12) - 2}`;
+
+const midiNoteOptions = Array.from({ length: 128 }, (_, note) => ({
+  note,
+  label: `${midiNoteName(note)} (MIDI ${note})`,
+}));
 
 const monitorTone = (message: MidiMonitorMessage) => {
   if (message.disposition === "dispatched") return "text-emerald-300";
@@ -33,11 +45,11 @@ export function MidiSetupPanel({
   onSelect,
   onSimulate,
   onClose,
-  source = null,
-  pendingModeSave = false,
-  modeError = null,
-  modeMessage = null,
-  onSourceChange,
+  settings,
+  pendingSettingsSave = false,
+  settingsError = null,
+  settingsMessage = null,
+  onSaveSettings,
 }: {
   midi: MidiInputsResponse | null;
   messages: MidiMonitorMessage[];
@@ -49,98 +61,144 @@ export function MidiSetupPanel({
   onSelect: (inputId: string | null) => void;
   onSimulate: (cue: MidiCueName) => void;
   onClose?: () => void;
-  source?: MidiSource | null;
-  pendingModeSave?: boolean;
-  modeError?: string | null;
-  modeMessage?: string | null;
-  onSourceChange?: (source: MidiSource) => void;
+  settings: SettingsResponse | null;
+  pendingSettingsSave?: boolean;
+  settingsError?: string | null;
+  settingsMessage?: string | null;
+  onSaveSettings: (settings: MidiSettingsInput) => void;
 }) {
   const [candidateId, setCandidateId] = useState("");
-  const [candidateSource, setCandidateSource] = useState<MidiSource>(source ?? "simulated");
+  const [channel, setChannel] = useState("1");
+  const [note, setNote] = useState("112");
+  const [debounce, setDebounce] = useState("250");
+  const [velocities, setVelocities] = useState<Record<MidiCueName, string>>({
+    start_next: "100",
+    restart_current: "101",
+    previous: "102",
+    next: "103",
+    reload_plan: "104",
+    stop_timer: "105",
+  });
 
   useEffect(() => {
     setCandidateId(midi?.inputs.find((input) => input.selected)?.id ?? "");
   }, [midi]);
 
   useEffect(() => {
-    if (source) setCandidateSource(source);
-  }, [source]);
+    if (!settings) return;
+    const midiSettings = settings.settings.midi;
+    setChannel(String(midiSettings.channel));
+    setNote(String(midiSettings.note));
+    setDebounce(String(midiSettings.debounce_ms));
+    setVelocities(
+      Object.fromEntries(
+        cues.map(([cue]) => [cue, String(midiSettings.mappings[cue] ?? "")]),
+      ) as Record<MidiCueName, string>,
+    );
+  }, [settings]);
+
+  const parsedSettings = useMemo<MidiSettingsInput | null>(() => {
+    if (!settings) return null;
+    const parsedChannel = Number(channel);
+    const parsedNote = Number(note);
+    const parsedDebounce = Number(debounce);
+    const parsedVelocities = Object.fromEntries(
+      cues.map(([cue]) => [cue, Number(velocities[cue])]),
+    ) as Record<MidiCueName, number>;
+    if (!Number.isInteger(parsedChannel) || parsedChannel < 1 || parsedChannel > 16) return null;
+    if (!Number.isInteger(parsedNote) || parsedNote < 0 || parsedNote > 127) return null;
+    if (!Number.isInteger(parsedDebounce) || parsedDebounce < 0 || parsedDebounce > 2000) return null;
+    if (Object.values(parsedVelocities).some((value) => !Number.isInteger(value) || value < 1 || value > 127)) return null;
+    if (new Set(Object.values(parsedVelocities)).size !== cues.length) return null;
+    return {
+      ...settings.settings.midi,
+      enabled: true,
+      channel: parsedChannel,
+      note: parsedNote,
+      debounce_ms: parsedDebounce,
+      mappings: parsedVelocities,
+    };
+  }, [channel, debounce, note, settings, velocities]);
 
   const enabled = midi?.enabled ?? false;
   const selectedInput = midi?.inputs.find((input) => input.selected) ?? null;
   const connectedInput = midi?.inputs.find((input) => input.connected) ?? null;
   const controlsPending = pendingOperation !== null;
+  const connectionStatus = connectedInput ? "connected" : midi ? "disconnected" : "loading";
 
   return (
     <section
       aria-busy={controlsPending || pendingCue !== null}
       aria-labelledby="midi-setup-heading"
-      className="mt-5 rounded-xl border border-violet-400/15 bg-[radial-gradient(circle_at_top_right,rgba(167,139,250,0.09),transparent_45%),#111923] p-4 shadow-panel"
+      className="setup-panel mt-5 rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20"
       id="midi-configuration"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-violet-300">
-            Production setup
-          </p>
-          <h2 id="midi-setup-heading" className="mt-1 text-lg font-bold text-white">
-            MIDI playback input
-          </h2>
-          <p className="mt-1 text-sm text-slate-400">
-            The selected source and accepted input device persist between StagePilot launches.
-          </p>
+      <SetupPanelHeader
+        closeLabel="Close MIDI / Playback configuration"
+        description="The selected source and accepted input device persist between StagePilot launches."
+        headingId="midi-setup-heading"
+        onClose={onClose}
+        status={connectionStatus}
+        title="MIDI playback input"
+      />
+
+      <div className="mt-4 rounded-lg border border-fuchsia-400/15 bg-fuchsia-400/[0.05] p-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="text-sm text-slate-300">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">MIDI channel</span>
+            <input className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100" disabled={pendingSettingsSave} inputMode="numeric" onChange={(event) => setChannel(event.target.value)} value={channel} />
+          </label>
+          <label className="text-sm text-slate-300">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Fixed note</span>
+            <select
+              className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
+              disabled={pendingSettingsSave}
+              onChange={(event) => setNote(event.target.value)}
+              value={note}
+            >
+              {midiNoteOptions.map((option) => (
+                <option key={option.note} value={option.note}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm text-slate-300">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Debounce (ms)</span>
+            <input className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100" disabled={pendingSettingsSave} inputMode="numeric" onChange={(event) => setDebounce(event.target.value)} value={debounce} />
+          </label>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {cues.map(([cue, label]) => (
+            <label className="text-sm text-slate-300" key={cue}>
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">{label} velocity</span>
+              <input
+                aria-label={`${label} velocity`}
+                className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
+                disabled={pendingSettingsSave}
+                inputMode="numeric"
+                onChange={(event) => setVelocities((current) => ({ ...current, [cue]: event.target.value }))}
+                value={velocities[cue]}
+              />
+            </label>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-wait disabled:opacity-40"
-            disabled={controlsPending}
-            onClick={onRefresh}
+            className="rounded-lg border border-fuchsia-400/40 bg-fuchsia-500 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-fuchsia-400 disabled:opacity-40"
+            disabled={pendingSettingsSave || parsedSettings === null}
+            onClick={() => parsedSettings && onSaveSettings(parsedSettings)}
             type="button"
           >
-            {pendingOperation === "refresh" ? "Refreshing…" : "Refresh inputs"}
+            {pendingSettingsSave ? "Saving…" : "Save MIDI settings"}
           </button>
-          {onClose && (
-            <button
-              aria-label="Close MIDI / Playback configuration"
-              className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/5 text-lg text-slate-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
-              onClick={onClose}
-              title="Close"
-              type="button"
-            >
-              ×
-            </button>
-          )}
+          <p className="text-xs text-slate-500">Saving enables real MIDI input. Values must be unique and within the displayed MIDI ranges.</p>
         </div>
       </div>
 
-      {onSourceChange && (
-        <div className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-violet-400/15 bg-violet-400/[0.05] p-3">
-          <label className="min-w-56 flex-1 text-sm text-slate-300">
-            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">MIDI source</span>
-            <select
-              className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
-              disabled={pendingModeSave}
-              onChange={(event) => setCandidateSource(event.target.value as MidiSource)}
-              value={candidateSource}
-            >
-              <option value="simulated">Simulated</option>
-              <option value="real">Real MIDI / Playback</option>
-            </select>
-          </label>
-          <button
-            className="rounded-lg border border-violet-400/30 bg-violet-400/15 px-3.5 py-2.5 text-sm font-semibold text-violet-200 disabled:opacity-40"
-            disabled={pendingModeSave || source === candidateSource}
-            onClick={() => onSourceChange(candidateSource)}
-            type="button"
-          >
-            {pendingModeSave ? "Saving…" : "Save MIDI mode"}
-          </button>
-        </div>
-      )}
-
-      {(modeError || modeMessage) && (
-        <p className={`mt-3 rounded-lg border px-3 py-2 text-sm ${modeError ? "border-rose-400/20 bg-rose-400/10 text-rose-200" : "border-violet-400/20 bg-violet-400/10 text-violet-200"}`}>
-          {modeError ?? modeMessage}
+      {(settingsError || settingsMessage) && (
+        <p className={`mt-3 rounded-lg border px-3 py-2 text-sm ${settingsError ? "border-rose-400/20 bg-rose-400/10 text-rose-200" : "border-fuchsia-400/20 bg-fuchsia-400/10 text-fuchsia-200"}`}>
+          {settingsError ?? settingsMessage}
         </p>
       )}
 
@@ -154,7 +212,7 @@ export function MidiSetupPanel({
 
           {midi && !enabled && (
             <p className="rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-3 text-sm text-amber-200">
-              Select Real MIDI / Playback above, save the mode, and restart StagePilot.
+              Save the MIDI settings above, then restart StagePilot to discover and connect the input device.
             </p>
           )}
 
@@ -177,7 +235,15 @@ export function MidiSetupPanel({
               ))}
             </select>
             <button
-              className="rounded-lg border border-violet-400/30 bg-violet-400/15 px-3.5 py-2.5 text-sm font-semibold text-violet-200 transition hover:bg-violet-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg border border-fuchsia-400/30 bg-fuchsia-400/10 px-3.5 py-2.5 text-sm font-semibold text-fuchsia-200 transition hover:bg-fuchsia-400/20 disabled:cursor-wait disabled:opacity-40"
+              disabled={controlsPending}
+              onClick={onRefresh}
+              type="button"
+            >
+              {pendingOperation === "refresh" ? "Refreshing…" : "Refresh inputs"}
+            </button>
+            <button
+              className="rounded-lg border border-fuchsia-400/40 bg-fuchsia-500 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!enabled || controlsPending || !candidateId || candidateId === selectedInput?.id}
               onClick={() => onSelect(candidateId)}
               type="button"
@@ -185,7 +251,7 @@ export function MidiSetupPanel({
               {pendingOperation === "connect" ? "Connecting…" : "Connect"}
             </button>
             <button
-              className="rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg border border-fuchsia-400/30 bg-fuchsia-400/10 px-3.5 py-2.5 text-sm font-semibold text-fuchsia-200 transition hover:bg-fuchsia-400/20 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!enabled || controlsPending || !midi?.selected_input_name}
               onClick={() => onSelect(null)}
               type="button"
@@ -213,7 +279,7 @@ export function MidiSetupPanel({
           {(error || message) && (
             <p
               aria-live="polite"
-              className={`mt-3 rounded-lg border px-3 py-2 text-sm ${error ? "border-rose-400/25 bg-rose-400/10 text-rose-200" : "border-violet-400/20 bg-violet-400/10 text-violet-200"}`}
+              className={`mt-3 rounded-lg border px-3 py-2 text-sm ${error ? "border-rose-400/25 bg-rose-400/10 text-rose-200" : "border-fuchsia-400/20 bg-fuchsia-400/10 text-fuchsia-200"}`}
               role={error ? "alert" : "status"}
             >
               {error ?? message}
@@ -227,8 +293,8 @@ export function MidiSetupPanel({
               <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Cue test</p>
               <p className="mt-1 text-xs text-slate-500">Uses the same fixed-note and velocity action path as hardware input.</p>
             </div>
-            <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-xs font-bold text-violet-300">
-              Channel {midi?.channel ?? "—"} · Note {midi?.note ?? "—"}
+            <span className="rounded-full bg-fuchsia-400/10 px-2.5 py-1 text-xs font-bold text-fuchsia-300">
+              Channel {midi?.channel ?? "—"} · Note {midi ? `${midiNoteName(midi.note)} (${midi.note})` : "—"}
             </span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -236,7 +302,7 @@ export function MidiSetupPanel({
               const velocity = midi?.mappings[cue];
               return (
                 <button
-                  className="flex items-center justify-between gap-2 rounded-lg border border-white/7 bg-white/[0.035] px-3 py-2 text-left text-sm text-slate-200 transition hover:border-violet-400/25 hover:bg-violet-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex items-center justify-between gap-2 rounded-lg border border-fuchsia-400/20 bg-fuchsia-400/[0.06] px-3 py-2 text-left text-sm text-slate-200 transition hover:border-fuchsia-400/35 hover:bg-fuchsia-400/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={!enabled || pendingCue !== null || velocity == null}
                   key={cue}
                   onClick={() => onSimulate(cue)}
@@ -244,7 +310,7 @@ export function MidiSetupPanel({
                   type="button"
                 >
                   <span>{pendingCue === cue ? "Sending…" : label}</span>
-                  <span className="font-mono text-xs text-violet-300">{velocity == null ? "—" : `v${velocity}`}</span>
+                  <span className="font-mono text-xs text-fuchsia-300">{velocity == null ? "—" : `v${velocity}`}</span>
                 </button>
               );
             })}

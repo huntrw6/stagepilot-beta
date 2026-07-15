@@ -6,9 +6,9 @@ import type {
   PlanningCenterSettingsInput,
   PlanningCenterStatusResponse,
   PlanningCenterTestInput,
-  ServiceSource,
   SettingsResponse,
 } from "../types";
+import { SetupPanelHeader } from "./SetupPanelHeader";
 
 const formatTimestamp = (value: string | null) =>
   value ? new Date(value).toLocaleString() : "Not yet";
@@ -44,7 +44,6 @@ export function PlanningCenterSetupPanel({
   onLoadServiceTypes: () => void;
   onSave: (
     input: PlanningCenterSettingsInput,
-    serviceSource: ServiceSource,
     timezone: string,
   ) => void;
   onReload: () => void;
@@ -58,7 +57,6 @@ export function PlanningCenterSetupPanel({
   const [timezone, setTimezone] = useState("America/Los_Angeles");
   const [titlePreference, setTitlePreference] = useState("");
   const [preferredTime, setPreferredTime] = useState("");
-  const [serviceSource, setServiceSource] = useState<ServiceSource>("demo");
   const [removeSecret, setRemoveSecret] = useState(false);
 
   useEffect(() => {
@@ -68,7 +66,6 @@ export function PlanningCenterSetupPanel({
     setTimezone(settings.settings.timezone);
     setTitlePreference(settings.settings.planning_center.plan_title_preference ?? "");
     setPreferredTime(settings.settings.planning_center.preferred_service_time ?? "");
-    setServiceSource(settings.settings.integration_modes.service_source);
   }, [settings]);
 
   const selectedServiceTypeKnown = serviceTypes.some((value) => value.id === serviceTypeId);
@@ -96,7 +93,6 @@ export function PlanningCenterSetupPanel({
         ...(secret ? { secret } : {}),
         ...(removeSecret ? { remove_secret: true } : {}),
       },
-      serviceSource,
       timezone.trim(),
     );
     setSecret("");
@@ -106,48 +102,24 @@ export function PlanningCenterSetupPanel({
     <section
       aria-busy={busy}
       aria-labelledby="planning-center-setup-heading"
-      className="mt-5 rounded-xl border border-amber-400/15 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.09),transparent_45%),#111923] p-5 shadow-panel"
+      className="setup-panel mt-5 rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20"
       id="planning-center-configuration"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-300">Persistent setup</p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-100" id="planning-center-setup-heading">
-            Planning Center Services
-          </h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            Test your PAT, discover service types, and save the weekly service configuration securely.
-          </p>
-        </div>
-        <button
-          aria-label="Close Planning Center configuration"
-          className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/5 text-lg text-slate-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
-          onClick={onClose}
-          title="Close"
-          type="button"
-        >
-          ×
-        </button>
-      </div>
+      <SetupPanelHeader
+        closeLabel="Close Planning Center configuration"
+        description="Test your PAT, discover service types, and save the weekly service configuration securely."
+        headingId="planning-center-setup-heading"
+        onClose={onClose}
+        status={status?.connection_status ?? state.planning_center_status}
+        title="Planning Center Services"
+      />
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <label className="text-sm text-slate-300">
-          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Service source</span>
-          <select
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
-            disabled={busy}
-            onChange={(event) => setServiceSource(event.target.value as ServiceSource)}
-            value={serviceSource}
-          >
-            <option value="demo">Demo service</option>
-            <option value="planning_center">Planning Center</option>
-          </select>
-        </label>
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Application ID</span>
           <input
             autoComplete="username"
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-blue-500/60"
             disabled={busy}
             onChange={(event) => setAppId(event.target.value)}
             value={appId}
@@ -157,7 +129,7 @@ export function PlanningCenterSetupPanel({
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Secret</span>
           <input
             autoComplete="current-password"
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-blue-500/60"
             disabled={busy || removeSecret}
             onChange={(event) => setSecret(event.target.value)}
             placeholder={status?.planning_center_secret_saved ? "Saved securely — leave blank to keep" : "Enter PAT secret"}
@@ -185,7 +157,7 @@ export function PlanningCenterSetupPanel({
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timezone</span>
           <input
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-blue-500/60"
             disabled={busy}
             onChange={(event) => setTimezone(event.target.value)}
             value={timezone}
@@ -194,7 +166,7 @@ export function PlanningCenterSetupPanel({
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Plan title preference</span>
           <input
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-blue-500/60"
             disabled={busy}
             onChange={(event) => setTitlePreference(event.target.value)}
             placeholder="Optional, for example Sunday Morning"
@@ -204,7 +176,7 @@ export function PlanningCenterSetupPanel({
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Preferred service time</span>
           <input
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-amber-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-blue-500/60"
             disabled={busy}
             onChange={(event) => setPreferredTime(event.target.value)}
             type="time"
@@ -227,7 +199,7 @@ export function PlanningCenterSetupPanel({
 
       <div className="mt-5 flex flex-wrap gap-2">
         <button
-          className="rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+          className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-2.5 text-sm font-semibold text-blue-200 transition hover:bg-blue-500/20 disabled:opacity-40"
           disabled={busy || (!secret && !status?.planning_center_secret_saved)}
           onClick={() => onTest(testInput())}
           type="button"
@@ -235,7 +207,7 @@ export function PlanningCenterSetupPanel({
           {pendingOperation === "test" ? "Testing…" : "Test connection"}
         </button>
         <button
-          className="rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+          className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-2.5 text-sm font-semibold text-blue-200 transition hover:bg-blue-500/20 disabled:opacity-40"
           disabled={busy || !status?.planning_center_secret_saved}
           onClick={onLoadServiceTypes}
           type="button"
@@ -243,15 +215,15 @@ export function PlanningCenterSetupPanel({
           {pendingOperation === "load-types" ? "Loading…" : "Load service types"}
         </button>
         <button
-          className="rounded-lg border border-amber-400/40 bg-amber-300 px-3.5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:opacity-40"
-          disabled={busy || !valid || (removeSecret && serviceSource === "planning_center")}
+          className="rounded-lg border border-blue-500/40 bg-blue-700 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:opacity-40"
+          disabled={busy || !valid}
           onClick={save}
           type="button"
         >
           {pendingOperation === "save" ? "Saving…" : "Save settings"}
         </button>
         <button
-          className="rounded-lg border border-amber-400/35 bg-amber-400/15 px-3.5 py-2.5 text-sm font-semibold text-amber-200 transition hover:bg-amber-400/25 disabled:opacity-40"
+          className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-2.5 text-sm font-semibold text-blue-200 transition hover:bg-blue-500/20 disabled:opacity-40"
           disabled={pendingAction !== null || !state.plugins.planning_center}
           onClick={onReload}
           type="button"
@@ -265,9 +237,9 @@ export function PlanningCenterSetupPanel({
           {error ?? message}
         </p>
       )}
-      {serviceSource === "planning_center" && !state.plugins.planning_center && (
+      {!state.plugins.planning_center && (
         <p className="mt-3 text-xs text-amber-200">
-          Planning Center mode will start after StagePilot is restarted.
+          Saving this configuration enables Planning Center. Restart StagePilot to start the connection.
         </p>
       )}
 
@@ -301,7 +273,7 @@ export function PlanningCenterSetupPanel({
                   <p className="text-xs text-slate-500">{candidate.service_type_name} · {candidate.service_times.join(", ")}</p>
                 </div>
                 <button
-                  className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50"
+                  className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
                   disabled={pendingPlanId !== null}
                   onClick={() => onSelectPlan(candidate.id)}
                   type="button"

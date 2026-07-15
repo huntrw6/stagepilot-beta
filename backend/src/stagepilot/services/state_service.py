@@ -196,6 +196,9 @@ class StateService:
 
     async def _reset_position(self) -> ActionOutcome:
         self._pending_start_index = 0
+        await self._event_bus.publish(
+            new_event(EventType.TIMER_RESET_REQUESTED, source="state_service")
+        )
 
         def mutation(state: ApplicationState) -> None:
             state.current_song = None
@@ -205,7 +208,7 @@ class StateService:
             state.last_action = ActionName.RESET_POSITION
 
         await self._state_store.mutate(mutation)
-        return ActionOutcome(True, "Service position reset.")
+        return ActionOutcome(True, "Service position and timer reset.")
 
     async def _select_song(self, index: int, action: ActionName) -> None:
         def mutation(state: ApplicationState) -> None:
@@ -327,7 +330,7 @@ class StateService:
             state.timer = TimerState(
                 status=TimerStatus.RUNNING,
                 duration_seconds=payload.duration_seconds,
-                started_at=datetime.now(UTC),
+                started_at=payload.started_at or event.timestamp,
             )
 
         await self._state_store.mutate(mutation)
@@ -366,6 +369,7 @@ class StateService:
                 "planning_center": "planning_center_status",
                 "midi": "midi_status",
                 "propresenter": "propresenter_status",
+                "lights": "lights_status",
             }
             setattr(state, field_names[payload.integration], payload.status)
             if payload.status is ConnectionStatus.ERROR and payload.detail:

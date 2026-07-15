@@ -3,6 +3,9 @@ import type {
   ActionResponse,
   ApplicationState,
   HealthResponse,
+  LightsOperationResponse,
+  LightsSettingsInput,
+  LightsStatusResponse,
   MidiCueName,
   MidiCueSimulationResponse,
   MidiInputSelectionResponse,
@@ -19,10 +22,32 @@ import type {
   ProPresenterSettingsInput,
   ProPresenterStatusResponse,
   SettingsResponse,
+  SongLightingCueMap,
 } from "./types";
 
+const SERVER_PORT_KEY = "stagepilot.server-port";
 const configuredOrigin = import.meta.env.VITE_STAGEPILOT_API_URL as string | undefined;
-export const apiOrigin = (configuredOrigin ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+
+const savedServerPort = () => {
+  try {
+    const value = Number(window.localStorage.getItem(SERVER_PORT_KEY));
+    return Number.isInteger(value) && value >= 1 && value <= 65535 ? value : 8765;
+  } catch {
+    return 8765;
+  }
+};
+
+export const rememberServerPort = (port: number) => {
+  try {
+    window.localStorage.setItem(SERVER_PORT_KEY, String(port));
+  } catch {
+    // A restricted browser storage policy should not prevent settings persistence.
+  }
+};
+
+export const apiOrigin = (
+  configuredOrigin ?? `http://127.0.0.1:${savedServerPort()}`
+).replace(/\/$/, "");
 export const websocketUrl = `${apiOrigin.replace(/^http/, "ws")}/ws`;
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -112,4 +137,29 @@ export const updateProPresenterSettings = (settings: ProPresenterSettingsInput) 
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
+  });
+
+export const getLightsStatus = () =>
+  requestJson<LightsStatusResponse>("/api/v1/lights");
+export const refreshLightingOutputs = () =>
+  requestJson<LightsStatusResponse>("/api/v1/lights/outputs/refresh", {
+    method: "POST",
+  });
+export const updateLightsSettings = (settings: LightsSettingsInput) =>
+  requestJson<LightsOperationResponse>("/api/v1/lights/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+export const updateLightingCueMap = (cueMap: SongLightingCueMap) =>
+  requestJson<LightsOperationResponse>("/api/v1/lights/cue-map", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cueMap),
+  });
+export const testLightingCue = (note: number, velocity: number) =>
+  requestJson<LightsOperationResponse>("/api/v1/lights/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note, velocity }),
   });

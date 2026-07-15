@@ -13,7 +13,7 @@ from stagepilot.core.events import (
     TimerPayload,
     new_event,
 )
-from stagepilot.models.state import ConnectionStatus, ServiceLoadStatus, ServicePlan
+from stagepilot.models.state import ConnectionStatus, ServiceLoadStatus, ServicePlan, Song
 
 
 def service_loaded(plan: ServicePlan) -> StagePilotEvent:
@@ -50,11 +50,11 @@ def connection_ready(
     )
 
 
-def timer_started(duration_seconds: int) -> StagePilotEvent:
+def timer_started(duration_seconds: int, song: Song) -> StagePilotEvent:
     return new_event(
         EventType.TIMER_STARTED,
         source="demo",
-        payload=TimerPayload(duration_seconds=duration_seconds),
+        payload=TimerPayload(duration_seconds=duration_seconds, song=song),
     )
 
 

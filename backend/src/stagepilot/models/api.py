@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
+from stagepilot.core.config import LightingCue, SongLightingCueMap
 from stagepilot.core.events import ActionName
 from stagepilot.core.midi import MidiCueName, MidiMessageDisposition
 from stagepilot.core.settings import PersistentPlanningCenterSettings, PersistentSettings
@@ -200,6 +201,47 @@ class ProPresenterOperationResponse(BaseModel):
     accepted: bool
     message: str
     propresenter: ProPresenterStatusResponse
+
+
+class LightingOutputResponse(BaseModel):
+    name: str = Field(min_length=1, max_length=512)
+    ambiguous: bool
+    selected: bool
+    connected: bool
+
+
+class LightsStatusResponse(BaseModel):
+    enabled: bool
+    output_name: str | None = Field(default=None, max_length=512)
+    channel: int = Field(ge=1, le=15)
+    pulse_ms: int = Field(ge=10, le=2_000)
+    connection_status: ConnectionStatus
+    detail: str | None = None
+    outputs: list[LightingOutputResponse] = Field(default_factory=list)
+    last_cue: LightingCue | None = None
+    last_cue_at: datetime | None = None
+
+
+class LightsSettingsRequest(BaseModel):
+    enabled: bool = True
+    output_name: str | None = Field(default=None, max_length=512)
+    channel: int = Field(default=1, ge=1, le=15)
+    pulse_ms: int = Field(default=100, ge=10, le=2_000)
+
+
+class LightingCueTestRequest(BaseModel):
+    note: int = Field(ge=0, le=127)
+    velocity: int = Field(default=127, ge=1, le=127)
+
+
+class LightingCueMapRequest(SongLightingCueMap):
+    pass
+
+
+class LightsOperationResponse(BaseModel):
+    accepted: bool
+    message: str
+    lights: LightsStatusResponse
 
 
 class StateEnvelope(BaseModel):

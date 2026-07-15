@@ -1,8 +1,8 @@
 # StagePilot
 
 StagePilot is an open-source church production automation platform. Its first
-workflow will connect Planning Center Services, MultiTracks Playback MIDI cues,
-and a reusable ProPresenter countdown timer. The longer-term goal is a reliable,
+workflow connects Planning Center Services, MultiTracks Playback MIDI cues,
+a reusable ProPresenter countdown timer, and timed lighting MIDI output. The longer-term goal is a reliable,
 event-driven automation hub for live production systems.
 
 > [!IMPORTANT]
@@ -18,7 +18,8 @@ event-driven automation hub for live production systems.
 2. Translate configured MIDI cues from Playback into typed StagePilot events.
 3. Select or restart the appropriate song without blind index changes.
 4. Stop, set, reset, and start one reusable ProPresenter timer.
-5. Publish state, health, and recent activity to the local dashboard.
+5. Run per-song elapsed-time MIDI cue maps for Lightkey-compatible lighting automation.
+6. Publish state, health, and recent activity to the local dashboard.
 
 Integrations communicate through the backend event bus rather than calling one
 another directly. The backend can run without Tauri so a browser, headless host,
@@ -80,17 +81,28 @@ The backend is intentionally bound to loopback. Check it at
 ### Configure MIDI Playback
 
 MIDI input is disabled by default. Open the dashboard's **MIDI / Playback**
-connection panel, select **Real MIDI / Playback**, save the mode, and restart
-StagePilot. The dashboard can then refresh, select, and disconnect an input.
+connection panel, review the channel, fixed note, action velocities, and
+debounce, then save. When the MIDI plugin is already running, these cue-filter
+changes apply immediately. Saving automatically enables real MIDI; enabling the
+plugin for the first time still requires a restart. The dashboard can then
+refresh, select, and disconnect an input.
 The same flow is available through `POST /api/v1/midi/inputs/refresh` and
 `POST /api/v1/midi/input-selection`. Accepted selections persist in
-`%APPDATA%\StagePilot\settings.json`. The cue-simulation endpoint
-exercises a named cue through the same application-action path as hardware
-input. Integration-mode changes take effect after the backend process is
-restarted. Environment variables remain available as higher-priority
-development overrides. See
+`%APPDATA%\StagePilot\settings.json`. The cue-simulation endpoint exercises a
+named cue through the same application-action path as hardware input.
+Changes that create or remove an integration take effect after restart.
+Environment variables remain available as higher-priority development
+overrides. See
 [docs/configuration.md](docs/configuration.md#midi-playback-variables) for the
 six default note mappings, endpoint examples, and validation limits.
+
+### Configure Lights
+
+Open the dashboard's **Lights** connection panel, select the MIDI output routed
+to the Lightkey Mac, and save the channel and Note On/Off pulse length. Each
+loaded Planning Center song has a persistent elapsed-time cue map with a
+`mm:ss` position, MIDI note, velocity, and label. See
+[docs/lights.md](docs/lights.md) for the two-Mac network MIDI setup and test flow.
 
 ### Run the browser dashboard
 
@@ -168,7 +180,8 @@ default.
 
 Read [docs/configuration.md](docs/configuration.md) and
 [docs/security.md](docs/security.md) before adding credentials or enabling LAN
-access.
+access. Use [docs/v0.5-acceptance.md](docs/v0.5-acceptance.md) for the final
+Windows production sign-off.
 
 ## Project status
 
@@ -177,12 +190,13 @@ validated, secret-aware PAT configuration, service-type discovery, and a typed
 client that parses ordered songs and discovers today's plan first, then the
 nearest upcoming plan within a configurable window. The window defaults to 30
 days. The dashboard can test Planning Center credentials, populate the service
-type dropdown, save independent integration modes, and persist MIDI and
-ProPresenter setup without PowerShell variables. The production plugin loads
-when Planning Center mode is selected, handles
+type dropdown, follow a first-launch readiness checklist, and persist general,
+MIDI, and ProPresenter setup without PowerShell variables. Saving a production
+integration enables its real backend mode automatically; demo and simulated
+choices are hidden from the production panels. The Planning Center plugin handles
 reloads without discarding an active last-known-good plan, and exposes ambiguous
 same-date plan selection in the dashboard. Disk-backed last-known-good plan
-caching and preference-aware ambiguity resolution remain in progress. See
+caching and preference-aware ambiguity resolution are implemented. See
 [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for scope and progress.
 
 ## Contributing

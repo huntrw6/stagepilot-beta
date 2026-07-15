@@ -18,12 +18,14 @@
         "height": 960,
         "minWidth": 1024,
         "minHeight": 700,
+        "maxWidth": 1700,
+        "maxHeight": 2560,
         "resizable": true,
         "fullscreen": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8765 http://127.0.0.1:5173 ws://127.0.0.1:5173; font-src 'self' data:; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; font-src 'self' data:; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

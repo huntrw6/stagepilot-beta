@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
@@ -107,6 +108,72 @@ class MidiSettings(BaseModel):
             stripped = value.strip()
             return stripped or None
         return value
+
+
+class LightingCue(BaseModel):
+    """One elapsed-time MIDI pulse sent to the lighting application."""
+
+    id: UUID = Field(default_factory=uuid4)
+    at_seconds: int = Field(ge=0, le=86_399)
+    note: int = Field(ge=0, le=127)
+    velocity: int = Field(default=127, ge=1, le=127)
+    label: str = Field(default="", max_length=120)
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def label_is_trimmed(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class SongLightingCueMap(BaseModel):
+    """Persistent lighting timeline for one stable Planning Center song."""
+
+    song_key: str = Field(min_length=1, max_length=256)
+    song_title: str = Field(min_length=1, max_length=500)
+    cues: list[LightingCue] = Field(default_factory=list, max_length=2_000)
+
+    @field_validator("song_key", "song_title", mode="before")
+    @classmethod
+    def values_are_trimmed(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                raise ValueError("Value cannot be empty.")
+            return stripped
+        return value
+
+    @model_validator(mode="after")
+    def cue_ids_are_unique(self) -> SongLightingCueMap:
+        cue_ids = [cue.id for cue in self.cues]
+        if len(cue_ids) != len(set(cue_ids)):
+            raise ValueError("Every lighting cue must have a unique ID.")
+        self.cues.sort(key=lambda cue: (cue.at_seconds, str(cue.id)))
+        return self
+
+
+class LightsSettings(BaseModel):
+    """Validated MIDI output and per-song cue timelines for Lights."""
+
+    enabled: bool = False
+    output_name: str | None = Field(default=None, max_length=512)
+    channel: int = Field(default=1, ge=1, le=15)
+    pulse_ms: int = Field(default=100, ge=10, le=2_000)
+    cue_maps: dict[str, SongLightingCueMap] = Field(default_factory=dict)
+
+    @field_validator("output_name", mode="before")
+    @classmethod
+    def empty_output_name_is_unset(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @model_validator(mode="after")
+    def cue_map_keys_match_song_keys(self) -> LightsSettings:
+        for key, cue_map in self.cue_maps.items():
+            if key != cue_map.song_key:
+                raise ValueError("Every lighting cue-map key must match its song key.")
+        return self
 
 
 class ProPresenterSettings(BaseModel):
@@ -214,6 +281,7 @@ class Settings(BaseModel):
     timezone: str = "America/Los_Angeles"
     planning_center: PlanningCenterSettings = Field(default_factory=PlanningCenterSettings)
     midi: MidiSettings = Field(default_factory=MidiSettings)
+    lights: LightsSettings = Field(default_factory=LightsSettings)
     propresenter: ProPresenterSettings = Field(default_factory=ProPresenterSettings)
     recent_event_limit: int = Field(default=100, ge=1, le=1000)
     recent_error_limit: int = Field(default=50, ge=1, le=500)

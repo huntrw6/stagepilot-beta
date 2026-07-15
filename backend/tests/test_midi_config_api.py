@@ -318,7 +318,7 @@ def test_disabled_midi_never_constructs_hardware_and_rejects_simulation(
     assert simulation_response.status_code == 409
     assert simulation_response.json() == {"detail": "The MIDI Playback plugin is disabled."}
     assert health.status == "healthy"
-    assert [plugin.name for plugin in health.plugins] == ["planning_center"]
+    assert [plugin.name for plugin in health.plugins] == ["lights", "planning_center"]
     assert midi_factory.calls == 0
 
 
@@ -339,7 +339,7 @@ def test_demo_mode_stays_hardware_free_even_when_midi_is_enabled() -> None:
 
     assert inputs.enabled is False
     assert inputs.inputs == []
-    assert [plugin.name for plugin in health.plugins] == ["demo"]
+    assert [plugin.name for plugin in health.plugins] == ["lights", "demo"]
     assert midi_factory.calls == 0
 
 
@@ -422,13 +422,79 @@ def test_enabled_production_app_registers_midi_and_exposes_safe_discovery_and_si
     assert accepted.state.current_song.title == "Battle Belongs"
 
     assert health.status == "healthy"
-    assert [plugin.name for plugin in health.plugins] == ["planning_center", "midi_playback"]
+    assert [plugin.name for plugin in health.plugins] == [
+        "lights",
+        "planning_center",
+        "midi_playback",
+    ]
     assert all(plugin.status is PluginStatus.RUNNING for plugin in health.plugins)
     assert midi_factory.calls == 1
     assert midi_backend.opened_names == [MIDI_INPUT_NAME]
     assert midi_backend.ports and all(port.closed for port in midi_backend.ports)
     assert planning_center_factory.calls == 1
     assert planning_center_client.closed is True
+
+
+def test_saved_note_and_channel_reconfigure_the_running_midi_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "stagepilot.api.routes._current_local_date",
+        lambda _timezone_name: TARGET_DATE,
+    )
+    midi_backend = FakeMidiBackend([MIDI_INPUT_NAME])
+    app = create_app(
+        production_settings(
+            midi=MidiSettings(
+                enabled=True,
+                input_name=MIDI_INPUT_NAME,
+                debounce_ms=0,
+            )
+        ),
+        planning_center_client_factory=RecordingPlanningCenterFactory(LoadedPlanningCenterClient()),
+        planning_center_today_provider=fixed_today,
+        midi_backend_factory=RecordingMidiBackendFactory(midi_backend),
+    )
+
+    with TestClient(app) as client:
+        wait_for_midi_status(client, ConnectionStatus.CONNECTED)
+        payload = client.get("/api/v1/settings").json()["settings"]
+        payload["midi"]["channel"] = 7
+        payload["midi"]["note"] = 124
+
+        saved = client.put("/api/v1/settings", json=payload)
+        inputs = MidiInputsResponse.model_validate(client.get("/api/v1/midi/inputs").json())
+
+        port = midi_backend.ports[0]
+        port.callback(MidiMessage(type="note_on", channel=7, note=112, velocity=100))
+        port.callback(MidiMessage(type="note_on", channel=7, note=124, velocity=100))
+
+        deadline = time.monotonic() + 2
+        state = ApplicationState()
+        monitor = MidiMonitorResponse(messages=[])
+        while time.monotonic() < deadline:
+            state = ApplicationState.model_validate(client.get("/api/v1/state").json())
+            monitor = MidiMonitorResponse.model_validate(client.get("/api/v1/midi/messages").json())
+            if state.current_song is not None and len(monitor.messages) == 2:
+                break
+            time.sleep(0.01)
+
+    assert saved.status_code == 200
+    assert saved.json()["restart_required"] is False
+    assert saved.json()["settings"]["midi"]["channel"] == 7
+    assert saved.json()["settings"]["midi"]["note"] == 124
+    assert inputs.channel == 7
+    assert inputs.note == 124
+    assert state.current_song is not None
+    assert state.current_song.title == "Battle Belongs"
+    assert [message.disposition.value for message in monitor.messages] == [
+        "dispatched",
+        "unmapped",
+    ]
+    assert [(message.note, message.note_name) for message in monitor.messages] == [
+        (124, "E8"),
+        (112, "E7"),
+    ]
 
 
 def test_production_health_stays_degraded_until_configured_midi_connects(

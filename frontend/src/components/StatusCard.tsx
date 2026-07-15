@@ -30,24 +30,24 @@ export function StatusCard({
     <button
       aria-controls={controls}
       aria-expanded={active}
-      className={`rounded-xl border bg-stage-850 p-4 text-left shadow-panel transition focus:outline-none focus:ring-2 focus:ring-sky-400/60 ${
+      className={`group rounded-xl border bg-stage-850 p-4 text-left shadow-panel transition focus:outline-none focus:ring-2 focus:ring-sky-400/60 ${
         active
-          ? "border-sky-400/50 bg-sky-400/[0.08]"
-          : "border-white/7 hover:border-white/20 hover:bg-white/[0.035]"
+          ? "border-sky-400/50 bg-slate-950/70"
+          : "border-white/7 hover:border-white/20 hover:bg-slate-950/70"
       }`}
       onClick={onClick}
       type="button"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.17em] text-slate-500">{title}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.17em] text-slate-500 transition-colors group-hover:text-slate-300">{title}</p>
           <div className="mt-2 flex items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full ${statusStyles[status]}`} />
             <span className="font-semibold capitalize text-slate-100">{status}</span>
           </div>
-          <p className="mt-1 truncate text-xs text-slate-500" title={detail}>{detail}</p>
+          <p className="mt-1 truncate text-xs text-slate-500 transition-colors group-hover:text-slate-300" title={detail}>{detail}</p>
         </div>
-        <span className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-slate-400">{icon}</span>
+        <span className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-slate-400 transition-colors group-hover:text-slate-100">{icon}</span>
       </div>
     </button>
   );

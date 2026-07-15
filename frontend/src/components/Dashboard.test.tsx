@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -24,6 +24,7 @@ const loadedPlan: ServicePlan = {
       title: "Holy Forever",
       duration_seconds: 336,
       order: 1,
+      service_sequence: 20,
       is_generic: false,
       source_song_id: "song-1",
     },
@@ -99,6 +100,7 @@ function applicationState(
     planning_center_status: "connected",
     midi_status: "connected",
     propresenter_status: "connected",
+    lights_status: "disconnected",
     service_load: serviceLoad,
     timer: {
       status: "stopped",
@@ -126,20 +128,24 @@ function applicationState(
 function renderDashboard(
   serviceLoad: ServiceLoadState,
   {
+    actionMessage = null,
+    error = null,
     pendingPlanId = null,
     selectPlan = vi.fn(),
     state = applicationState(serviceLoad),
   }: {
+    actionMessage?: string | null;
+    error?: string | null;
     pendingPlanId?: string | null;
     selectPlan?: (planId: string) => void;
     state?: ApplicationState;
   } = {},
 ) {
-  render(
+  return render(
     <Dashboard
-      actionMessage={null}
+      actionMessage={actionMessage}
       dispatch={vi.fn()}
-      error={null}
+      error={error}
       health={null}
       live
       midi={midi}
@@ -160,6 +166,90 @@ function renderDashboard(
 }
 
 describe("Dashboard Planning Center plan states", () => {
+  it("renders action notifications in the reserved header slot", () => {
+    renderDashboard(loadedServiceState, {
+      actionMessage: "Service position and timer reset.",
+    });
+
+    const notification = screen.getByRole("status");
+    const header = screen.getByRole("banner");
+    expect(header).toContainElement(notification);
+    expect(notification).toHaveTextContent("Service position and timer reset.");
+    expect(notification).toHaveClass("h-9", "w-fit", "max-w-full", "truncate");
+  });
+
+  it("keeps the same reserved header slot when no notification is visible", () => {
+    renderDashboard(loadedServiceState);
+
+    const header = screen.getByRole("banner");
+    const notification = header.querySelector('[role="status"]');
+    expect(notification).toHaveClass("h-9", "invisible");
+  });
+
+  it("queues simultaneous action and Planning Center notifications in the header", () => {
+    vi.useFakeTimers();
+    try {
+      renderDashboard({
+        ...loadedServiceState,
+        status: "loading",
+        message: "Looking for the current or next upcoming Planning Center plan.",
+        is_stale: true,
+      }, {
+        actionMessage: "Service plan reload requested.",
+      });
+
+      const notification = screen.getByRole("status");
+      expect(notification).toHaveTextContent("Service plan reload requested.");
+      expect(screen.queryByText(/Looking for the current or next upcoming Planning Center plan/)).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(notification).toHaveTextContent(
+        "Looking for the current or next upcoming Planning Center plan. The last successful plan is still displayed as stale.",
+      );
+
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(notification).toHaveClass("invisible");
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains only the two newest header notifications", () => {
+    vi.useFakeTimers();
+    try {
+      renderDashboard({
+        ...loadedServiceState,
+        status: "loading",
+        message: "Looking for the current or next upcoming Planning Center plan.",
+      }, {
+        actionMessage: "Service plan reload requested.",
+        error: "Older backend error.",
+      });
+
+      const notification = screen.getByRole("status");
+      expect(notification).toHaveTextContent("Service plan reload requested.");
+      expect(notification).not.toHaveTextContent("Older backend error.");
+
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(notification).toHaveTextContent(
+        "Looking for the current or next upcoming Planning Center plan.",
+      );
+
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(notification).toHaveClass("invisible");
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows errors in the same header slot with error styling", () => {
+    renderDashboard(loadedServiceState, { error: "Backend unavailable." });
+
+    expect(screen.getByRole("status")).toHaveClass("border-rose-400/25");
+  });
+
   it("renders ambiguous candidates and sends the selected plan ID", async () => {
     const selectPlan = vi.fn();
     const user = userEvent.setup();
@@ -211,13 +301,13 @@ describe("Dashboard Planning Center plan states", () => {
       state: applicationState(loadedServiceState, { plugins: {} }),
     });
 
-    expect(screen.getByText(/Production mode/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "StagePilot" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^MIDI \/ Playback connected/ }));
     expect(screen.getByRole("heading", { name: "MIDI playback input" })).toBeInTheDocument();
     expect(screen.getByText("No input selected")).toBeInTheDocument();
     expect(screen.queryByText("Demo integration running")).not.toBeInTheDocument();
-    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
     expect(screen.getByText("All systems ready")).toBeInTheDocument();
   });
 
@@ -226,7 +316,7 @@ describe("Dashboard Planning Center plan states", () => {
     renderDashboard(loadedServiceState);
 
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
-    expect(screen.getByText("Listening for demo actions")).toBeInTheDocument();
+    expect(screen.getByText("No input selected")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^MIDI \/ Playback connected/ }));
 
@@ -257,39 +347,72 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.getByText("Weekend Services \u00B7 2026-07-19 \u00B7 09:00")).toBeInTheDocument();
     expect(screen.getByText("Service plan loaded")).toBeInTheDocument();
     expect(screen.getByText("Service plan")).toBeInTheDocument();
-    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
     expect(screen.getByText("All systems ready")).toBeInTheDocument();
     expect(screen.queryByText("TodayÃ¢â‚¬â„¢s plan loaded")).not.toBeInTheDocument();
     expect(screen.queryByText("TodayÃ¢â‚¬â„¢s service")).not.toBeInTheDocument();
   });
 
-  it("shows skipped service item titles", () => {
+  it("interleaves subdued non-song reference items with their durations", () => {
     renderDashboard({
       ...loadedServiceState,
       skipped_items: [
         {
           item_id: "header-1",
           title: "Welcome",
+          description: "This header description is intentionally hidden",
           item_type: "header",
-          sequence: 1,
+          sequence: 10,
+          duration_seconds: 90,
           reason: "header",
         },
         {
           item_id: "item-2",
           title: "Announcements",
+          description: "Pastor John",
           item_type: "item",
-          sequence: 2,
+          sequence: 30,
+          duration_seconds: 120,
           reason: "not_song",
         },
       ],
     });
 
-    expect(screen.getByText("2 non-song items were skipped")).toBeInTheDocument();
-    expect(screen.getByText(/Welcome/)).toHaveTextContent("Announcements");
+    expect(screen.queryByText("2 non-song items were skipped")).not.toBeInTheDocument();
+    expect(screen.getByText("2 reference items")).toBeInTheDocument();
+    const rows = within(screen.getByRole("list", { name: "Service plan order" })).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("Welcome");
+    expect(rows[0]).not.toHaveTextContent("01:30");
+    expect(rows[0]).not.toHaveTextContent("Reference");
+    expect(rows[0]).not.toHaveTextContent("This header description is intentionally hidden");
+    expect(screen.getByText("Welcome")).toHaveClass("text-xs", "font-extrabold");
+    expect(rows[1]).toHaveTextContent("Holy Forever");
+    expect(rows[2]).toHaveTextContent("Announcements");
+    expect(rows[2]).toHaveTextContent("Pastor John");
+    expect(rows[2]).toHaveTextContent("02:00");
+    expect(rows[2]).not.toHaveTextContent("Reference");
+    expect(screen.getByText("Welcome")).toHaveClass("text-slate-400");
+    expect(screen.getByText("Pastor John")).toHaveClass("text-slate-600");
   });
 });
 
 describe("Dashboard connection configuration panels", () => {
+  it("guides an incomplete first launch into the selected setup panel", async () => {
+    const user = userEvent.setup();
+    renderDashboard(loadedServiceState, {
+      state: applicationState(loadedServiceState, { plugins: {} }),
+    });
+
+    expect(screen.getByRole("heading", { name: "Finish configuring StagePilot" })).toBeInTheDocument();
+    expect(screen.getByText("0 of 6 complete")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /General settings/ }));
+
+    expect(screen.getByRole("heading", { name: "StagePilot backend" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save general settings" })).toBeInTheDocument();
+  });
+
   it("opens only the clicked connection and toggles it closed on a second click", async () => {
     const user = userEvent.setup();
     renderDashboard(loadedServiceState, {
@@ -320,7 +443,7 @@ describe("Dashboard connection configuration panels", () => {
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
   });
 
-  it("provides close buttons for all four connection panels", async () => {
+  it("provides close buttons for all five connection panels", async () => {
     const user = userEvent.setup();
     renderDashboard(loadedServiceState, {
       state: applicationState(loadedServiceState, { plugins: {} }),
@@ -343,6 +466,11 @@ describe("Dashboard connection configuration panels", () => {
         heading: "ProPresenter countdown",
       },
       {
+        card: /^Lights disconnected/,
+        close: "Close Lights configuration",
+        heading: "Lighting configuration",
+      },
+      {
         card: /^StagePilot backend connected/,
         close: "Close StagePilot backend configuration",
         heading: "StagePilot backend",
@@ -355,6 +483,61 @@ describe("Dashboard connection configuration panels", () => {
 
       await user.click(screen.getByRole("button", { name: panel.close }));
       expect(screen.queryByRole("heading", { name: panel.heading })).not.toBeInTheDocument();
+    }
+  });
+
+  it("shows a live remaining clock alongside elapsed song duration", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-13T16:00:30Z"));
+    try {
+      renderDashboard(loadedServiceState, {
+        state: applicationState(loadedServiceState, {
+          current_song: loadedPlan.songs[0] ?? null,
+          current_song_index: 0,
+          timer: {
+            status: "running",
+            duration_seconds: 336,
+            started_at: "2026-07-13T16:00:00Z",
+            last_error: null,
+          },
+        }),
+      });
+
+      expect(screen.getByText("Time remaining")).toBeInTheDocument();
+      expect(screen.getByText("05:06")).toBeInTheDocument();
+      expect(screen.getByText("Elapsed")).toBeInTheDocument();
+      expect(screen.getByText("00:30")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("advances the main countdown immediately instead of lagging ProPresenter", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-13T16:00:00.010Z"));
+    try {
+      const shortSong = {
+        ...loadedPlan.songs[0]!,
+        duration_seconds: 263,
+      };
+      renderDashboard(loadedServiceState, {
+        state: applicationState(loadedServiceState, {
+          plan: { ...loadedPlan, songs: [shortSong] },
+          current_song: shortSong,
+          current_song_index: 0,
+          timer: {
+            status: "running",
+            duration_seconds: 263,
+            started_at: "2026-07-13T16:00:00.000Z",
+            last_error: null,
+          },
+        }),
+      });
+
+      expect(screen.getByText("04:22")).toBeInTheDocument();
+      expect(screen.getByText("00:00")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

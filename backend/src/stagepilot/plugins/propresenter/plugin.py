@@ -83,6 +83,10 @@ class ProPresenterPlugin(Plugin):
                     EventType.TIMER_STOP_REQUESTED,
                     self._on_timer_stop_requested,
                 ),
+                await self.event_bus.subscribe(
+                    EventType.TIMER_RESET_REQUESTED,
+                    self._on_timer_reset_requested,
+                ),
             ]
         )
         await self._probe(raise_errors=False)
@@ -166,7 +170,7 @@ class ProPresenterPlugin(Plugin):
 
         async with self._operation_lock:
             try:
-                await self._configure_and_start_locked(duration)
+                started_at = await self._configure_and_start_locked(duration)
             except Exception as exc:
                 detail = self._public_error(exc, "ProPresenter timer start failed.")
                 await self._record_operation_error(detail)
@@ -178,7 +182,11 @@ class ProPresenterPlugin(Plugin):
             new_event(
                 EventType.TIMER_STARTED,
                 source=self.name,
-                payload=TimerPayload(duration_seconds=duration),
+                payload=TimerPayload(
+                    duration_seconds=duration,
+                    song=event.payload.song,
+                    started_at=started_at,
+                ),
             )
         )
 
@@ -201,6 +209,27 @@ class ProPresenterPlugin(Plugin):
             )
         )
 
+    async def _on_timer_reset_requested(self, _event: StagePilotEvent) -> None:
+        async with self._operation_lock:
+            try:
+                await self._reset_timer_to_zero_locked()
+            except Exception as exc:
+                detail = self._public_error(exc, "ProPresenter timer reset failed.")
+                await self._record_operation_error(detail)
+                await self._publish_failure(detail)
+                return
+
+        await self._record_success(
+            f'Countdown timer "{self._settings.timer_name}" is stopped and reset to zero.'
+        )
+        await self.event_bus.publish(
+            new_event(
+                EventType.TIMER_STOPPED,
+                source=self.name,
+                payload=TimerPayload(duration_seconds=0),
+            )
+        )
+
     async def _stop_timer_locked(self) -> None:
         try:
             timer = await self._require_timer_locked()
@@ -212,22 +241,40 @@ class ProPresenterPlugin(Plugin):
             timer = await self._require_timer_locked()
             await self._require_client().stop_timer(timer.id.uuid)
 
-    async def _configure_and_start_locked(self, duration_seconds: int) -> None:
+    async def _configure_and_start_locked(self, duration_seconds: int) -> datetime:
         try:
-            await self._timer_sequence_locked(duration_seconds)
+            return await self._timer_sequence_locked(duration_seconds)
         except ProPresenterError:
             # ProPresenter restarts and timer recreation can invalidate cached UUIDs.
             self._timer = None
             await self._probe_locked(raise_errors=True)
-            await self._timer_sequence_locked(duration_seconds)
+            return await self._timer_sequence_locked(duration_seconds)
 
-    async def _timer_sequence_locked(self, duration_seconds: int) -> None:
+    async def _timer_sequence_locked(self, duration_seconds: int) -> datetime:
         client = self._require_client()
         timer = await self._require_timer_locked()
         await client.stop_timer(timer.id.uuid)
         timer = await client.set_timer_duration(timer, duration_seconds)
         await client.reset_timer(timer.id.uuid)
+        started_at = datetime.now(UTC)
         await client.start_timer(timer.id.uuid)
+        self._timer = timer
+        return started_at
+
+    async def _reset_timer_to_zero_locked(self) -> None:
+        try:
+            await self._timer_reset_sequence_locked()
+        except ProPresenterError:
+            self._timer = None
+            await self._probe_locked(raise_errors=True)
+            await self._timer_reset_sequence_locked()
+
+    async def _timer_reset_sequence_locked(self) -> None:
+        client = self._require_client()
+        timer = await self._require_timer_locked()
+        await client.stop_timer(timer.id.uuid)
+        timer = await client.set_timer_duration(timer, 0)
+        await client.reset_timer(timer.id.uuid)
         self._timer = timer
 
     async def _require_timer_locked(self) -> ProPresenterTimer:

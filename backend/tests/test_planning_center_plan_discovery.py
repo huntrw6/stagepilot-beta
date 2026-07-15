@@ -91,6 +91,7 @@ def item_resource(
     *,
     length: int | None = 240,
     linked_song_id: str | None = None,
+    description: str = "",
 ) -> JsonObject:
     song_data: JsonObject | None = None
     if linked_song_id is not None:
@@ -100,6 +101,7 @@ def item_resource(
         "id": identifier,
         "attributes": {
             "title": title,
+            "description": description,
             "item_type": item_type,
             "length": length,
             "sequence": sequence,
@@ -609,7 +611,13 @@ async def test_song_extraction_orders_linked_and_generic_items_and_reports_skips
         plan_times_by_plan={"plan-1": [plan_time_resource("time-1", "2026-07-12T16:00:00Z")]},
         items_by_plan={
             "plan-1": [
-                item_resource("item-talk", "Message", "item", 50),
+                item_resource(
+                    "item-talk",
+                    "Message",
+                    "item",
+                    50,
+                    description="Pastor John",
+                ),
                 item_resource(
                     "item-linked",
                     "  Linked Song  ",
@@ -652,6 +660,7 @@ async def test_song_extraction_orders_linked_and_generic_items_and_reports_skips
         ("item-zero", "Zero-length Song", 2),
         ("item-linked", "Linked Song", 3),
     ]
+    assert [song.service_sequence for song in result.plan.songs] == [20, 25, 30]
     generic, zero, linked = result.plan.songs
     assert generic.is_generic is True
     assert generic.source_song_id is None
@@ -670,6 +679,12 @@ async def test_song_extraction_orders_linked_and_generic_items_and_reports_skips
         SkippedItemReason.HEADER,
         SkippedItemReason.MEDIA,
         SkippedItemReason.NOT_SONG,
+    ]
+    assert [item.duration_seconds for item in result.skipped_items] == [240, 240, 240]
+    assert [item.description for item in result.skipped_items] == [
+        None,
+        None,
+        "Pastor John",
     ]
     item_request = next(request for request in api.requests if request.url.path.endswith("/items"))
     assert item_request.url.params["include"] == "song"

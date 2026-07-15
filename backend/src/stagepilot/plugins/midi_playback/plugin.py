@@ -222,6 +222,33 @@ class MidiPlaybackPlugin(Plugin, MidiController):
             last_activity_at=self._last_activity_at,
         )
 
+    async def reconfigure(self, settings: MidiSettings) -> ActionOutcome:
+        """Apply cue-filter settings without reopening the selected MIDI input."""
+
+        if (
+            not settings.enabled
+            or self._stopping
+            or self._status in {PluginStatus.STOPPED, PluginStatus.STOPPING}
+        ):
+            return ActionOutcome(False, "Restart StagePilot to change MIDI plugin availability.")
+
+        self._settings = settings.model_copy(deep=True)
+        self._held_notes.clear()
+        self._last_triggered_at.clear()
+        self._logger.info(
+            "midi_settings_reconfigured",
+            channel=settings.channel,
+            note=settings.note,
+            debounce_ms=settings.debounce_ms,
+        )
+        return ActionOutcome(
+            True,
+            (
+                "MIDI cue settings applied: channel "
+                f"{settings.channel}, note {self._note_name(settings.note)} ({settings.note})."
+            ),
+        )
+
     async def input_snapshot(self, *, refresh: bool = False) -> MidiInputSnapshot:
         if refresh and self._backend is not None and self._executor is not None:
             try:

@@ -8,13 +8,14 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request
 
-from stagepilot.core.config import ProPresenterSettings
+from stagepilot.core.config import LightsSettings, MidiSource, ProPresenterSettings, Settings
 from stagepilot.core.events import (
     ActionName,
     EventType,
     ServicePlanSelectionPayload,
     new_event,
 )
+from stagepilot.core.lights import LightsSnapshot
 from stagepilot.core.midi import MidiInputSnapshot
 from stagepilot.core.propresenter import ProPresenterSnapshot
 from stagepilot.core.runtime import Runtime
@@ -27,6 +28,12 @@ from stagepilot.core.settings import (
 from stagepilot.models.api import (
     ActionResponse,
     HealthResponse,
+    LightingCueMapRequest,
+    LightingCueTestRequest,
+    LightingOutputResponse,
+    LightsOperationResponse,
+    LightsSettingsRequest,
+    LightsStatusResponse,
     MidiCueSimulationRequest,
     MidiCueSimulationResponse,
     MidiInputResponse,
@@ -73,6 +80,12 @@ def _runtime(request: Request) -> Runtime:
 
 def _current_local_date(timezone_name: str) -> date:
     return datetime.now(ZoneInfo(timezone_name)).date()
+
+
+def _runtime_settings_without_midi(settings: Settings) -> dict[str, object]:
+    payload = cast(dict[str, object], settings.model_dump(mode="python"))
+    payload.pop("midi", None)
+    return payload
 
 
 def _settings_response(
@@ -169,6 +182,28 @@ def _propresenter_response(snapshot: ProPresenterSnapshot) -> ProPresenterStatus
     )
 
 
+def _lights_response(snapshot: LightsSnapshot) -> LightsStatusResponse:
+    return LightsStatusResponse(
+        enabled=snapshot.enabled,
+        output_name=snapshot.output_name,
+        channel=snapshot.channel,
+        pulse_ms=snapshot.pulse_ms,
+        connection_status=snapshot.connection_status,
+        detail=snapshot.detail,
+        outputs=[
+            LightingOutputResponse(
+                name=output.name,
+                ambiguous=output.ambiguous,
+                selected=output.selected,
+                connected=output.connected,
+            )
+            for output in snapshot.outputs
+        ],
+        last_cue=snapshot.last_cue,
+        last_cue_at=snapshot.last_cue_at,
+    )
+
+
 async def _propresenter_status(
     runtime: Runtime,
     *,
@@ -235,11 +270,26 @@ async def update_settings(
     request: Request,
 ) -> SettingsResponse:
     runtime = _runtime(request)
+    previous = runtime.settings_service.effective_runtime_settings()
     try:
         runtime.settings_service.save(settings)
     except SettingsFileError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return _settings_response(runtime, persisted=True, restart_required=True)
+    updated = runtime.settings_service.effective_runtime_settings()
+    restart_required = True
+    controller = runtime.midi_controller
+    only_midi_runtime_settings_changed = _runtime_settings_without_midi(
+        previous
+    ) == _runtime_settings_without_midi(updated)
+    if (
+        controller is not None
+        and updated.integration_modes.midi_source is MidiSource.REAL
+        and updated.midi.enabled
+        and only_midi_runtime_settings_changed
+    ):
+        outcome = await controller.reconfigure(updated.midi)
+        restart_required = not outcome.accepted
+    return _settings_response(runtime, restart_required=restart_required)
 
 
 @router.get("/planning-center/status", response_model=PlanningCenterStatusResponse)
@@ -523,6 +573,102 @@ async def update_propresenter_settings(
         accepted=accepted,
         message=message,
         propresenter=_propresenter_response(snapshot),
+    )
+
+
+@router.get("/lights", response_model=LightsStatusResponse)
+async def lights_status(request: Request) -> LightsStatusResponse:
+    controller = _runtime(request).lights_controller
+    if controller is None:
+        raise HTTPException(status_code=409, detail="The Lights plugin is unavailable.")
+    return _lights_response(await controller.snapshot())
+
+
+@router.post("/lights/outputs/refresh", response_model=LightsStatusResponse)
+async def refresh_lighting_outputs(request: Request) -> LightsStatusResponse:
+    controller = _runtime(request).lights_controller
+    if controller is None:
+        raise HTTPException(status_code=409, detail="The Lights plugin is unavailable.")
+    return _lights_response(await controller.snapshot(refresh=True))
+
+
+@router.post("/lights/settings", response_model=LightsOperationResponse)
+async def update_lights_settings(
+    settings: LightsSettingsRequest,
+    request: Request,
+) -> LightsOperationResponse:
+    runtime = _runtime(request)
+    controller = runtime.lights_controller
+    if controller is None:
+        raise HTTPException(status_code=409, detail="The Lights plugin is unavailable.")
+    current = runtime.settings_service.effective_runtime_settings().lights
+    updated = LightsSettings(
+        enabled=settings.enabled,
+        output_name=settings.output_name,
+        channel=settings.channel,
+        pulse_ms=settings.pulse_ms,
+        cue_maps=current.cue_maps,
+    )
+    try:
+        runtime.settings_service.persist_lights(updated)
+    except SettingsFileError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    runtime.settings.lights = updated
+    outcome = await controller.reconfigure(updated)
+    return LightsOperationResponse(
+        accepted=outcome.accepted,
+        message=outcome.message,
+        lights=_lights_response(await controller.snapshot()),
+    )
+
+
+@router.put("/lights/cue-map", response_model=LightsOperationResponse)
+async def update_lighting_cue_map(
+    cue_map: LightingCueMapRequest,
+    request: Request,
+) -> LightsOperationResponse:
+    runtime = _runtime(request)
+    controller = runtime.lights_controller
+    if controller is None:
+        raise HTTPException(status_code=409, detail="The Lights plugin is unavailable.")
+    current = runtime.settings_service.effective_runtime_settings().lights
+    cue_maps = dict(current.cue_maps)
+    if cue_map.cues:
+        cue_maps[cue_map.song_key] = cue_map
+    else:
+        cue_maps.pop(cue_map.song_key, None)
+    updated = current.model_copy(update={"cue_maps": cue_maps}, deep=True)
+    try:
+        runtime.settings_service.persist_lights(updated)
+    except SettingsFileError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    runtime.settings.lights = updated
+    await controller.replace_cue_map(cue_map)
+    message = (
+        f'Saved {len(cue_map.cues)} lighting cues for "{cue_map.song_title}".'
+        if cue_map.cues
+        else f'Removed the lighting cue map for "{cue_map.song_title}".'
+    )
+    return LightsOperationResponse(
+        accepted=True,
+        message=message,
+        lights=_lights_response(await controller.snapshot()),
+    )
+
+
+@router.post("/lights/test", response_model=LightsOperationResponse)
+async def test_lighting_cue(
+    cue: LightingCueTestRequest,
+    request: Request,
+) -> LightsOperationResponse:
+    controller = _runtime(request).lights_controller
+    if controller is None:
+        raise HTTPException(status_code=409, detail="The Lights plugin is unavailable.")
+    outcome = await controller.test_cue(cue.note, cue.velocity)
+    return LightsOperationResponse(
+        accepted=outcome.accepted,
+        message=outcome.message,
+        lights=_lights_response(await controller.snapshot()),
     )
 
 

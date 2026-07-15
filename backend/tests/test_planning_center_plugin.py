@@ -256,8 +256,10 @@ def skipped_item(identifier: str) -> SkippedPlanItem:
     return SkippedPlanItem(
         item_id=identifier,
         title="Service Header",
+        description="Opening section",
         item_type="header",
         sequence=1,
+        duration_seconds=90,
         reason=SkippedItemReason.HEADER,
     )
 
@@ -397,6 +399,8 @@ async def test_startup_resolves_service_type_and_loads_configured_local_date() -
         assert state.plan and state.plan.id == "plan-1"
         assert state.next_song and state.next_song.id == "song-a"
         assert [item.item_id for item in state.service_load.skipped_items] == ["header-1"]
+        assert state.service_load.skipped_items[0].duration_seconds == 90
+        assert state.service_load.skipped_items[0].description == "Opening section"
         assert state.last_successful_plan_reload_at is not None
         health = await harness.plugin.health()
         assert health.status is PluginStatus.RUNNING

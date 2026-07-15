@@ -77,6 +77,7 @@ def test_built_in_defaults_load_without_a_saved_file(tmp_path: Path) -> None:
     assert settings.timezone == "America/Los_Angeles"
     assert settings.bind_port == 8765
     assert settings.integration_modes == IntegrationModes()
+    assert service.snapshot().onboarding.general_completed is False
     assert settings.midi.note == 112
     assert set(dict(settings.midi.mappings.configured()).values()) == {
         100,
@@ -93,6 +94,7 @@ def test_saved_settings_survive_a_new_service_instance(tmp_path: Path) -> None:
     credentials = RecordingCredentialStore("saved-secret")
     first = settings_service(path, credentials)
     saved = PersistentSettings(
+        onboarding={"general_completed": True},
         integration_modes=IntegrationModes(
             service_source=ServiceSource.PLANNING_CENTER,
             midi_source=MidiSource.REAL,
@@ -111,7 +113,8 @@ def test_saved_settings_survive_a_new_service_instance(tmp_path: Path) -> None:
     )
     first.save(saved)
 
-    restarted = settings_service(path, credentials).load()
+    restarted_service = settings_service(path, credentials)
+    restarted = restarted_service.load()
 
     assert restarted.timezone == "America/New_York"
     assert restarted.bind_port == 9876
@@ -124,6 +127,7 @@ def test_saved_settings_survive_a_new_service_instance(tmp_path: Path) -> None:
     assert restarted.planning_center.credentials() == ("saved-app-id", "saved-secret")
     assert restarted.planning_center.plan_title_preference == "Sunday Morning"
     assert restarted.planning_center.preferred_service_time == "09:00"
+    assert restarted_service.snapshot().onboarding.general_completed is True
 
 
 def test_environment_and_session_values_override_saved_settings(tmp_path: Path) -> None:
@@ -320,7 +324,11 @@ def test_settings_put_is_validated_and_survives_subsequent_get(tmp_path: Path) -
     service = settings_service(path)
     runtime_settings = service.load()
     app = create_app(runtime_settings, settings_service=service)
-    updated = PersistentSettings(timezone="America/Denver", server_port=9001)
+    updated = PersistentSettings(
+        onboarding={"general_completed": True},
+        timezone="America/Denver",
+        server_port=9001,
+    )
 
     with TestClient(app) as client:
         saved = client.put("/api/v1/settings", json=updated.model_dump(mode="json"))
@@ -335,4 +343,5 @@ def test_settings_put_is_validated_and_survives_subsequent_get(tmp_path: Path) -
     assert fetched.status_code == 200
     assert fetched.json()["settings"]["timezone"] == "America/Denver"
     assert fetched.json()["settings"]["server_port"] == 9001
+    assert fetched.json()["settings"]["onboarding"]["general_completed"] is True
     assert invalid.status_code == 422

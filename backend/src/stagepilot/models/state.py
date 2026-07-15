@@ -52,6 +52,7 @@ class Song(BaseModel):
     title: str = Field(min_length=1)
     duration_seconds: int | None = Field(default=None, ge=0)
     order: int = Field(ge=1)
+    service_sequence: int | None = Field(default=None, ge=0)
     is_generic: bool = False
     source_song_id: str | None = None
 
@@ -90,8 +91,10 @@ class ServicePlanCandidate(BaseModel):
 class SkippedServiceItem(BaseModel):
     item_id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=500)
+    description: str | None = Field(default=None, max_length=10_000)
     item_type: str = Field(min_length=1, max_length=32)
     sequence: int = Field(ge=0)
+    duration_seconds: int | None = Field(default=None, ge=0)
     reason: str = Field(min_length=1, max_length=64)
 
 
@@ -179,6 +182,7 @@ class ApplicationState(BaseModel):
     planning_center_status: ConnectionStatus = ConnectionStatus.DISCONNECTED
     midi_status: ConnectionStatus = ConnectionStatus.DISCONNECTED
     propresenter_status: ConnectionStatus = ConnectionStatus.DISCONNECTED
+    lights_status: ConnectionStatus = ConnectionStatus.DISCONNECTED
     service_load: ServiceLoadState = Field(default_factory=ServiceLoadState)
     timer: TimerState = Field(default_factory=TimerState)
     plugins: dict[str, PluginHealth] = Field(default_factory=dict)

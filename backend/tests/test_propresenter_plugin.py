@@ -117,4 +117,16 @@ async def test_demo_plan_can_drive_real_propresenter_plugin() -> None:
         assert state.timer.status is TimerStatus.STOPPED
         assert fake.calls[-1] == ("stop", "timer-uuid")
 
+        reset = await runtime.state_service.dispatch(ActionName.RESET_POSITION, source="test")
+        assert reset.accepted
+        reset_state = await runtime.state_store.snapshot()
+        assert reset_state.current_song is None
+        assert reset_state.timer.status is TimerStatus.STOPPED
+        assert reset_state.timer.duration_seconds is None
+        assert fake.calls[-3:] == [
+            ("stop", "timer-uuid"),
+            ("set", 0),
+            ("reset", "timer-uuid"),
+        ]
+
     assert fake.closed

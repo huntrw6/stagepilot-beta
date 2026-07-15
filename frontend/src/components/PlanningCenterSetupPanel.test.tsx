@@ -8,6 +8,7 @@ import { PlanningCenterSetupPanel } from "./PlanningCenterSetupPanel";
 const settings: SettingsResponse = {
   settings: {
     schema_version: 1,
+    onboarding: { general_completed: false },
     integration_modes: {
       service_source: "demo",
       midi_source: "simulated",
@@ -39,6 +40,13 @@ const settings: SettingsResponse = {
       },
       debounce_ms: 250,
     },
+    lights: {
+      enabled: false,
+      output_name: null,
+      channel: 1,
+      pulse_ms: 100,
+      cue_maps: {},
+    },
     propresenter: {
       enabled: false,
       host: "127.0.0.1",
@@ -66,6 +74,7 @@ const state: ApplicationState = {
   planning_center_status: "disconnected",
   midi_status: "disconnected",
   propresenter_status: "disconnected",
+  lights_status: "disconnected",
   service_load: {
     status: "idle",
     target_date: null,
@@ -148,7 +157,7 @@ describe("PlanningCenterSetupPanel", () => {
       secret: "replacement-secret",
     });
 
-    await user.selectOptions(screen.getByLabelText("Service source"), "planning_center");
+    expect(screen.queryByLabelText("Service source")).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Service type"), "wednesday");
     await user.click(screen.getByRole("button", { name: "Save settings" }));
 
@@ -160,7 +169,6 @@ describe("PlanningCenterSetupPanel", () => {
         plan_title_preference: "Sunday Morning",
         preferred_service_time: "09:00",
       }),
-      "planning_center",
       "America/Los_Angeles",
     );
   });

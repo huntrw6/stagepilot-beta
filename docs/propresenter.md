@@ -20,8 +20,9 @@ The production setup panel persistently stores:
 - Connection test
 - Timer rediscovery
 
-Select **ProPresenter** as the timer output in the panel, save the connection
-settings, and restart StagePilot. Environment overrides remain available for
+Save the connection settings in the panel and restart StagePilot. Saving
+automatically enables real ProPresenter output; no simulated output choice is
+shown in the production panel. Environment overrides remain available for
 development or unattended startup:
 
 ```dotenv
@@ -35,13 +36,6 @@ STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS=30
 STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS=10
 ```
 
-When the demo service plan and real ProPresenter output are desired together:
-
-```dotenv
-STAGEPILOT_SERVICE_SOURCE=demo
-STAGEPILOT_TIMER_OUTPUT=propresenter
-```
-
 ## Timer sequence
 
 For `song.started` and `song.restarted`, StagePilot performs:
@@ -51,7 +45,17 @@ For `song.started` and `song.restarted`, StagePilot performs:
 3. Reset
 4. Start
 
-`timer.stop_requested` stops the real ProPresenter timer.
+`timer.stop_requested` stops the real ProPresenter timer while retaining its
+configured duration. **Reset Position** performs a full reset sequence:
+
+1. Stop
+2. Set countdown duration to `0:00`
+3. Reset
+
+The dashboard records the start immediately before the ProPresenter start
+request and advances the displayed remaining time on the first fractional
+second. This keeps StagePilot's main countdown aligned with ProPresenter rather
+than displaying the previous whole second for nearly one extra second.
 
 ## Recovery
 

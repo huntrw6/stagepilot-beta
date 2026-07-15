@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: "StagePilot Logo";
+  src: url("./assets/logo-font.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
 :root {
   color-scheme: dark;
   font-family:
@@ -18,12 +26,41 @@
 }
 
 body {
+  width: min(100%, 1700px);
   min-width: 320px;
   min-height: 100vh;
-  margin: 0;
-  background:
-    radial-gradient(circle at 15% -10%, rgba(14, 165, 233, 0.08), transparent 32rem),
-    #090d12;
+  margin: 0 auto;
+  background-color: #090d12;
+  background-attachment: scroll;
+  background-image: url("./assets/film-flare.jpg");
+  background-position: top center;
+  background-repeat: no-repeat;
+  background-size: 1700px 2560px;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.font-brand {
+  font-family: "StagePilot Logo", ui-sans-serif, system-ui, sans-serif;
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
+  text-shadow:
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000;
+}
+
+.setup-panel .text-slate-500,
+.now-playing-panel .text-slate-500 {
+  color: rgb(148 163 184);
+}
+
+.setup-panel .text-slate-600,
+.now-playing-panel .text-slate-600 {
+  color: rgb(100 116 139);
 }
 
 button:focus-visible {

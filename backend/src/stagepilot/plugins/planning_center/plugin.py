@@ -507,8 +507,10 @@ class PlanningCenterPlugin(Plugin):
                 SkippedServiceItem(
                     item_id=item.item_id,
                     title=item.title,
+                    description=item.description,
                     item_type=item.item_type,
                     sequence=item.sequence,
+                    duration_seconds=item.duration_seconds,
                     reason=item.reason,
                 )
                 for item in result.skipped_items

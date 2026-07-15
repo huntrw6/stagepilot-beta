@@ -407,8 +407,10 @@ class PlanningCenterClient:
                     SkippedPlanItem(
                         item_id=resource.id,
                         title=title or "(untitled)",
+                        description=(attributes.description or "").strip() or None,
                         item_type=attributes.item_type,
                         sequence=attributes.sequence,
+                        duration_seconds=attributes.length,
                         reason=reason,
                     )
                 )
@@ -421,6 +423,7 @@ class PlanningCenterClient:
                     title=title,
                     duration_seconds=attributes.length,
                     order=len(songs) + 1,
+                    service_sequence=attributes.sequence,
                     is_generic=source_song is None,
                     source_song_id=source_song.id if source_song else None,
                 )

@@ -99,7 +99,9 @@ class DemoPlugin(Plugin):
         if not isinstance(event.payload, SongPayload) or not event.payload.song.duration_seconds:
             return
         self._last_activity_at = datetime.now(UTC)
-        await self.event_bus.publish(timer_started(event.payload.song.duration_seconds))
+        await self.event_bus.publish(
+            timer_started(event.payload.song.duration_seconds, event.payload.song)
+        )
 
     async def _on_timer_stop_requested(self, _event: StagePilotEvent) -> None:
         self._last_activity_at = datetime.now(UTC)

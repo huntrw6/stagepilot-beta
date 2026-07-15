@@ -8,6 +8,7 @@ import pytest
 from stagepilot.core.config import ProPresenterSettings
 from stagepilot.plugins.propresenter import (
     ProPresenterClient,
+    ProPresenterTimer,
     ProPresenterTimerNotFoundError,
     ProPresenterTimerTypeError,
 )
@@ -65,6 +66,44 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
             "countdown": {"duration": 336},
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_client_can_set_countdown_duration_to_zero_for_position_reset() -> None:
+    requests: list[tuple[str, str, object | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        requests.append((request.method, request.url.path, body))
+        return httpx.Response(204)
+
+    client = ProPresenterClient(
+        ProPresenterSettings(enabled=True),
+        transport=httpx.MockTransport(handler),
+    )
+    timer = ProPresenterTimer.model_validate(timer_payload())
+    try:
+        updated = await client.set_timer_duration(timer, 0)
+    finally:
+        await client.close()
+
+    assert updated.countdown is not None
+    assert updated.countdown.duration == 0
+    assert requests == [
+        (
+            "PUT",
+            "/v1/timer/timer-uuid",
+            {
+                "id": {
+                    "uuid": "timer-uuid",
+                    "name": "Song Countdown",
+                    "index": 0,
+                },
+                "allows_overrun": False,
+                "countdown": {"duration": 0},
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio

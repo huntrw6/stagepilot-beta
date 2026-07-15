@@ -98,8 +98,8 @@ class ProPresenterClient:
         timer: ProPresenterTimer,
         duration_seconds: int,
     ) -> ProPresenterTimer:
-        if duration_seconds <= 0:
-            raise ValueError("Timer duration must be greater than zero.")
+        if duration_seconds < 0:
+            raise ValueError("Timer duration must not be negative.")
         if timer.countdown is None:
             raise ProPresenterTimerTypeError(
                 f'ProPresenter timer "{timer.id.name}" is not a countdown timer.'

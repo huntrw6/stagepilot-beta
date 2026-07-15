@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { MidiInputsResponse, MidiMonitorMessage } from "../types";
+import type { MidiInputsResponse, MidiMonitorMessage, SettingsResponse } from "../types";
 import { MidiSetupPanel } from "./MidiSetupPanel";
 
 const midi: MidiInputsResponse = {
@@ -30,22 +30,71 @@ const midi: MidiInputsResponse = {
   },
 };
 
+const settings: SettingsResponse = {
+  settings: {
+    schema_version: 1,
+    onboarding: { general_completed: true },
+    integration_modes: {
+      service_source: "planning_center",
+      midi_source: "real",
+      timer_output: "propresenter",
+    },
+    timezone: "America/Los_Angeles",
+    log_level: "INFO",
+    server_port: 8765,
+    planning_center: {
+      app_id: "app-id",
+      service_type_id: "service-type",
+      plan_title_preference: null,
+      preferred_service_time: null,
+      upcoming_lookahead_days: 30,
+      request_timeout_seconds: 10,
+    },
+    midi: {
+      enabled: true,
+      input_name: "Startup Controller",
+      channel: 3,
+      note: 112,
+      mappings: midi.mappings,
+      debounce_ms: 250,
+    },
+    lights: {
+      enabled: false,
+      output_name: null,
+      channel: 1,
+      pulse_ms: 100,
+      cue_maps: {},
+    },
+    propresenter: {
+      enabled: true,
+      host: "127.0.0.1",
+      port: 1025,
+      timer_name: "Song Countdown",
+      request_timeout_seconds: 3,
+      reconnect_initial_seconds: 1,
+      reconnect_max_seconds: 30,
+      health_check_interval_seconds: 10,
+    },
+  },
+  planning_center_secret_saved: true,
+  warning: null,
+  restart_required: false,
+};
+
 function renderPanel({
   value = midi,
   onRefresh = vi.fn(),
   onSelect = vi.fn(),
   onSimulate = vi.fn(),
+  onSaveSettings = vi.fn(),
   messages = [],
-  source,
-  onSourceChange,
 }: {
   value?: MidiInputsResponse;
   onRefresh?: () => void;
   onSelect?: (inputId: string | null) => void;
   onSimulate?: (cue: "start_next" | "restart_current" | "previous" | "next" | "reload_plan" | "stop_timer") => void;
+  onSaveSettings?: (value: SettingsResponse["settings"]["midi"]) => void;
   messages?: MidiMonitorMessage[];
-  source?: "simulated" | "real";
-  onSourceChange?: (source: "simulated" | "real") => void;
 } = {}) {
   render(
     <MidiSetupPanel
@@ -54,12 +103,12 @@ function renderPanel({
       midi={value}
       messages={messages}
       onRefresh={onRefresh}
+      onSaveSettings={onSaveSettings}
       onSelect={onSelect}
       onSimulate={onSimulate}
-      onSourceChange={onSourceChange}
       pendingCue={null}
       pendingOperation={null}
-      source={source}
+      settings={settings}
     />,
   );
 }
@@ -75,7 +124,7 @@ describe("MidiSetupPanel", () => {
     expect(
       screen.getByText((_, element) => {
         const text = element?.textContent?.replace(/\s+/g, " ").trim();
-        return element?.tagName === "SPAN" && text === "Channel 3 \u00B7 Note 112";
+        return element?.tagName === "SPAN" && text === "Channel 3 \u00B7 Note E7 (112)";
       }),
     ).toBeInTheDocument();
     expect(screen.getByText("Startup default: Startup Controller")).toBeInTheDocument();
@@ -136,24 +185,33 @@ describe("MidiSetupPanel", () => {
   it("disables setup and cue tests when the MIDI plugin is disabled", () => {
     renderPanel({ value: { ...midi, enabled: false } });
 
-    expect(screen.getByText(/Select Real MIDI \/ Playback above/i)).toBeInTheDocument();
+    expect(screen.getByText(/Save the MIDI settings above/i)).toBeInTheDocument();
     expect(screen.getByLabelText("Available input")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Start next/ })).toBeDisabled();
   });
 
-  it("saves the real MIDI source from the disabled setup panel", async () => {
-    const onSourceChange = vi.fn();
+  it("saves advanced MIDI configuration without offering a simulated source", async () => {
+    const onSaveSettings = vi.fn();
     const user = userEvent.setup();
     renderPanel({
-      onSourceChange,
-      source: "simulated",
+      onSaveSettings,
       value: { ...midi, enabled: false },
     });
 
-    await user.selectOptions(screen.getByLabelText("MIDI source"), "real");
-    await user.click(screen.getByRole("button", { name: "Save MIDI mode" }));
+    expect(screen.queryByLabelText("MIDI source")).not.toBeInTheDocument();
+    const fixedNote = screen.getByLabelText("Fixed note");
+    expect(fixedNote).toHaveValue("112");
+    expect(within(fixedNote).getAllByRole("option")).toHaveLength(128);
+    expect(within(fixedNote).getByRole("option", { name: "E7 (MIDI 112)" })).toBeInTheDocument();
+    expect(within(fixedNote).getByRole("option", { name: "A6 (MIDI 105)" })).toBeInTheDocument();
+    await user.selectOptions(fixedNote, "105");
+    await user.clear(screen.getByLabelText("MIDI channel"));
+    await user.type(screen.getByLabelText("MIDI channel"), "4");
+    await user.click(screen.getByRole("button", { name: "Save MIDI settings" }));
 
-    expect(onSourceChange).toHaveBeenCalledWith("real");
+    expect(onSaveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true, channel: 4, note: 105, debounce_ms: 250 }),
+    );
   });
 
   it("shows an omitted mapping and disables its cue test", () => {

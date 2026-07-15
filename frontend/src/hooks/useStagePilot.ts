@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getHealth,
+  getLightsStatus,
   getMidiInputs,
   getMidiMessages,
   getPlanningCenterServiceTypes,
@@ -9,15 +10,20 @@ import {
   getProPresenterStatus,
   getSettings,
   getState,
+  rememberServerPort,
   performAction,
   refreshMidiInputs,
+  refreshLightingOutputs,
   refreshProPresenterTimers,
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
+  testLightingCue,
   testPlanningCenter,
   testProPresenter,
   updatePlanningCenterSettings,
+  updateLightingCueMap,
+  updateLightsSettings,
   updateProPresenterSettings,
   updateSettings,
   websocketUrl,
@@ -27,24 +33,30 @@ import type {
   ApplicationState,
   ConnectionStatus,
   HealthResponse,
-  IntegrationModes,
+  LightingCue,
+  LightsSettingsInput,
+  LightsStatusResponse,
+  GeneralSettingsInput,
   MidiCueName,
   MidiInputsResponse,
   MidiMonitorMessage,
+  MidiSettingsInput,
   PlanningCenterServiceType,
   PlanningCenterSettingsInput,
   PlanningCenterStatusResponse,
   PlanningCenterTestInput,
   ProPresenterSettingsInput,
   ProPresenterStatusResponse,
-  ServiceSource,
   SettingsResponse,
+  Song,
+  SongLightingCueMap,
   StateEnvelope,
 } from "../types";
 
 const MAX_RECONNECT_DELAY = 10_000;
 const MIDI_MONITOR_INTERVAL = 750;
 const PROPRESENTER_MONITOR_INTERVAL = 3_000;
+const LIGHTS_MONITOR_INTERVAL = 3_000;
 
 export function useStagePilot() {
   const [state, setState] = useState<ApplicationState | null>(null);
@@ -85,6 +97,13 @@ export function useStagePilot() {
   const [propresenterMessage, setProPresenterMessage] = useState<string | null>(null);
   const [pendingProPresenterOperation, setPendingProPresenterOperation] = useState<
     "save" | "test" | "refresh" | null
+  >(null);
+
+  const [lights, setLights] = useState<LightsStatusResponse | null>(null);
+  const [lightsError, setLightsError] = useState<string | null>(null);
+  const [lightsMessage, setLightsMessage] = useState<string | null>(null);
+  const [pendingLightsOperation, setPendingLightsOperation] = useState<
+    "save" | "refresh" | "test" | "save-cues" | null
   >(null);
 
   const reconnectAttempts = useRef(0);
@@ -134,6 +153,15 @@ export function useStagePilot() {
       setSettingsError(null);
     } catch (cause) {
       setSettingsError(cause instanceof Error ? cause.message : "Settings unavailable.");
+    }
+  }, []);
+
+  const loadLights = useCallback(async () => {
+    try {
+      setLights(await getLightsStatus());
+      setLightsError(null);
+    } catch (cause) {
+      setLightsError(cause instanceof Error ? cause.message : "Lighting output unavailable.");
     }
   }, []);
 
@@ -202,6 +230,7 @@ export function useStagePilot() {
     void loadMidiInputs();
     void loadMidiMessages();
     void loadProPresenter();
+    void loadLights();
     void loadSettings();
     void loadPlanningCenterStatus();
     connect();
@@ -217,6 +246,7 @@ export function useStagePilot() {
     loadMidiMessages,
     loadPlanningCenterStatus,
     loadProPresenter,
+    loadLights,
     loadSettings,
   ]);
 
@@ -235,6 +265,14 @@ export function useStagePilot() {
     }, PROPRESENTER_MONITOR_INTERVAL);
     return () => window.clearInterval(timer);
   }, [loadProPresenter, propresenter?.enabled]);
+
+  useEffect(() => {
+    if (!lights?.enabled) return;
+    const timer = window.setInterval(() => {
+      void loadLights();
+    }, LIGHTS_MONITOR_INTERVAL);
+    return () => window.clearInterval(timer);
+  }, [lights?.enabled, loadLights]);
 
   useEffect(() => {
     const status = state?.midi_status;
@@ -297,8 +335,8 @@ export function useStagePilot() {
     [applyState],
   );
 
-  const saveIntegrationModes = useCallback(
-    async (integrationModes: IntegrationModes) => {
+  const saveGeneralSettings = useCallback(
+    async (input: GeneralSettingsInput) => {
       if (!settings) return;
       setPendingSettingsOperation(true);
       setSettingsError(null);
@@ -306,12 +344,46 @@ export function useStagePilot() {
       try {
         const response = await updateSettings({
           ...settings.settings,
-          integration_modes: integrationModes,
+          ...input,
+          onboarding: { general_completed: true },
         });
         setSettings(response);
-        setSettingsMessage("Integration modes saved. Restart StagePilot to apply them.");
+        rememberServerPort(response.settings.server_port);
+        setSettingsMessage(
+          "General settings saved. Restart StagePilot and reload the dashboard to apply startup changes.",
+        );
       } catch (cause) {
         setSettingsError(cause instanceof Error ? cause.message : "Settings update failed.");
+      } finally {
+        setPendingSettingsOperation(false);
+      }
+    },
+    [settings],
+  );
+
+  const saveMidiSettings = useCallback(
+    async (input: MidiSettingsInput) => {
+      if (!settings) return;
+      setPendingSettingsOperation(true);
+      setSettingsError(null);
+      setSettingsMessage(null);
+      try {
+        const response = await updateSettings({
+          ...settings.settings,
+          integration_modes: {
+            ...settings.settings.integration_modes,
+            midi_source: "real",
+          },
+          midi: { ...input, enabled: true },
+        });
+        setSettings(response);
+        setSettingsMessage(
+          response.restart_required
+            ? "MIDI settings saved. Restart StagePilot to apply the hardware input configuration."
+            : "MIDI settings saved and applied to the running Playback input.",
+        );
+      } catch (cause) {
+        setSettingsError(cause instanceof Error ? cause.message : "MIDI settings update failed.");
       } finally {
         setPendingSettingsOperation(false);
       }
@@ -359,7 +431,6 @@ export function useStagePilot() {
   const savePlanningCenter = useCallback(
     async (
       input: PlanningCenterSettingsInput,
-      serviceSource: ServiceSource,
       timezone: string,
     ) => {
       setPendingPlanningCenterOperation("save");
@@ -372,7 +443,7 @@ export function useStagePilot() {
           timezone,
           integration_modes: {
             ...planningCenterResponse.settings.integration_modes,
-            service_source: serviceSource,
+            service_source: "planning_center",
           },
         });
         setSettings(response);
@@ -441,12 +512,26 @@ export function useStagePilot() {
     [applyState, loadMidiMessages],
   );
 
-  const saveProPresenter = useCallback(async (settings: ProPresenterSettingsInput) => {
+  const saveProPresenter = useCallback(async (input: ProPresenterSettingsInput) => {
+    if (!settings) return;
     setPendingProPresenterOperation("save");
     setProPresenterError(null);
     setProPresenterMessage(null);
     try {
-      const response = await updateProPresenterSettings(settings);
+      const activated = await updateSettings({
+        ...settings.settings,
+        integration_modes: {
+          ...settings.settings.integration_modes,
+          timer_output: "propresenter",
+        },
+        propresenter: {
+          ...settings.settings.propresenter,
+          ...input,
+          enabled: true,
+        },
+      });
+      setSettings(activated);
+      const response = await updateProPresenterSettings(input);
       setProPresenter(response.propresenter);
       setProPresenterMessage(response.message);
       if (!response.accepted) setProPresenterError(response.message);
@@ -457,7 +542,7 @@ export function useStagePilot() {
     } finally {
       setPendingProPresenterOperation(null);
     }
-  }, []);
+  }, [settings]);
 
   const runProPresenterTest = useCallback(async () => {
     setPendingProPresenterOperation("test");
@@ -495,6 +580,74 @@ export function useStagePilot() {
     }
   }, []);
 
+  const saveLights = useCallback(async (input: LightsSettingsInput) => {
+    setPendingLightsOperation("save");
+    setLightsError(null);
+    setLightsMessage(null);
+    try {
+      const response = await updateLightsSettings(input);
+      setLights(response.lights);
+      setSettings(await getSettings());
+      setLightsMessage(response.message);
+      if (!response.accepted) setLightsError(response.message);
+    } catch (cause) {
+      setLightsError(cause instanceof Error ? cause.message : "Lighting settings failed.");
+    } finally {
+      setPendingLightsOperation(null);
+    }
+  }, []);
+
+  const refreshLights = useCallback(async () => {
+    setPendingLightsOperation("refresh");
+    setLightsError(null);
+    setLightsMessage(null);
+    try {
+      setLights(await refreshLightingOutputs());
+      setLightsMessage("Lighting MIDI outputs refreshed.");
+    } catch (cause) {
+      setLightsError(cause instanceof Error ? cause.message : "Lighting output refresh failed.");
+    } finally {
+      setPendingLightsOperation(null);
+    }
+  }, []);
+
+  const sendLightingTest = useCallback(async (note: number, velocity: number) => {
+    setPendingLightsOperation("test");
+    setLightsError(null);
+    setLightsMessage(null);
+    try {
+      const response = await testLightingCue(note, velocity);
+      setLights(response.lights);
+      setLightsMessage(response.message);
+      if (!response.accepted) setLightsError(response.message);
+    } catch (cause) {
+      setLightsError(cause instanceof Error ? cause.message : "Lighting test cue failed.");
+    } finally {
+      setPendingLightsOperation(null);
+    }
+  }, []);
+
+  const saveLightingCues = useCallback(async (song: Song, cues: LightingCue[]) => {
+    setPendingLightsOperation("save-cues");
+    setLightsError(null);
+    setLightsMessage(null);
+    const cueMap: SongLightingCueMap = {
+      song_key: song.source_song_id ?? song.id,
+      song_title: song.title,
+      cues,
+    };
+    try {
+      const response = await updateLightingCueMap(cueMap);
+      setLights(response.lights);
+      setSettings(await getSettings());
+      setLightsMessage(response.message);
+    } catch (cause) {
+      setLightsError(cause instanceof Error ? cause.message : "Lighting cue map failed to save.");
+    } finally {
+      setPendingLightsOperation(null);
+    }
+  }, []);
+
   return {
     state,
     health,
@@ -522,9 +675,14 @@ export function useStagePilot() {
     propresenterError,
     propresenterMessage,
     pendingProPresenterOperation,
+    lights,
+    lightsError,
+    lightsMessage,
+    pendingLightsOperation,
     dispatch,
     selectPlan,
-    saveIntegrationModes,
+    saveGeneralSettings,
+    saveMidiSettings,
     testPlanningCenterConnection,
     loadPlanningCenterServiceTypes,
     savePlanningCenter,
@@ -534,5 +692,9 @@ export function useStagePilot() {
     saveProPresenter,
     runProPresenterTest,
     refreshProPresenter,
+    saveLights,
+    refreshLights,
+    sendLightingTest,
+    saveLightingCues,
   };
 }

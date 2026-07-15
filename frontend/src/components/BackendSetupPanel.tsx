@@ -1,43 +1,130 @@
+import { useEffect, useMemo, useState } from "react";
+
 import { apiOrigin, websocketUrl } from "../api";
-import type { ApplicationState, HealthResponse } from "../types";
+import type {
+  ApplicationState,
+  GeneralSettingsInput,
+  HealthResponse,
+  SettingsResponse,
+} from "../types";
+import { SetupPanelHeader } from "./SetupPanelHeader";
 
 export function BackendSetupPanel({
   state,
   health,
   live,
   onClose,
+  settings,
+  error,
+  message,
+  pending,
+  onSave,
 }: {
   state: ApplicationState;
   health: HealthResponse | null;
   live: boolean;
   onClose: () => void;
+  settings: SettingsResponse | null;
+  error: string | null;
+  message: string | null;
+  pending: boolean;
+  onSave: (settings: GeneralSettingsInput) => void;
 }) {
+  const [timezone, setTimezone] = useState("America/Los_Angeles");
+  const [logLevel, setLogLevel] = useState<GeneralSettingsInput["log_level"]>("INFO");
+  const [serverPort, setServerPort] = useState("8765");
+
+  useEffect(() => {
+    if (!settings) return;
+    setTimezone(settings.settings.timezone);
+    setLogLevel(settings.settings.log_level);
+    setServerPort(String(settings.settings.server_port));
+  }, [settings]);
+
+  const parsedSettings = useMemo<GeneralSettingsInput | null>(() => {
+    const parsedPort = Number(serverPort);
+    if (!timezone.trim()) return null;
+    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) return null;
+    return {
+      timezone: timezone.trim(),
+      log_level: logLevel,
+      server_port: parsedPort,
+    };
+  }, [logLevel, serverPort, timezone]);
+  const connectionStatus = live
+    ? "connected"
+    : state.application_status === "error" ? "error" : "disconnected";
+
   return (
     <section
       aria-labelledby="backend-setup-heading"
-      className="mt-5 rounded-xl border border-sky-400/15 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.09),transparent_45%),#111923] p-5 shadow-panel"
+      className="setup-panel mt-5 rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20"
       id="backend-configuration"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-300">Application setup</p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-100" id="backend-setup-heading">
-            StagePilot backend
-          </h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            Runtime identity, local API endpoints, WebSocket state, and plugin health for this session.
-          </p>
-        </div>
+      <SetupPanelHeader
+        closeLabel="Close StagePilot backend configuration"
+        description="Runtime identity, local API endpoints, WebSocket state, and plugin health for this session."
+        headingId="backend-setup-heading"
+        onClose={onClose}
+        status={connectionStatus}
+        title="StagePilot backend"
+      />
+
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timezone</span>
+          <input
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-rose-400/50"
+            disabled={pending}
+            onChange={(event) => setTimezone(event.target.value)}
+            placeholder="America/Los_Angeles"
+            value={timezone}
+          />
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Log level</span>
+          <select
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
+            disabled={pending}
+            onChange={(event) => setLogLevel(event.target.value as GeneralSettingsInput["log_level"])}
+            value={logLevel}
+          >
+            {(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const).map((level) => (
+              <option key={level} value={level}>{level}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Server port</span>
+          <input
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-rose-400/50"
+            disabled={pending}
+            inputMode="numeric"
+            onChange={(event) => setServerPort(event.target.value)}
+            value={serverPort}
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
-          aria-label="Close StagePilot backend configuration"
-          className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/5 text-lg text-slate-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
-          onClick={onClose}
-          title="Close"
+          className="rounded-lg border border-rose-400/40 bg-rose-500 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:opacity-40"
+          disabled={pending || parsedSettings === null}
+          onClick={() => parsedSettings && onSave(parsedSettings)}
           type="button"
         >
-          ×
+          {pending ? "Saving…" : "Save general settings"}
         </button>
+        <p className="text-xs text-slate-500">
+          Timezone, logging, and port changes take effect after a backend restart.
+        </p>
       </div>
+
+      {(error || message) && (
+        <p className={`mt-3 rounded-lg border px-3 py-2 text-sm ${error ? "border-rose-400/20 bg-rose-400/10 text-rose-200" : "border-sky-400/20 bg-sky-400/10 text-sky-200"}`}>
+          {error ?? message}
+        </p>
+      )}
 
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-3">
@@ -82,7 +169,7 @@ export function BackendSetupPanel({
       </div>
 
       <p className="mt-4 text-xs text-slate-500">
-        Backend host and startup defaults are set before launch through environment configuration.
+        The dashboard remembers the saved server port for its next launch. Environment variables may still override these values for development.
       </p>
     </section>
   );

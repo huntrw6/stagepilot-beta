@@ -133,20 +133,28 @@ used with one organization. A future multi-organization StagePilot distribution
 must use OAuth instead of collecting PAT credentials. See Planning Center's
 [authentication documentation](https://api.planningcenteronline.com/docs/overview/authentication).
 
-The dashboard onboarding order is:
+The dashboard presents a six-step first-launch checklist:
 
-1. Open the **Planning Center** connection panel.
-2. Enter the PAT application ID and secret, then select **Test connection**.
-3. Select a service type from the returned dropdown.
-4. Choose the timezone and optional title/time preferences.
-5. Select **Planning Center** as the service source and save.
-6. Restart StagePilot, then use **Load today's plan** if a manual refresh is needed.
+1. Review and save timezone, log level, and server port under **StagePilot backend**.
+2. Enter the Planning Center PAT application ID and secret, test the connection,
+   choose a discovered service type, and save. Saving enables the real Planning
+   Center source automatically.
+3. Save the MIDI channel, fixed note, velocities, and debounce settings. Restart,
+   refresh the available inputs, and select the Playback input.
+4. Save the ProPresenter API and countdown timer settings. Saving enables the real
+   ProPresenter output automatically.
+5. Test all three integration connections.
+6. Confirm that a current or upcoming service and valid song durations are loaded.
+
+The production configuration panels intentionally do not offer demo or simulated
+sources. Simulation modes remain backend development overrides only.
 
 ## MIDI Playback variables
 
-Real Playback MIDI is disabled by default. Select it independently with
-`STAGEPILOT_MIDI_SOURCE=real`. MIDI uses an operating-system input port and
-needs no client ID, API key, password, or other secret.
+Real Playback MIDI is disabled by default. Saving the dashboard MIDI settings
+enables it for the next launch. MIDI uses an operating-system input port and
+needs no client ID, API key, password, or other secret. The environment variable
+remains available as a higher-priority development override.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -166,11 +174,20 @@ Mapped velocities must be distinct integers from 1 through 127. A qualifying
 note-on must use the configured note and channel and have a mapped velocity;
 note-off, including note-on with velocity zero, releases the held-note latch.
 
-`STAGEPILOT_MIDI_INPUT_NAME` is the startup default. The dashboard may override
-it for the current backend session without changing the environment. Keep your
-existing Planning Center variables in the same PowerShell session when using
-production mode, then launch with MIDI enabled. Leave the startup input unset to
-begin disconnected and discover available ports:
+The MIDI channel is a logical lane inside the selected MIDI input port, not the
+Playback bus or the position of that bus in Playback's list. One port carries up
+to 16 channels. With StagePilot set to channel 1, it accepts matching notes sent
+on Playback channel 1 and shows messages from channels 2–16 as `wrong_channel`.
+Change this only when the Playback cue is intentionally transmitting on a
+different channel, and configure both applications to the same one-based value.
+
+`STAGEPILOT_MIDI_INPUT_NAME` is the environment-level startup override. For a
+normal installation, save the channel, fixed note, action velocities, and
+debounce in the dashboard. If the real MIDI plugin is already running, those cue
+filter settings apply immediately. Enabling the plugin for the first time still
+requires a restart before StagePilot can discover and select the input. For
+development, leave the environment input unset to begin disconnected and
+discover available ports:
 
 ```powershell
 $env:STAGEPILOT_MIDI_SOURCE = "real"
@@ -179,11 +196,11 @@ Remove-Item Env:STAGEPILOT_MIDI_INPUT_NAME -ErrorAction SilentlyContinue
 uv run --project backend stagepilot
 ```
 
-The dashboard includes a MIDI setup panel. Use **Refresh inputs** to
-enumerate ports, choose an available input to connect, or choose the disconnect
-option to close the current input. An accepted selection is saved to the local
-settings file and reused on the next launch unless an environment override is
-present.
+The dashboard MIDI panel edits channel 1–16, fixed note 0–127, debounce 0–2000
+milliseconds, and six unique action velocities from 1–127. Use **Refresh inputs**
+to enumerate ports, choose an available input to connect, or disconnect the
+current input. An accepted selection is saved to the local settings file and
+reused on the next launch unless an environment override is present.
 
 The REST API exposes the same flow. In another PowerShell window, refresh the
 input list and inspect the returned opaque IDs:
@@ -215,12 +232,13 @@ Invoke-RestMethod -Method Post `
   -Body $body
 ```
 
-Environment variables are read when the backend starts. Stop and restart the
-backend after changing the channel, note, velocity mapping, debounce, or source
-mode. Dashboard and API input selections take effect immediately and persist
-without requiring a restart. The plugin monitors the selected port and retries
-a missing or failed input with capped backoff; a disconnected device keeps
-health degraded until it reconnects.
+Environment variables are read when the backend starts, so changing an
+environment override or enabling/disabling the real MIDI source requires a
+restart. Dashboard changes to the channel, note, velocity mapping, and debounce
+take effect immediately when the plugin is already running. Input selections
+also take effect immediately and persist without requiring a restart. The plugin
+monitors the selected port and retries a missing or failed input with capped
+backoff; a disconnected device keeps health degraded until it reconnects.
 
 Manual simulation accepts one of `start_next`, `restart_current`, `previous`,
 `next`, `reload_plan`, or `stop_timer`. It enters the same ordered cue pipeline
@@ -247,15 +265,19 @@ The production dashboard also polls `GET /api/v1/midi/messages` for a bounded
 live note monitor. It displays the selected input, note-on or note-off type,
 one-based channel, note name and number, velocity, and whether StagePilot
 dispatched or ignored the message. Wrong-channel, unmapped, duplicate, rejected,
-and release messages remain visible for routing and mapping diagnosis. Note names
-use Playback's octave convention, where MIDI note 0 is displayed as C-2; the MIDI
-number remains the authoritative mapping value.
+and release messages remain visible for routing and mapping diagnosis. The MIDI
+settings panel offers every note from 0 through 127 in a named dropdown and
+defaults to E7 (MIDI 112). Note names use Playback's octave convention, where
+MIDI note 0 is displayed as C-2; the MIDI number remains the authoritative
+mapping value.
 
 ## Network configuration
 
-The browser dashboard expects the backend at `http://127.0.0.1:8765` and its
-WebSocket endpoint at `ws://127.0.0.1:8765/ws`. The Tauri content security policy
-permits those loopback connections and Vite's local development origin.
+The browser dashboard initially expects the backend at `http://127.0.0.1:8765`
+and its WebSocket endpoint at `ws://127.0.0.1:8765/ws`. When the server port is
+saved in the general settings panel, the dashboard remembers it for its next
+launch. The Tauri content security policy permits loopback HTTP and WebSocket
+connections on the saved port.
 
 For a different development API origin, copy `frontend/.env.example` to
 `frontend/.env.local` and set `VITE_STAGEPILOT_API_URL`. Vite embeds every
@@ -294,4 +316,20 @@ STAGEPILOT_PROPRESENTER_HEALTH_CHECK_SECONDS=10
 
 The dashboard can change host, port, timer name, and request timeout. Accepted
 values are persisted to the local settings file and reused after restart.
+
+## Lights MIDI output
+
+The dashboard **Lights** panel is the normal configuration path. Its output
+port, channel, Note On/Off pulse length, and per-song cue maps are stored in the
+ordinary StagePilot settings file. Cue maps use the stable Planning Center
+source song ID when one is available.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `STAGEPILOT_LIGHTS_ENABLED` | `false` | Enable the lighting MIDI output plugin. |
+| `STAGEPILOT_LIGHTS_OUTPUT_NAME` | unset | Exact MIDI output name, including a connected macOS Network MIDI session. |
+| `STAGEPILOT_LIGHTS_CHANNEL` | `1` | One-based output channel from 1 through 15. |
+| `STAGEPILOT_LIGHTS_PULSE_MS` | `100` | Delay between Note On and Note Off, from 10 through 2000 milliseconds. |
+
+See [lights.md](lights.md) for routing and timeline behavior.
 

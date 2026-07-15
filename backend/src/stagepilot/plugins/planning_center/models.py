@@ -88,6 +88,7 @@ class ItemAttributes(BaseModel):
     """Plan item fields needed to extract ordered songs and durations."""
 
     title: str = Field(default="", max_length=500)
+    description: str | None = Field(default=None, max_length=10_000)
     item_type: str = Field(min_length=1, max_length=32)
     length: int | None = Field(default=None, ge=0)
     sequence: int = Field(ge=0)
@@ -135,8 +136,10 @@ class SkippedPlanItem(BaseModel):
 
     item_id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=500)
+    description: str | None = Field(default=None, max_length=10_000)
     item_type: str = Field(min_length=1, max_length=32)
     sequence: int = Field(ge=0)
+    duration_seconds: int | None = Field(default=None, ge=0)
     reason: SkippedItemReason
 
 

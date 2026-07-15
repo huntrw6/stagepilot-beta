@@ -312,6 +312,49 @@ async def test_filters_other_channels_and_unmapped_notes_before_dispatch() -> No
 
 
 @pytest.mark.asyncio
+async def test_reconfigure_changes_the_live_note_and_channel_filter() -> None:
+    harness = await plugin_harness()
+    try:
+        await harness.plugin.start()
+        await wait_until(lambda: len(harness.backend.ports) == 1)
+        port = harness.backend.ports[0]
+
+        outcome = await harness.plugin.reconfigure(
+            MidiSettings(
+                enabled=True,
+                input_name="Playback",
+                channel=4,
+                note=124,
+                debounce_ms=0,
+            )
+        )
+        snapshot = await harness.plugin.input_snapshot()
+
+        port.emit(channel=4, note=112, velocity=100)
+        port.emit(channel=1, note=124, velocity=100)
+        port.emit(channel=4, note=124, velocity=100)
+
+        await wait_until(lambda: len(harness.dispatcher.calls) == 1)
+        async with asyncio.timeout(2):
+            while len(await harness.plugin.recent_messages()) != 3:  # noqa: ASYNC110
+                await asyncio.sleep(0.002)
+        messages = await harness.plugin.recent_messages()
+
+        assert outcome.accepted is True
+        assert "channel 4, note E8 (124)" in outcome.message
+        assert snapshot.channel == 4
+        assert snapshot.note == 124
+        assert harness.dispatcher.calls == [DispatchCall(ActionName.START_NEXT, "midi_playback")]
+        assert [message.disposition for message in messages] == [
+            MidiMessageDisposition.DISPATCHED,
+            MidiMessageDisposition.WRONG_CHANNEL,
+            MidiMessageDisposition.UNMAPPED,
+        ]
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
 async def test_monitor_records_received_notes_and_why_they_were_ignored() -> None:
     harness = await plugin_harness()
     try:

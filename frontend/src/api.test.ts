@@ -2,15 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   apiOrigin,
+  getLightsStatus,
   getMidiInputs,
   getMidiMessages,
   getPlanningCenterServiceTypes,
+  rememberServerPort,
   refreshMidiInputs,
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
+  testLightingCue,
   testPlanningCenter,
   updatePlanningCenterSettings,
+  updateLightingCueMap,
+  updateLightsSettings,
 } from "./api";
 import type {
   MidiCueSimulationResponse,
@@ -22,6 +27,15 @@ import type {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.localStorage.clear();
+});
+
+describe("dashboard server port", () => {
+  it("remembers a validated saved port for the next dashboard launch", () => {
+    rememberServerPort(9001);
+
+    expect(window.localStorage.getItem("stagepilot.server-port")).toBe("9001");
+  });
 });
 
 describe("Planning Center onboarding API", () => {
@@ -112,6 +126,7 @@ describe("selectPlanningCenterPlan", () => {
         planning_center_status: "connected",
         midi_status: "connected",
         propresenter_status: "connected",
+        lights_status: "disconnected",
         service_load: {
           status: "loaded",
           target_date: "2026-07-13",
@@ -264,6 +279,104 @@ describe("MIDI API", () => {
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ cue: "start_next" }),
       },
+    );
+  });
+});
+
+describe("Lights API", () => {
+  it("configures output and sends cue maps and test pulses as JSON", async () => {
+    const lights = {
+      enabled: true,
+      output_name: "StagePilot to Lightkey",
+      channel: 3,
+      pulse_ms: 100,
+      connection_status: "connected" as const,
+      detail: "Connected.",
+      outputs: [],
+      last_cue: null,
+      last_cue_at: null,
+    };
+    const operation = { accepted: true, message: "Saved.", lights };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(operation),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const outputSettings = {
+      enabled: true,
+      output_name: "StagePilot to Lightkey",
+      channel: 3,
+      pulse_ms: 100,
+    };
+    const cueMap = {
+      song_key: "song-1",
+      song_title: "Holy Forever",
+      cues: [{
+        id: "c17d19ab-1447-4e73-898e-468b2dfa87c7",
+        at_seconds: 65,
+        note: 72,
+        velocity: 110,
+        label: "First chorus",
+      }],
+    };
+
+    await updateLightsSettings(outputSettings);
+    await updateLightingCueMap(cueMap);
+    await testLightingCue(72, 110);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `${apiOrigin}/api/v1/lights/settings`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(outputSettings),
+      },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `${apiOrigin}/api/v1/lights/cue-map`,
+      {
+        method: "PUT",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(cueMap),
+      },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `${apiOrigin}/api/v1/lights/test`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ note: 72, velocity: 110 }),
+      },
+    );
+  });
+
+  it("loads the current lighting connection", async () => {
+    const lights = {
+      enabled: false,
+      output_name: null,
+      channel: 1,
+      pulse_ms: 100,
+      connection_status: "disconnected" as const,
+      detail: null,
+      outputs: [],
+      last_cue: null,
+      last_cue_at: null,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(lights),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getLightsStatus()).resolves.toEqual(lights);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${apiOrigin}/api/v1/lights`,
+      { headers: { Accept: "application/json" } },
     );
   });
 });

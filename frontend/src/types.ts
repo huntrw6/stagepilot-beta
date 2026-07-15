@@ -43,6 +43,7 @@ export interface Song {
   duration_seconds: number | null;
   formatted_duration?: string | null;
   order: number;
+  service_sequence?: number | null;
   is_generic: boolean;
   source_song_id: string | null;
 }
@@ -70,8 +71,10 @@ export interface ServicePlanCandidate {
 export interface SkippedServiceItem {
   item_id: string;
   title: string;
+  description?: string | null;
   item_type: string;
   sequence: number;
+  duration_seconds?: number | null;
   reason: string;
 }
 
@@ -118,6 +121,7 @@ export interface ApplicationState {
   planning_center_status: ConnectionStatus;
   midi_status: ConnectionStatus;
   propresenter_status: ConnectionStatus;
+  lights_status: ConnectionStatus;
   service_load: ServiceLoadState;
   timer: {
     status: TimerStatus;
@@ -160,6 +164,9 @@ export interface PlanningCenterPublicSettings {
 
 export interface PersistentSettings {
   schema_version: 1;
+  onboarding: {
+    general_completed: boolean;
+  };
   integration_modes: IntegrationModes;
   timezone: string;
   log_level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
@@ -173,6 +180,7 @@ export interface PersistentSettings {
     mappings: Partial<Record<MidiCueName, number | null>>;
     debounce_ms: number;
   };
+  lights: LightsSettings;
   propresenter: {
     enabled: boolean;
     host: string;
@@ -185,12 +193,71 @@ export interface PersistentSettings {
   };
 }
 
+export interface LightingCue {
+  id: string;
+  at_seconds: number;
+  note: number;
+  velocity: number;
+  label: string;
+}
+
+export interface SongLightingCueMap {
+  song_key: string;
+  song_title: string;
+  cues: LightingCue[];
+}
+
+export interface LightsSettings {
+  enabled: boolean;
+  output_name: string | null;
+  channel: number;
+  pulse_ms: number;
+  cue_maps: Record<string, SongLightingCueMap>;
+}
+
+export interface LightingOutput {
+  name: string;
+  ambiguous: boolean;
+  selected: boolean;
+  connected: boolean;
+}
+
+export interface LightsStatusResponse {
+  enabled: boolean;
+  output_name: string | null;
+  channel: number;
+  pulse_ms: number;
+  connection_status: ConnectionStatus;
+  detail: string | null;
+  outputs: LightingOutput[];
+  last_cue: LightingCue | null;
+  last_cue_at: string | null;
+}
+
+export type LightsSettingsInput = Pick<
+  LightsSettings,
+  "enabled" | "output_name" | "channel" | "pulse_ms"
+>;
+
+export interface LightsOperationResponse {
+  accepted: boolean;
+  message: string;
+  lights: LightsStatusResponse;
+}
+
 export interface SettingsResponse {
   settings: PersistentSettings;
   planning_center_secret_saved: boolean;
   warning: string | null;
   restart_required: boolean;
 }
+
+export type GeneralSettingsInput = Pick<
+  PersistentSettings,
+  "timezone" | "log_level" | "server_port"
+>;
+
+export type MidiSettingsInput = PersistentSettings["midi"];
 
 export interface PlanningCenterStatusResponse {
   connection_status: ConnectionStatus;

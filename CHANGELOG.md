@@ -46,5 +46,51 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 - Vitest and React Testing Library coverage for dashboard plan ambiguity,
   pending selection, revision-safe live state, stale readiness, and skipped-item
   warnings.
+- Persistent v0.5 setup with validated atomic settings, Windows Credential
+  Manager PAT storage, independent backend integration modes, service-type
+  onboarding, preference-aware plan selection, and a non-secret
+  last-known-good service cache.
+- Six-step first-launch checklist plus editable general, advanced MIDI, and
+  ProPresenter configuration. Production panels activate real integrations when
+  saved and no longer expose demo or simulated choices.
+- Auto-closing first-launch completion feedback with manual dismissal, plus a
+  full MIDI 0–127 note-name dropdown using Playback's octave convention.
+- Live MIDI cue-filter reconfiguration so saved note, channel, velocity, and
+  debounce changes affect the running Playback input without a restart.
+- A persistent **Lights** connection and lighting configuration panel with
+  macOS MIDI-output discovery, Lightkey-compatible Note On/Off test pulses, and
+  per-song elapsed-time cue maps keyed by stable Planning Center song IDs.
+- A monotonic backend lighting scheduler that starts from the confirmed shared
+  countdown event, cancels safely on stop/restart, and prevents old timelines
+  from firing after a song change.
+- Live remaining and elapsed song clocks in the dashboard, derived from the
+  same timer start and scheduled duration used by ProPresenter.
+- ProPresenter-aligned countdown rounding and start timestamps, plus a Reset
+  Position sequence that stops the configured timer and resets its duration to
+  zero in both StagePilot and ProPresenter.
+- A reserved header notification queue with content-width confirmation and
+  error highlights. Concurrent action and service-state messages display in
+  order for up to six seconds without shifting dashboard controls.
+- Planning Center non-song items interleaved into the service-plan display by
+  their original sequence, with compact header separators and subdued ordinary
+  items that show Planning Center descriptions and scheduled durations while
+  remaining excluded from song controls.
+- A bundled 1700-by-2560 film-flare application background that scrolls from
+  the top without scaling, plus matching desktop maximum window dimensions.
+- A simplified StagePilot header wordmark using a locally bundled Instrument
+  Serif font across browser and desktop builds.
+- Cohesive, higher-contrast setup panels with a shared Production setup header,
+  brighter supporting text, compact connection-status badge, and restrained
+  per-integration button accents.
+- A darker translucent Now Playing card, a larger outlined StagePilot wordmark,
+  and right-aligned header notifications beside the system status.
+- Dark translucent connection-card hover states with brighter text, semantic
+  manual-control button accents, and green/red event-stream severity styling.
+- Outline-first manual controls that reveal their semantic colors on hover and
+  press, including a green Restart Current action and dark-green Now Playing label.
+- A locally bundled StagePilot header font and a two-message notification queue
+  that discards older messages when newer notifications arrive.
+- Dark-orange Now Playing labeling and deeper READY-green highlighting for the
+  current song row, subtitle, and numbered icon.
 
 [Unreleased]: https://github.com/huntrw6/stage-pilot/commits/main

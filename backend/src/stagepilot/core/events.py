@@ -33,6 +33,7 @@ class EventType(StrEnum):
     SONG_RESTARTED = "song.restarted"
     MIDI_NOTE_RECEIVED = "midi.note_received"
     TIMER_STOP_REQUESTED = "timer.stop_requested"
+    TIMER_RESET_REQUESTED = "timer.reset_requested"
     TIMER_STARTED = "timer.started"
     TIMER_STOPPED = "timer.stopped"
     TIMER_FAILED = "timer.failed"
@@ -100,12 +101,14 @@ class MidiNotePayload(BaseModel):
 class TimerPayload(BaseModel):
     kind: Literal["timer"] = "timer"
     duration_seconds: int = Field(ge=0)
+    song: Song | None = None
+    started_at: datetime | None = None
     message: str | None = None
 
 
 class ConnectionPayload(BaseModel):
     kind: Literal["connection"] = "connection"
-    integration: Literal["planning_center", "midi", "propresenter"]
+    integration: Literal["planning_center", "midi", "propresenter", "lights"]
     status: ConnectionStatus
     detail: str | None = None
 

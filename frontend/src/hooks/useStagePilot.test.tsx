@@ -10,12 +10,14 @@ import {
   getSettings,
   getState,
   performAction,
+  rememberServerPort,
   refreshMidiInputs,
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
   testPlanningCenter,
   updatePlanningCenterSettings,
+  updateProPresenterSettings,
   updateSettings,
 } from "../api";
 import type {
@@ -36,6 +38,7 @@ vi.mock("../api", () => ({
   getSettings: vi.fn(),
   getState: vi.fn(),
   performAction: vi.fn(),
+  rememberServerPort: vi.fn(),
   refreshMidiInputs: vi.fn(),
   selectMidiInput: vi.fn(),
   selectPlanningCenterPlan: vi.fn(),
@@ -106,6 +109,7 @@ const midi: MidiInputsResponse = {
 const settings: SettingsResponse = {
   settings: {
     schema_version: 1,
+    onboarding: { general_completed: false },
     integration_modes: {
       service_source: "demo",
       midi_source: "simulated",
@@ -129,6 +133,13 @@ const settings: SettingsResponse = {
       note: 112,
       mappings: midi.mappings,
       debounce_ms: 250,
+    },
+    lights: {
+      enabled: false,
+      output_name: null,
+      channel: 1,
+      pulse_ms: 100,
+      cue_maps: {},
     },
     propresenter: {
       enabled: false,
@@ -158,6 +169,7 @@ function applicationState(revision: number): ApplicationState {
     planning_center_status: "connected",
     midi_status: "connected",
     propresenter_status: "connected",
+    lights_status: "disconnected",
     service_load: {
       status: "idle",
       target_date: null,
@@ -199,12 +211,14 @@ const mockedGetPlanningCenterStatus = vi.mocked(getPlanningCenterStatus);
 const mockedGetSettings = vi.mocked(getSettings);
 const mockedGetState = vi.mocked(getState);
 const mockedPerformAction = vi.mocked(performAction);
+const mockedRememberServerPort = vi.mocked(rememberServerPort);
 const mockedRefreshMidiInputs = vi.mocked(refreshMidiInputs);
 const mockedSelectMidiInput = vi.mocked(selectMidiInput);
 const mockedSelectPlanningCenterPlan = vi.mocked(selectPlanningCenterPlan);
 const mockedSimulateMidiCue = vi.mocked(simulateMidiCue);
 const mockedTestPlanningCenter = vi.mocked(testPlanningCenter);
 const mockedUpdatePlanningCenterSettings = vi.mocked(updatePlanningCenterSettings);
+const mockedUpdateProPresenterSettings = vi.mocked(updateProPresenterSettings);
 const mockedUpdateSettings = vi.mocked(updateSettings);
 
 beforeEach(() => {
@@ -371,16 +385,15 @@ describe("useStagePilot", () => {
     expect(mockedGetMidiInputs).toHaveBeenCalledTimes(2);
   });
 
-  it("persists independent integration modes", async () => {
+  it("persists general settings and remembers the next dashboard port", async () => {
     const updated: SettingsResponse = {
       ...settings,
       settings: {
         ...settings.settings,
-        integration_modes: {
-          service_source: "demo",
-          midi_source: "real",
-          timer_output: "propresenter",
-        },
+        onboarding: { general_completed: true },
+        timezone: "America/Denver",
+        log_level: "DEBUG",
+        server_port: 9001,
       },
       restart_required: true,
     };
@@ -389,12 +402,95 @@ describe("useStagePilot", () => {
     await waitFor(() => expect(result.current.settings).toEqual(settings));
 
     await act(async () =>
-      result.current.saveIntegrationModes(updated.settings.integration_modes),
+      result.current.saveGeneralSettings({
+        timezone: "America/Denver",
+        log_level: "DEBUG",
+        server_port: 9001,
+      }),
     );
 
     expect(mockedUpdateSettings).toHaveBeenCalledWith(updated.settings);
+    expect(mockedRememberServerPort).toHaveBeenCalledWith(9001);
     expect(result.current.settings).toEqual(updated);
     expect(result.current.settingsMessage).toMatch(/Restart StagePilot/i);
+  });
+
+  it("saves advanced MIDI settings and activates real input", async () => {
+    const midiSettings = {
+      ...settings.settings.midi,
+      enabled: true,
+      channel: 3,
+      debounce_ms: 100,
+    };
+    const updated: SettingsResponse = {
+      ...settings,
+      settings: {
+        ...settings.settings,
+        integration_modes: {
+          ...settings.settings.integration_modes,
+          midi_source: "real",
+        },
+        midi: midiSettings,
+      },
+      restart_required: false,
+    };
+    mockedUpdateSettings.mockResolvedValueOnce(updated);
+    const { result } = renderHook(() => useStagePilot());
+    await waitFor(() => expect(result.current.settings).toEqual(settings));
+
+    await act(async () => result.current.saveMidiSettings(midiSettings));
+
+    expect(mockedUpdateSettings).toHaveBeenCalledWith(updated.settings);
+    expect(result.current.settings).toEqual(updated);
+    expect(result.current.settingsMessage).toMatch(/saved and applied/i);
+  });
+
+  it("activates ProPresenter when its real connection settings are saved", async () => {
+    const input = {
+      host: "192.168.1.40",
+      port: 1025,
+      timer_name: "Song Countdown",
+      request_timeout_seconds: 3,
+    };
+    const updated: SettingsResponse = {
+      ...settings,
+      settings: {
+        ...settings.settings,
+        integration_modes: {
+          ...settings.settings.integration_modes,
+          timer_output: "propresenter",
+        },
+        propresenter: {
+          ...settings.settings.propresenter,
+          ...input,
+          enabled: true,
+        },
+      },
+      restart_required: true,
+    };
+    mockedUpdateSettings.mockResolvedValueOnce(updated);
+    mockedUpdateProPresenterSettings.mockResolvedValueOnce({
+      accepted: true,
+      message: "ProPresenter settings saved.",
+      propresenter: {
+        enabled: true,
+        ...input,
+        connection_status: "disconnected",
+        detail: "Restart required.",
+        timers: [],
+        selected_timer_id: null,
+        timer_found: false,
+        last_checked_at: null,
+      },
+    });
+    const { result } = renderHook(() => useStagePilot());
+    await waitFor(() => expect(result.current.settings).toEqual(settings));
+
+    await act(async () => result.current.saveProPresenter(input));
+
+    expect(mockedUpdateSettings).toHaveBeenCalledWith(updated.settings);
+    expect(mockedUpdateProPresenterSettings).toHaveBeenCalledWith(input);
+    expect(result.current.settings).toEqual(updated);
   });
 
   it("tests credentials, discovers service types, and saves the selected setup", async () => {
@@ -447,7 +543,6 @@ describe("useStagePilot", () => {
           ...planningCenterSettings.settings.planning_center,
           secret: "private-secret",
         },
-        "planning_center",
         "America/Los_Angeles",
       ),
     );

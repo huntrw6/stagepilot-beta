@@ -3,14 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ProPresenterSettingsInput,
   ProPresenterStatusResponse,
-  TimerOutput,
 } from "../types";
-
-const statusTone = (status: ProPresenterStatusResponse["connection_status"]) => {
-  if (status === "connected") return "text-emerald-300";
-  if (status === "connecting") return "text-amber-300";
-  return "text-rose-300";
-};
+import { SetupPanelHeader } from "./SetupPanelHeader";
 
 export function ProPresenterSetupPanel({
   propresenter,
@@ -21,11 +15,6 @@ export function ProPresenterSetupPanel({
   onTest,
   onRefreshTimers,
   onClose,
-  output = null,
-  pendingModeSave = false,
-  modeError = null,
-  modeMessage = null,
-  onOutputChange,
 }: {
   propresenter: ProPresenterStatusResponse | null;
   error: string | null;
@@ -35,17 +24,11 @@ export function ProPresenterSetupPanel({
   onTest: () => void;
   onRefreshTimers: () => void;
   onClose?: () => void;
-  output?: TimerOutput | null;
-  pendingModeSave?: boolean;
-  modeError?: string | null;
-  modeMessage?: string | null;
-  onOutputChange?: (output: TimerOutput) => void;
 }) {
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("1025");
   const [timerName, setTimerName] = useState("Song Countdown");
   const [timeout, setTimeout] = useState("3");
-  const [candidateOutput, setCandidateOutput] = useState<TimerOutput>(output ?? "simulated");
   const configuredHost = propresenter?.host;
   const configuredPort = propresenter?.port;
   const configuredTimerName = propresenter?.timer_name;
@@ -63,10 +46,6 @@ export function ProPresenterSetupPanel({
     setTimerName(configuredTimerName);
     setTimeout(String(configuredTimeout));
   }, [configuredHost, configuredPort, configuredTimeout, configuredTimerName]);
-
-  useEffect(() => {
-    if (output) setCandidateOutput(output);
-  }, [output]);
 
   const parsedSettings = useMemo<ProPresenterSettingsInput | null>(() => {
     const parsedPort = Number(port);
@@ -86,67 +65,17 @@ export function ProPresenterSetupPanel({
   const busy = pendingOperation !== null;
 
   return (
-    <section className="mt-5 rounded-2xl border border-white/10 bg-slate-950/50 p-5 shadow-2xl shadow-black/20" id="propresenter-configuration">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">Production setup</p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-100">ProPresenter countdown</h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            Timer output and connection settings persist between StagePilot launches.
-          </p>
-        </div>
-        <div className="flex items-start gap-3">
-          <div className="text-right text-sm">
-            <p className={`font-semibold ${statusTone(propresenter?.connection_status ?? "disconnected")}`}>
-              {propresenter?.connection_status ?? "loading"}
-            </p>
-            <p className="mt-1 max-w-md text-xs text-slate-500">
-              {propresenter?.detail ?? "Loading ProPresenter configuration…"}
-            </p>
-          </div>
-          {onClose && (
-            <button
-              aria-label="Close ProPresenter configuration"
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-lg text-slate-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
-              onClick={onClose}
-              title="Close"
-              type="button"
-            >
-              ×
-            </button>
-          )}
-        </div>
-      </div>
+    <section className="setup-panel mt-5 rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20" id="propresenter-configuration">
+      <SetupPanelHeader
+        closeLabel="Close ProPresenter configuration"
+        description="Timer output and connection settings persist between StagePilot launches."
+        onClose={onClose}
+        status={propresenter?.connection_status ?? "loading"}
+        title="ProPresenter countdown"
+      />
 
-      {onOutputChange && (
-        <div className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-sky-400/15 bg-sky-400/[0.05] p-3">
-          <label className="min-w-56 flex-1 text-sm text-slate-300">
-            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timer output</span>
-            <select
-              className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
-              disabled={pendingModeSave}
-              onChange={(event) => setCandidateOutput(event.target.value as TimerOutput)}
-              value={candidateOutput}
-            >
-              <option value="simulated">Simulated</option>
-              <option value="propresenter">ProPresenter</option>
-            </select>
-          </label>
-          <button
-            className="rounded-lg border border-sky-400/30 bg-sky-400/15 px-3.5 py-2.5 text-sm font-semibold text-sky-200 disabled:opacity-40"
-            disabled={pendingModeSave || output === candidateOutput}
-            onClick={() => onOutputChange(candidateOutput)}
-            type="button"
-          >
-            {pendingModeSave ? "Saving…" : "Save timer mode"}
-          </button>
-        </div>
-      )}
-
-      {(modeError || modeMessage) && (
-        <p className={`mt-3 rounded-lg border px-3 py-2 text-sm ${modeError ? "border-rose-400/20 bg-rose-400/10 text-rose-200" : "border-sky-400/20 bg-sky-400/10 text-sky-200"}`}>
-          {modeError ?? modeMessage}
-        </p>
+      {propresenter?.detail && (
+        <p className="mt-3 text-xs text-slate-500">{propresenter.detail}</p>
       )}
 
       {!propresenter && !error && (
@@ -157,7 +86,7 @@ export function ProPresenterSetupPanel({
 
       {propresenter && disabled && (
         <p className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-200">
-          Select ProPresenter above, save the mode and connection settings, then restart StagePilot.
+          Save these settings to enable ProPresenter, then restart StagePilot.
         </p>
       )}
 
@@ -165,7 +94,7 @@ export function ProPresenterSetupPanel({
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Host</span>
           <input
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-sky-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
             disabled={busy}
             onChange={(event) => setHost(event.target.value)}
             value={host}
@@ -174,7 +103,7 @@ export function ProPresenterSetupPanel({
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Port</span>
           <input
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-sky-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
             disabled={busy}
             inputMode="numeric"
             onChange={(event) => setPort(event.target.value)}
@@ -184,7 +113,7 @@ export function ProPresenterSetupPanel({
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timer</span>
           <input
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-sky-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
             disabled={busy}
             onChange={(event) => setTimerName(event.target.value)}
             value={timerName}
@@ -193,7 +122,7 @@ export function ProPresenterSetupPanel({
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timeout (seconds)</span>
           <input
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-sky-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
             disabled={busy}
             inputMode="decimal"
             onChange={(event) => setTimeout(event.target.value)}
@@ -206,7 +135,7 @@ export function ProPresenterSetupPanel({
         <label className="mt-4 block text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Detected timers</span>
           <select
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-sky-400/50"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
             disabled={disabled || busy}
             onChange={(event) => setTimerName(event.target.value)}
             value={propresenter.timers.some((timer) => timer.name === timerName) ? timerName : ""}
@@ -223,7 +152,7 @@ export function ProPresenterSetupPanel({
 
       <div className="mt-5 flex flex-wrap gap-2">
         <button
-          className="rounded-lg border border-sky-400/40 bg-sky-400 px-3.5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-orange-200/40 bg-orange-300 px-3.5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={busy || parsedSettings === null}
           onClick={() => parsedSettings && onSave(parsedSettings)}
           type="button"
@@ -231,7 +160,7 @@ export function ProPresenterSetupPanel({
           {pendingOperation === "save" ? "Saving…" : disabled ? "Save settings" : "Save and reconnect"}
         </button>
         <button
-          className="rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-orange-300/30 bg-orange-300/10 px-3.5 py-2.5 text-sm font-semibold text-orange-200 transition hover:bg-orange-300/20 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={disabled || busy}
           onClick={onTest}
           type="button"
@@ -239,7 +168,7 @@ export function ProPresenterSetupPanel({
           {pendingOperation === "test" ? "Testing…" : "Test connection"}
         </button>
         <button
-          className="rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-orange-300/30 bg-orange-300/10 px-3.5 py-2.5 text-sm font-semibold text-orange-200 transition hover:bg-orange-300/20 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={disabled || busy}
           onClick={onRefreshTimers}
           type="button"

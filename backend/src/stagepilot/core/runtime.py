@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from stagepilot.core.config import Settings
 from stagepilot.core.event_bus import EventBus
+from stagepilot.core.lights import LightsController
 from stagepilot.core.midi import MidiController
 from stagepilot.core.plugin import PluginManager
 from stagepilot.core.propresenter import ProPresenterController
@@ -26,3 +27,4 @@ class Runtime:
     planning_center_setup: PlanningCenterSetupService
     midi_controller: MidiController | None
     propresenter_controller: ProPresenterController | None = None
+    lights_controller: LightsController | None = None

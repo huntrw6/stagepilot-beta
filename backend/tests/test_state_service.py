@@ -260,6 +260,8 @@ async def test_reset_position_returns_to_pre_service_state(
     service: tuple[EventBus, StateStore, StateService],
 ) -> None:
     bus, store, state_service = service
+    reset_requests: list[StagePilotEvent] = []
+    await bus.subscribe(EventType.TIMER_RESET_REQUESTED, reset_requests.append)
     await load(bus, make_plan(song("a", "Alpha", 1), song("b", "Beta", 2)))
     await state_service.dispatch(ActionName.START_NEXT)
 
@@ -271,6 +273,8 @@ async def test_reset_position_returns_to_pre_service_state(
     assert state.current_song_index is None
     assert state.next_song and state.next_song.id == "a"
     assert state.timer.status is TimerStatus.STOPPED
+    assert len(reset_requests) == 1
+    assert outcome.message == "Service position and timer reset."
 
 
 @pytest.mark.asyncio

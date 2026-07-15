@@ -47,6 +47,28 @@ scaffold or mock alone does not prove a production integration.
 - Stop action, transient failure handling, and restart recovery
 - Mock transport and sequence tests
 
+## v0.5 — Persistent Setup + Planning Center Onboarding
+
+- Validated atomic settings in `%APPDATA%\StagePilot\settings.json`
+- Planning Center PAT secret storage in Windows Credential Manager
+- Service-type discovery, plan preferences, and explicit ambiguous selection
+- Last-known-good service cache with stale and expiration handling
+- Persistent general, MIDI, and ProPresenter dashboard configuration
+- Guided first-launch setup and production connection readiness
+- Real integration activation without demo choices in production panels
+
+## v0.6 — Windows Desktop Packaging + Backend Supervision
+
+- Package and supervise the Python backend from the Tauri application
+- Coordinated startup, readiness, shutdown, and port-conflict handling
+- Windows installer and upgrade path
+
+## v0.7 — Production Hardening
+
+- Searchable rotating logs and diagnostic readiness details
+- Recovery and soak testing for Sunday production use
+- Explicit remote-access controls and security review
+
 ## v1.0 — Production MVP
 
 - Verified Planning Center → MIDI → ProPresenter workflow

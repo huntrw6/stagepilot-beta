@@ -86,8 +86,7 @@ describe("ProPresenterSetupPanel", () => {
     expect(screen.getByText(/API connected, but timer/i)).toBeInTheDocument();
   });
 
-  it("saves output mode and connection settings before the plugin is running", async () => {
-    const onOutputChange = vi.fn();
+  it("saves real connection settings before the plugin is running", async () => {
     const onSave = vi.fn();
     const user = userEvent.setup();
 
@@ -95,21 +94,17 @@ describe("ProPresenterSetupPanel", () => {
       <ProPresenterSetupPanel
         error={null}
         message={null}
-        onOutputChange={onOutputChange}
         onRefreshTimers={vi.fn()}
         onSave={onSave}
         onTest={vi.fn()}
-        output="simulated"
         pendingOperation={null}
         propresenter={{ ...status, enabled: false, connection_status: "disconnected" }}
       />,
     );
 
-    await user.selectOptions(screen.getByLabelText("Timer output"), "propresenter");
-    await user.click(screen.getByRole("button", { name: "Save timer mode" }));
+    expect(screen.queryByLabelText("Timer output")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save settings" }));
 
-    expect(onOutputChange).toHaveBeenCalledWith("propresenter");
     expect(onSave).toHaveBeenCalledWith({
       host: "127.0.0.1",
       port: 1025,

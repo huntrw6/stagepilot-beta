@@ -26,6 +26,7 @@ from stagepilot.core.runtime import Runtime
 from stagepilot.core.settings import SettingsService
 from stagepilot.core.state import StateStore
 from stagepilot.plugins.demo import DemoPlugin
+from stagepilot.plugins.lights import LightsPlugin, MidiOutputBackendFactory
 from stagepilot.plugins.midi_playback import MidiBackendFactory, MidiPlaybackPlugin
 from stagepilot.plugins.planning_center import (
     PlanningCenterClientFactory,
@@ -43,6 +44,7 @@ def create_app(
     planning_center_client_factory: PlanningCenterClientFactory | None = None,
     planning_center_today_provider: TodayProvider | None = None,
     midi_backend_factory: MidiBackendFactory | None = None,
+    lights_backend_factory: MidiOutputBackendFactory | None = None,
     propresenter_client_factory: ProPresenterClientFactory | None = None,
     settings_service: SettingsService | None = None,
     plan_cache_store: PlanCacheStore | None = None,
@@ -66,6 +68,13 @@ def create_app(
     plugin_manager = PluginManager(event_bus)
     midi_plugin: MidiPlaybackPlugin | None = None
     propresenter_plugin: ProPresenterPlugin | None = None
+    lights_plugin = LightsPlugin(
+        event_bus,
+        state_store,
+        resolved_settings.lights,
+        backend_factory=lights_backend_factory,
+    )
+    plugin_manager.register(lights_plugin)
     resolved_plan_cache_store = plan_cache_store or (
         MemoryPlanCacheStore()
         if settings is not None
@@ -138,6 +147,7 @@ def create_app(
         ),
         midi_controller=midi_plugin,
         propresenter_controller=propresenter_plugin,
+        lights_controller=lights_plugin,
     )
 
     @asynccontextmanager
