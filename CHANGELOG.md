@@ -6,6 +6,8 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-07-15
+
 ### Added
 
 - Initial monorepo foundation for the FastAPI backend, React dashboard, and
@@ -96,4 +98,5 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
   supervisor, owned-process-tree shutdown, NSIS release configuration, desktop
   connection-status bridge, and CI-built Windows installer artifact.
 
-[Unreleased]: https://github.com/huntrw6/stage-pilot/commits/main
+[Unreleased]: https://github.com/huntrw6/stage-pilot/compare/v0.9.7...HEAD
+[0.9.7]: https://github.com/huntrw6/stage-pilot/releases/tag/v0.9.7
