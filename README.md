@@ -1,209 +1,74 @@
 # StagePilot
 
-StagePilot is an open-source church production automation platform. Its first
-workflow connects Planning Center Services, MultiTracks Playback MIDI cues,
-a reusable ProPresenter countdown timer, and timed lighting MIDI output. The longer-term goal is a reliable,
-event-driven automation hub for live production systems.
+StagePilot brings the moving parts of a live production into one dependable dashboard. It loads the service plan from Planning Center, listens for song cues from MultiTracks Playback, keeps ProPresenter's countdown in sync, and sends scheduled MIDI cues to lighting software such as Lightkey.
 
-> [!IMPORTANT]
-> StagePilot is in early development. The foundation and initial Planning Center
-> plan-loading workflow are implemented, and the first backend MIDI Playback
-> slice is available for development testing. The application is not ready to
-> run a live service or control production equipment.
+The result is a clear view of what is playing, what comes next, how much time remains, and whether every connection is ready.
 
-## What the first workflow will do
+## Download
 
-1. Load today's ordered songs and scheduled durations from Planning Center, or
-   the nearest upcoming service when today has no plan.
-2. Translate configured MIDI cues from Playback into typed StagePilot events.
-3. Select or restart the appropriate song without blind index changes.
-4. Stop, set, reset, and start one reusable ProPresenter timer.
-5. Run per-song elapsed-time MIDI cue maps for Lightkey-compatible lighting automation.
-6. Publish state, health, and recent activity to the local dashboard.
+Download the Windows installer from the [latest StagePilot release](https://github.com/huntrw6/stagepilot/releases/latest), run it, and open **StagePilot** from the Start menu.
 
-Integrations communicate through the backend event bus rather than calling one
-another directly. The backend can run without Tauri so a browser, headless host,
-or future remote dashboard can use the same API.
+StagePilot v0.9.7 is the first public release. Windows may display a security warning because the installer is not yet code-signed; confirm that the publisher and download source are the ones you expect before continuing.
 
-## Repository layout
+## What you need
 
-```text
-backend/       FastAPI service, event bus, state, plugins, and Python tests
-frontend/      React, TypeScript, Vite, and Tailwind dashboard
-desktop/       Minimal Tauri v2 native shell
-docs/          Configuration, security, and plugin development notes
-```
+StagePilot can use:
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for component boundaries and decisions.
+- A Planning Center Services Personal Access Token
+- A MIDI input from MultiTracks Playback
+- ProPresenter with network control enabled
+- An optional MIDI output routed to Lightkey or another lighting application
 
-## Screenshots
+You can configure each connection from inside StagePilot. No PowerShell commands or environment variables are required.
 
-Screenshots will be added as the dashboard stabilizes. The current interface is
-intended for development and demo-mode validation.
+## First launch
 
-## Prerequisites
+StagePilot opens with a setup checklist that guides you through the required connections:
 
-- Python 3.12 or newer and [uv](https://docs.astral.sh/uv/)
-- A current Node.js LTS release and npm
-- Rust stable plus the
-  [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/)
-  when running the desktop shell
+1. Choose your timezone and general settings.
+2. Enter your Planning Center Application ID and Secret, test the connection, and select a service type.
+3. Select the MIDI input used by Playback and confirm the channel and cue note.
+4. Enter the ProPresenter address and select the countdown timer.
+5. Optionally select the MIDI output used for lighting cues.
+6. Run the connection checks and close the checklist when everything is ready.
 
-No Planning Center, MIDI, or ProPresenter credentials are required for demo
-development. MIDI itself never requires an API key or secret; it uses a local
-input port exposed by the operating system.
+Settings are saved automatically for future launches. The Planning Center secret is stored securely in Windows Credential Manager and is never written to the normal settings file.
 
-## Development setup
+## Using StagePilot
 
-Clone the repository, then install each workspace's dependencies:
+At the beginning of a production:
 
-```sh
-uv sync --project backend --extra dev
-cd frontend
-npm install
-cd ../desktop
-npm install
-cd ..
-```
+1. Open StagePilot and review the **Readiness check**.
+2. Confirm that the correct service plan and service time are loaded.
+3. Click any connection card at the top of the dashboard to review or change its configuration.
+4. Send a Playback cue or use **Manual Controls** to confirm the timer workflow before the event begins.
+5. Keep the dashboard open during the service to monitor the current song, remaining time, upcoming items, connection health, and recent events.
 
-Copy `.env.example` to `.env` only when local overrides are needed. Keep the
-copy untracked and never put real credentials in `.env.example`.
+When a start cue arrives, StagePilot starts the selected song countdown and updates ProPresenter. Stop, restart, navigation, and reset cues follow the MIDI mappings shown in the MIDI configuration panel. **Reset Position** returns StagePilot and the configured ProPresenter timer to `0:00`.
 
-### Run the backend
+The service plan includes songs, headers, and reference items in Planning Center order. Only songs are controlled by the timer workflow; the remaining items are displayed so the production team can see what is coming next.
 
-```sh
-uv run --project backend uvicorn stagepilot.main:app --reload --host 127.0.0.1 --port 8765
-```
+## Lighting cues
 
-The backend is intentionally bound to loopback. Check it at
-`http://127.0.0.1:8765/api/v1/health`.
+Each song can have its own elapsed-time lighting cue map. Add a cue at the desired song position, choose its MIDI note and velocity, and StagePilot will send a short Note On/Note Off pulse through the selected Lights output while the song runs.
 
-### Configure MIDI Playback
+For a two-computer Lightkey setup, route a network MIDI session between the StagePilot computer and the Lightkey computer, then select that MIDI destination in **Lighting Configuration**. See the [lighting setup guide](docs/lights.md) for connection details.
 
-MIDI input is disabled by default. Open the dashboard's **MIDI / Playback**
-connection panel, review the channel, fixed note, action velocities, and
-debounce, then save. When the MIDI plugin is already running, these cue-filter
-changes apply immediately. Saving automatically enables real MIDI; enabling the
-plugin for the first time still requires a restart. The dashboard can then
-refresh, select, and disconnect an input.
-The same flow is available through `POST /api/v1/midi/inputs/refresh` and
-`POST /api/v1/midi/input-selection`. Accepted selections persist in
-`%APPDATA%\StagePilot\settings.json`. The cue-simulation endpoint exercises a
-named cue through the same application-action path as hardware input.
-Changes that create or remove an integration take effect after restart.
-Environment variables remain available as higher-priority development
-overrides. See
-[docs/configuration.md](docs/configuration.md#midi-playback-variables) for the
-six default note mappings, endpoint examples, and validation limits.
+## Reliability and recovery
 
-### Configure Lights
+StagePilot saves the last successfully loaded service plan. If Planning Center is temporarily unavailable, the cached plan remains visible with a stale-data warning so a short outage does not leave the dashboard empty.
 
-Open the dashboard's **Lights** connection panel, select the MIDI output routed
-to the Lightkey Mac, and save the channel and Note On/Off pulse length. Each
-loaded Planning Center song has a persistent elapsed-time cue map with a
-`mm:ss` position, MIDI note, velocity, and label. See
-[docs/lights.md](docs/lights.md) for the two-Mac network MIDI setup and test flow.
+Before relying on StagePilot in a live service, test the complete signal path with the same computers, network, MIDI routes, Playback session, ProPresenter timer, and lighting setup that will be used during the event. Manual controls remain available if an incoming cue needs to be repeated or corrected.
 
-### Run the browser dashboard
+## Help and feedback
 
-In another terminal:
+If something is not working, first open the relevant connection card and review its status, then check the **Recent Event Stream** for a clear error message. You can report bugs or request improvements through [GitHub Issues](https://github.com/huntrw6/stagepilot/issues).
 
-```sh
-npm --prefix frontend run dev -- --host 127.0.0.1
-```
-
-Open `http://127.0.0.1:5173`.
-
-### Run the Tauri desktop shell
-
-Keep the backend running, then use:
-
-```sh
-npm --prefix desktop run dev
-```
-
-Tauri starts the Vite development server and opens it in a native window. Keep a
-development backend running separately; backend supervision is enabled in the
-packaged release application.
-
-## Quality checks
-
-```sh
-# Backend tests, lint, and formatting check
-cd backend
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-cd ..
-
-# Frontend checks and production build
-npm --prefix frontend run lint
-npm --prefix frontend test
-npm --prefix frontend run typecheck
-npm --prefix frontend run build
-
-# Rust shell check
-cargo check --manifest-path desktop/src-tauri/Cargo.toml
-```
-
-Apply backend and Rust formatting with:
-
-```sh
-cd backend && uv run ruff format .
-cargo fmt --manifest-path desktop/src-tauri/Cargo.toml
-```
-
-Script names are defined by each workspace manifest. See
-[CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change.
-
-## Build artifacts
-
-Build the browser assets on their own with `npm --prefix frontend run build`.
-Build the native release executable with:
-
-```sh
-npm --prefix desktop run build
-```
-
-The desktop command freezes the Python backend, builds the frontend, and creates
-a Windows NSIS installer with automatic backend supervision. See
-[docs/desktop-packaging.md](docs/desktop-packaging.md) for outputs and smoke tests.
-Code signing remains production-hardening work.
-
-## Configuration and security
-
-Configuration layers defaults, `%APPDATA%\StagePilot\settings.json`,
-environment-variable overrides, and validated session changes. Planning Center
-PAT secrets live in Windows Credential Manager and are never returned through
-frontend API responses. Remote access is disabled by binding to `127.0.0.1` by
-default.
-
-Read [docs/configuration.md](docs/configuration.md) and
-[docs/security.md](docs/security.md) before adding credentials or enabling LAN
-access. Use [docs/v0.5-acceptance.md](docs/v0.5-acceptance.md) for the final
-Windows production sign-off.
-
-## Project status
-
-Milestone 1 foundation work is complete. The current v0.5 work includes
-validated, secret-aware PAT configuration, service-type discovery, and a typed
-client that parses ordered songs and discovers today's plan first, then the
-nearest upcoming plan within a configurable window. The window defaults to 30
-days. The dashboard can test Planning Center credentials, populate the service
-type dropdown, follow a first-launch readiness checklist, and persist general,
-MIDI, and ProPresenter setup without PowerShell variables. Saving a production
-integration enables its real backend mode automatically; demo and simulated
-choices are hidden from the production panels. The Planning Center plugin handles
-reloads without discarding an active last-known-good plan, and exposes ambiguous
-same-date plan selection in the dashboard. Disk-backed last-known-good plan
-caching and preference-aware ambiguity resolution are implemented. See
-[ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for scope and progress.
+More detailed setup information is available in the [configuration guide](docs/configuration.md), [ProPresenter guide](docs/propresenter.md), and [security notes](docs/security.md).
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), keep
-plugin boundaries explicit, and include tests for behavioral changes.
+StagePilot is open source and contributions are welcome. Developers can find the local setup, testing, and packaging workflow in [CONTRIBUTING.md](CONTRIBUTING.md) and the project direction in [ROADMAP.md](ROADMAP.md).
 
 ## License
 
