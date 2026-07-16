@@ -122,9 +122,9 @@ Keep the backend running, then use:
 npm --prefix desktop run dev
 ```
 
-Tauri starts the Vite development server and opens it in a native window. The
-Milestone 1 shell does not yet package or supervise the Python backend; that is a
-later packaging milestone.
+Tauri starts the Vite development server and opens it in a native window. Keep a
+development backend running separately; backend supervision is enabled in the
+packaged release application.
 
 ## Quality checks
 
@@ -166,9 +166,10 @@ Build the native release executable with:
 npm --prefix desktop run build
 ```
 
-The desktop command builds the frontend first. Tauri installer bundling is
-deliberately disabled in Milestone 1; signing, installers, and Python backend
-sidecar packaging remain v1.0 work.
+The desktop command freezes the Python backend, builds the frontend, and creates
+a Windows NSIS installer with automatic backend supervision. See
+[docs/desktop-packaging.md](docs/desktop-packaging.md) for outputs and smoke tests.
+Code signing remains production-hardening work.
 
 ## Configuration and security
 

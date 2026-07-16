@@ -61,7 +61,7 @@ scaffold or mock alone does not prove a production integration.
 
 - Package and supervise the Python backend from the Tauri application
 - Coordinated startup, readiness, shutdown, and port-conflict handling
-- Windows installer and upgrade path
+- Windows NSIS installer and CI artifact
 
 ## v0.7 — Production Hardening
 

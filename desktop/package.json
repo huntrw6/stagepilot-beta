@@ -5,7 +5,8 @@
   "description": "Tauri v2 shell for the StagePilot dashboard",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "npm run build:sidecar && tauri build --config src-tauri/tauri.release.conf.json",
+    "build:sidecar": "python ../scripts/build_backend_sidecar.py"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

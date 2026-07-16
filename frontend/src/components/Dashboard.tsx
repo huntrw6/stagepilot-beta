@@ -57,6 +57,15 @@ const formatTime = (value: string | null | undefined) =>
     ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(value))
     : "No activity yet";
 
+const formatPlanCurrentAsOf = (value: string | null | undefined) => {
+  if (!value) return "Load time unavailable";
+  const loadedAt = new Date(value);
+  if (Number.isNaN(loadedAt.getTime())) return "Load time unavailable";
+  const time = `${String(loadedAt.getHours()).padStart(2, "0")}:${String(loadedAt.getMinutes()).padStart(2, "0")}`;
+  const date = `${String(loadedAt.getMonth() + 1).padStart(2, "0")}-${String(loadedAt.getDate()).padStart(2, "0")}-${loadedAt.getFullYear()}`;
+  return `Current as of ${time} ${date}`;
+};
+
 const Glyph = ({ children }: { children: ReactNode }) => (
   <span className="text-sm font-black tracking-tight">{children}</span>
 );
@@ -317,20 +326,20 @@ export function Dashboard({
     && plan?.date === serviceLoad.target_date
     && serviceLoad.status === "loaded"
     && !serviceLoad.is_stale;
-  const checks: ReadonlyArray<readonly [string, boolean]> = [
-    ["Planning Center connected", state.planning_center_status === "connected"],
-    ["Service plan loaded", servicePlanReady],
-    ["Song durations valid", durationReady],
-    ["MIDI input connected", state.midi_status === "connected"],
-    ["ProPresenter connected", state.propresenter_status === "connected"],
+  const checks: ReadonlyArray<readonly [string, string, boolean]> = [
+    ["Planning Center connected", "Planning Center disconnected", state.planning_center_status === "connected"],
+    ["Service plan loaded", "Service plan not loaded", servicePlanReady],
+    ["Song durations valid", "Song durations invalid", durationReady],
+    ["MIDI input connected", "MIDI input disconnected", state.midi_status === "connected"],
+    ["ProPresenter connected", "ProPresenter disconnected", state.propresenter_status === "connected"],
     ...(state.plugins.propresenter
-      ? [["ProPresenter timer found", Boolean(propresenter?.timer_found)]] as const
+      ? [["ProPresenter timer found", "ProPresenter timer not found", Boolean(propresenter?.timer_found)]] as const
       : []),
     ...(settings?.settings.lights.enabled
-      ? [["Lights output connected", state.lights_status === "connected"]] as const
+      ? [["Lights output connected", "Lights output disconnected", state.lights_status === "connected"]] as const
       : []),
   ];
-  const ready = checks.every(([, passed]) => passed) && live;
+  const ready = checks.every(([, , passed]) => passed) && live;
   const activity = [...state.recent_events].reverse().slice(0, 10);
   const connectedMidiInput = midi?.inputs.find((input) => input.connected);
   const midiDetail = state.last_action
@@ -579,10 +588,9 @@ export function Dashboard({
             </div>
             <div className="text-right">
               <p className="text-sm font-semibold text-slate-200">{plan?.songs.length ?? 0} songs</p>
-              {serviceLoad.skipped_items.length > 0 && (
-                <p className="text-xs text-slate-600">{serviceLoad.skipped_items.length} reference items</p>
-              )}
-              <p className="text-xs text-slate-500">{plan?.duration_source ?? "Scheduled duration source"}</p>
+              <p className="text-xs text-slate-500">
+                {plan ? formatPlanCurrentAsOf(state.last_successful_plan_reload_at) : "Load time unavailable"}
+              </p>
             </div>
           </div>
           <ol aria-label="Service plan order">
@@ -637,7 +645,7 @@ export function Dashboard({
         <section className="rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
           <div className="flex items-center justify-between"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Readiness check</p><span className={ready ? "text-emerald-300" : "text-amber-300"}>{ready ? "All systems ready" : "Attention required"}</span></div>
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {checks.map(([label, passed]) => <li key={label} className="flex items-center gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-sm"><span className={`grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black ${passed ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{passed ? "✓" : "!"}</span><span className={passed ? "text-slate-300" : "text-rose-200"}>{label}</span></li>)}
+            {checks.map(([successLabel, errorLabel, passed]) => <li key={successLabel} className="flex items-center gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-sm"><span className={`grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black ${passed ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{passed ? "✓" : "!"}</span><span className={passed ? "text-slate-300" : "text-rose-200"}>{passed ? successLabel : errorLabel}</span></li>)}
           </ul>
         </section>
 

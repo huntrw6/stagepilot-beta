@@ -323,6 +323,40 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.getByRole("heading", { name: "MIDI playback input" })).toBeInTheDocument();
   });
 
+  it("uses clear failure labels for readiness checks", () => {
+    const unavailableState = applicationState(
+      { ...loadedServiceState, status: "not_found" },
+      {
+        plan: null,
+        planning_center_status: "disconnected",
+        midi_status: "disconnected",
+        propresenter_status: "disconnected",
+        lights_status: "disconnected",
+      },
+    );
+
+    renderDashboard({ ...loadedServiceState, status: "not_found" }, {
+      state: unavailableState,
+    });
+
+    expect(screen.getByText("Planning Center disconnected")).toBeInTheDocument();
+    expect(screen.getByText("Service plan not loaded")).toBeInTheDocument();
+    expect(screen.getByText("Song durations invalid")).toBeInTheDocument();
+    expect(screen.getByText("MIDI input disconnected")).toBeInTheDocument();
+    expect(screen.getByText("ProPresenter disconnected")).toBeInTheDocument();
+  });
+
+  it("shows when the service plan was last successfully loaded", () => {
+    renderDashboard(loadedServiceState, {
+      state: applicationState(loadedServiceState, {
+        last_successful_plan_reload_at: "2026-06-15T18:28:00",
+      }),
+    });
+
+    expect(screen.getByText("Current as of 18:28 06-15-2026")).toBeInTheDocument();
+    expect(screen.queryByText("Planning Center scheduled item length")).not.toBeInTheDocument();
+  });
+
   it("displays a loaded upcoming plan as ready", () => {
     const upcomingServiceLoad: ServiceLoadState = {
       ...loadedServiceState,
@@ -379,7 +413,7 @@ describe("Dashboard Planning Center plan states", () => {
     });
 
     expect(screen.queryByText("2 non-song items were skipped")).not.toBeInTheDocument();
-    expect(screen.getByText("2 reference items")).toBeInTheDocument();
+    expect(screen.queryByText("2 reference items")).not.toBeInTheDocument();
     const rows = within(screen.getByRole("list", { name: "Service plan order" })).getAllByRole("listitem");
     expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveTextContent("Welcome");

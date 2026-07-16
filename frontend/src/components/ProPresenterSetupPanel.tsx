@@ -63,6 +63,9 @@ export function ProPresenterSetupPanel({
 
   const disabled = !propresenter?.enabled;
   const busy = pendingOperation !== null;
+  const timerDetected = Boolean(
+    propresenter?.timers.some((timer) => timer.name === timerName),
+  );
 
   return (
     <section className="setup-panel mt-5 rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20" id="propresenter-configuration">
@@ -111,13 +114,23 @@ export function ProPresenterSetupPanel({
           />
         </label>
         <label className="text-sm text-slate-300">
-          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timer</span>
-          <input
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Detected timer</span>
+          <select
             className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
             disabled={busy}
             onChange={(event) => setTimerName(event.target.value)}
             value={timerName}
-          />
+          >
+            <option value="">Choose a detected timer</option>
+            {timerName && !timerDetected && (
+              <option value={timerName}>{timerName} (currently unavailable)</option>
+            )}
+            {propresenter?.timers.map((timer) => (
+              <option disabled={!timer.is_countdown} key={timer.id} value={timer.name}>
+                {timer.name}{timer.is_countdown ? "" : " (not a countdown)"}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timeout (seconds)</span>
@@ -130,25 +143,6 @@ export function ProPresenterSetupPanel({
           />
         </label>
       </div>
-
-      {propresenter?.timers.length ? (
-        <label className="mt-4 block text-sm text-slate-300">
-          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Detected timers</span>
-          <select
-            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
-            disabled={disabled || busy}
-            onChange={(event) => setTimerName(event.target.value)}
-            value={propresenter.timers.some((timer) => timer.name === timerName) ? timerName : ""}
-          >
-            <option value="">Choose a detected timer</option>
-            {propresenter.timers.map((timer) => (
-              <option disabled={!timer.is_countdown} key={timer.id} value={timer.name}>
-                {timer.name}{timer.is_countdown ? "" : " (not a countdown)"}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
 
       <div className="mt-5 flex flex-wrap gap-2">
         <button

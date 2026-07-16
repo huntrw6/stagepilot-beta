@@ -86,6 +86,24 @@ describe("ProPresenterSetupPanel", () => {
     expect(screen.getByText(/API connected, but timer/i)).toBeInTheDocument();
   });
 
+  it("uses the detected timer dropdown as the only timer input", () => {
+    render(
+      <ProPresenterSetupPanel
+        error={null}
+        message={null}
+        onRefreshTimers={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
+        pendingOperation={null}
+        propresenter={status}
+      />,
+    );
+
+    expect(screen.getByText("Detected timer")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /Detected timer/i })).toHaveValue("Song Countdown");
+    expect(screen.queryByText("Detected timers")).not.toBeInTheDocument();
+  });
+
   it("saves real connection settings before the plugin is running", async () => {
     const onSave = vi.fn();
     const user = userEvent.setup();

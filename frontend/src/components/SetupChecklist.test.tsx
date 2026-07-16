@@ -178,4 +178,17 @@ describe("SetupChecklist", () => {
 
     expect(screen.queryByLabelText("StagePilot setup progress")).not.toBeInTheDocument();
   });
+
+  it("uses the same dark translucent treatment as configuration panels", () => {
+    renderChecklist(null);
+
+    expect(screen.getByLabelText("StagePilot setup progress")).toHaveClass(
+      "bg-slate-950/70",
+      "shadow-2xl",
+    );
+    expect(screen.getByText("Select a setup step to open its connection panel.")).toHaveClass(
+      "text-slate-300",
+    );
+    expect(screen.getByText("Review and save startup defaults")).toHaveClass("text-slate-400");
+  });
 });

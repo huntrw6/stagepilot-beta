@@ -74,12 +74,33 @@ jobs:
         run: npm --prefix frontend run build
 
   desktop:
-    name: Desktop — Rust on Windows
+    name: Desktop installer — Windows
     runs-on: windows-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          working-directory: backend
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install frontend and desktop dependencies
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix desktop
 
       - name: Select stable Rust
         run: |
@@ -91,3 +112,16 @@ jobs:
 
       - name: Compile-check desktop shell
         run: cargo check --manifest-path desktop/src-tauri/Cargo.toml
+
+      - name: Run desktop lifecycle tests
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+
+      - name: Build packaged application and installer
+        run: npm --prefix desktop run build
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: stagepilot-windows-installer
+          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error

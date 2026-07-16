@@ -92,5 +92,8 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
   that discards older messages when newer notifications arrive.
 - Dark-orange Now Playing labeling and deeper READY-green highlighting for the
   current song row, subtitle, and numbered icon.
+- A reproducible PyInstaller backend sidecar, Tauri startup/readiness/port-conflict
+  supervisor, owned-process-tree shutdown, NSIS release configuration, desktop
+  connection-status bridge, and CI-built Windows installer artifact.
 
 [Unreleased]: https://github.com/huntrw6/stage-pilot/commits/main

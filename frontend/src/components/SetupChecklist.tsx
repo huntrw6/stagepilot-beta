@@ -111,7 +111,7 @@ export function SetupChecklist({
   if (!visible) return null;
 
   return (
-    <section className="relative mb-5 rounded-xl border border-sky-400/20 bg-sky-400/[0.055] p-4" aria-label="StagePilot setup progress">
+    <section className="relative mb-5 rounded-xl border border-sky-400/20 bg-slate-950/70 p-4 shadow-2xl shadow-black/20" aria-label="StagePilot setup progress">
       <button
         aria-label="Close first-launch setup"
         className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/5 text-lg text-slate-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
@@ -127,7 +127,7 @@ export function SetupChecklist({
           <h2 className="mt-1 text-lg font-bold text-white">
             {setupComplete ? "StagePilot setup is complete" : "Finish configuring StagePilot"}
           </h2>
-          <p aria-live="polite" className="mt-1 text-sm text-slate-400">
+          <p aria-live="polite" className="mt-1 text-sm text-slate-300">
             {setupComplete
               ? "Everything is connected and ready. This checklist will close automatically."
               : "Select a setup step to open its connection panel."}
@@ -147,7 +147,7 @@ export function SetupChecklist({
               </span>
               <span className="min-w-0 text-left">
                 <span className="block text-sm font-semibold text-slate-100">{step.label}</span>
-                <span className="mt-0.5 block text-xs text-slate-500">{step.detail}</span>
+                <span className="mt-0.5 block text-xs text-slate-400">{step.detail}</span>
               </span>
             </>
           );
