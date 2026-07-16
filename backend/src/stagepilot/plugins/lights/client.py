@@ -52,9 +52,7 @@ class MidoOutputPort:
         return bool(self._port.closed)
 
     def send_note_on(self, channel: int, note: int, velocity: int) -> None:
-        self._port.send(
-            mido.Message("note_on", channel=channel - 1, note=note, velocity=velocity)
-        )
+        self._port.send(mido.Message("note_on", channel=channel - 1, note=note, velocity=velocity))
 
     def send_note_off(self, channel: int, note: int) -> None:
         self._port.send(mido.Message("note_off", channel=channel - 1, note=note, velocity=0))
@@ -80,4 +78,3 @@ class MidoMidiOutputBackend:
         if matches > 1:
             raise ValueError("The configured lighting MIDI output name is ambiguous.")
         return MidoOutputPort(self._backend.open_output(name))
-

@@ -38,7 +38,11 @@ def cached_plan() -> CachedServicePlan:
     )
 
 
-def test_default_cache_path_sits_beside_windows_settings(tmp_path: Path) -> None:
+def test_default_cache_path_sits_beside_windows_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("stagepilot.core.settings.sys.platform", "win32")
     assert default_plan_cache_path({"APPDATA": str(tmp_path)}) == (
         tmp_path / "StagePilot" / "last-known-good-service.json"
     )

@@ -199,9 +199,7 @@ class LightsPlugin(Plugin):
             return
         if (self._port is None or self._port.closed) and not await self._connect():
             return
-        cues = [
-            cue for cue in cue_map.cues if cue.at_seconds <= event.payload.duration_seconds
-        ]
+        cues = [cue for cue in cue_map.cues if cue.at_seconds <= event.payload.duration_seconds]
         if not cues:
             return
         self._timeline_task = asyncio.create_task(

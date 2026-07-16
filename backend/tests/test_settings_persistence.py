@@ -63,10 +63,28 @@ def settings_service(
     )
 
 
-def test_windows_settings_path_uses_roaming_appdata(tmp_path: Path) -> None:
+def test_windows_settings_path_uses_roaming_appdata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("stagepilot.core.settings.sys.platform", "win32")
     path = default_settings_path({"APPDATA": str(tmp_path)})
 
     assert path == tmp_path / "StagePilot" / "settings.json"
+
+
+def test_linux_settings_path_uses_xdg_config_home(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("stagepilot.core.settings.sys.platform", "linux")
+    xdg_config = tmp_path / "xdg"
+
+    path = default_settings_path(
+        {"APPDATA": str(tmp_path / "ignored-appdata"), "XDG_CONFIG_HOME": str(xdg_config)}
+    )
+
+    assert path == xdg_config / "StagePilot" / "settings.json"
 
 
 def test_built_in_defaults_load_without_a_saved_file(tmp_path: Path) -> None:

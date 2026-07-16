@@ -86,4 +86,3 @@ def test_lights_settings_test_pulse_and_cue_map_persist_through_api() -> None:
     cue_map = settings.json()["settings"]["lights"]["cue_maps"]["song-1"]
     assert cue_map["song_title"] == "Holy Forever"
     assert cue_map["cues"][0]["at_seconds"] == 65
-

@@ -73,4 +73,3 @@ def test_lights_environment_values_override_saved_output_settings(tmp_path: Path
     assert runtime.lights.channel == 7
     assert runtime.lights.pulse_ms == 250
     assert "song-1" in runtime.lights.cue_maps
-
