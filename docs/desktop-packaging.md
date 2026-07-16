@@ -1,8 +1,9 @@
 # Desktop packaging and backend supervision
 
-StagePilot's release build is a self-contained Windows desktop application. It
-bundles the React dashboard, Tauri shell, and a PyInstaller-frozen Python
-backend. End users do not need Python, uv, Node.js, Rust, or PowerShell.
+StagePilot's release builds are self-contained Windows and macOS desktop
+applications. They bundle the React dashboard, Tauri shell, and a
+PyInstaller-frozen Python backend. End users do not need Python, uv, Node.js,
+Rust, or PowerShell.
 
 ## Build the installer
 
@@ -26,6 +27,25 @@ The desktop build performs these steps:
 The installer is written below
 `desktop/src-tauri/target/release/bundle/nsis/`. Generated backend executables,
 PyInstaller work files, and installer outputs are intentionally ignored by Git.
+
+## Build the macOS disk images
+
+macOS applications must be compiled on macOS. The **Release macOS** GitHub
+Actions workflow builds separate Apple Silicon and Intel disk images using the
+matching runner architecture. It freezes the native backend sidecar, builds the
+Tauri application, uploads the `.dmg` as a workflow artifact, and attaches it to
+the selected GitHub release.
+
+The same build can be run on a Mac with:
+
+```sh
+npm ci --prefix frontend
+npm ci --prefix desktop
+npm --prefix desktop run build:mac
+```
+
+The disk image is written below
+`desktop/src-tauri/target/release/bundle/dmg/`.
 
 ## Runtime lifecycle
 
@@ -59,5 +79,6 @@ Test every installer candidate on a Windows account without repository tooling:
 7. Uninstall StagePilot and confirm user settings remain available for an upgrade
    unless the release policy explicitly adds a separate data-removal option.
 
-The application is not code-signed yet. Windows may display an unknown-publisher
-warning until release signing is added during production hardening.
+The application is not code-signed or notarized yet. Windows may display an
+unknown-publisher warning, and macOS may require the user to approve the app in
+Privacy & Security, until release signing is added during production hardening.

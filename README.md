@@ -6,9 +6,13 @@ The result is a clear view of what is playing, what comes next, how much time re
 
 ## Download
 
-Download the Windows installer from the [latest StagePilot release](https://github.com/huntrw6/stagepilot/releases/latest), run it, and open **StagePilot** from the Start menu.
+Download StagePilot from the [latest release](https://github.com/huntrw6/stagepilot/releases/latest):
 
-StagePilot v0.9.7 is the first public release. Windows may display a security warning because the installer is not yet code-signed; confirm that the publisher and download source are the ones you expect before continuing.
+- **Windows:** Run the `.exe` installer, then open StagePilot from the Start menu.
+- **Apple Silicon Mac:** Open the `aarch64.dmg` disk image and drag StagePilot to Applications.
+- **Intel Mac:** Open the `x64.dmg` disk image and drag StagePilot to Applications.
+
+StagePilot v0.9.7 is the first public release. Windows or macOS may display a security warning because the application is not yet code-signed or notarized. Confirm that the download came from the official StagePilot release page before continuing.
 
 ## What you need
 
@@ -32,7 +36,7 @@ StagePilot opens with a setup checklist that guides you through the required con
 5. Optionally select the MIDI output used for lighting cues.
 6. Run the connection checks and close the checklist when everything is ready.
 
-Settings are saved automatically for future launches. The Planning Center secret is stored securely in Windows Credential Manager and is never written to the normal settings file.
+Settings are saved automatically for future launches. The Planning Center secret is stored securely in the operating system's credential store and is never written to the normal settings file.
 
 ## Using StagePilot
 
