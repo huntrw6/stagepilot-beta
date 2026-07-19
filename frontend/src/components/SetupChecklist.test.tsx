@@ -82,12 +82,16 @@ const propresenter: ProPresenterStatusResponse = {
   host: "127.0.0.1",
   port: 1025,
   timer_name: "Song Countdown",
+  look_id: null,
   request_timeout_seconds: 3,
   connection_status: "connected",
   detail: null,
   timers: [],
   selected_timer_id: "timer-id",
   timer_found: true,
+  looks: [],
+  current_look_id: null,
+  look_found: true,
   last_checked_at: "2026-07-15T12:00:00Z",
 };
 

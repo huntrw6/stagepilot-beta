@@ -8,6 +8,7 @@ from stagepilot.plugins.propresenter.client import (
 from stagepilot.plugins.propresenter.errors import (
     ProPresenterConnectionError,
     ProPresenterError,
+    ProPresenterLookNotFoundError,
     ProPresenterResponseError,
     ProPresenterTimerNotFoundError,
     ProPresenterTimerTypeError,
@@ -15,6 +16,7 @@ from stagepilot.plugins.propresenter.errors import (
 from stagepilot.plugins.propresenter.models import (
     ProPresenterCountdown,
     ProPresenterIdentifier,
+    ProPresenterLook,
     ProPresenterTimer,
 )
 from stagepilot.plugins.propresenter.plugin import ProPresenterPlugin
@@ -27,6 +29,8 @@ __all__ = [
     "ProPresenterCountdown",
     "ProPresenterError",
     "ProPresenterIdentifier",
+    "ProPresenterLook",
+    "ProPresenterLookNotFoundError",
     "ProPresenterPlugin",
     "ProPresenterResponseError",
     "ProPresenterTimer",

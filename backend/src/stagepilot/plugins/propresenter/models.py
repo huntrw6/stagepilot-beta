@@ -25,6 +25,37 @@ class ProPresenterCountdown(BaseModel):
     duration: int = Field(ge=0)
 
 
+class ProPresenterLook(BaseModel):
+    """A saved audience Look returned by ProPresenter's public API."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    id: ProPresenterIdentifier
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_look_shapes(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data: dict[str, Any] = dict(value)
+        nested = data.get("look")
+        if isinstance(nested, dict):
+            data = dict(nested)
+        identifier = data.get("id")
+        if isinstance(identifier, str):
+            data["id"] = {
+                "uuid": identifier,
+                "name": data.get("name"),
+                "index": data.get("index", 0),
+            }
+        elif not isinstance(identifier, dict):
+            uuid = data.get("uuid")
+            name = data.get("name")
+            if isinstance(uuid, str) and isinstance(name, str):
+                data["id"] = {"uuid": uuid, "name": name, "index": data.get("index", 0)}
+        return data
+
+
 class ProPresenterTimer(BaseModel):
     """The stable subset of a timer returned by the ProPresenter HTTP API."""
 

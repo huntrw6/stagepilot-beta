@@ -23,6 +23,16 @@ class ProPresenterTimerSummary(BaseModel):
     state: str | None = None
 
 
+class ProPresenterLookSummary(BaseModel):
+    """Safe saved-Look metadata exposed to the dashboard."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=255)
+    index: int = Field(ge=0)
+
+
 class ProPresenterSnapshot(BaseModel):
     """Current session configuration and discovery state."""
 
@@ -32,12 +42,16 @@ class ProPresenterSnapshot(BaseModel):
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(ge=1, le=65535)
     timer_name: str = Field(min_length=1, max_length=255)
+    look_id: str | None = Field(default=None, max_length=256)
     request_timeout_seconds: float = Field(gt=0, le=60.0)
     connection_status: ConnectionStatus
     detail: str | None = None
     timers: list[ProPresenterTimerSummary] = Field(default_factory=list)
     selected_timer_id: str | None = None
     timer_found: bool = False
+    looks: list[ProPresenterLookSummary] = Field(default_factory=list)
+    current_look_id: str | None = None
+    look_found: bool = False
     last_checked_at: datetime | None = None
 
 
@@ -51,3 +65,5 @@ class ProPresenterController(Protocol):
     async def refresh_timers(self) -> ProPresenterSnapshot: ...
 
     async def reconfigure(self, settings: ProPresenterSettings) -> ProPresenterSnapshot: ...
+
+    async def apply_look(self, look_id: str) -> ProPresenterSnapshot: ...

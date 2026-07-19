@@ -50,6 +50,7 @@ from stagepilot.models.api import (
     PlanningCenterTestResponse,
     PlanSelectionRequest,
     PlanSelectionResponse,
+    ProPresenterLookResponse,
     ProPresenterOperationResponse,
     ProPresenterSettingsRequest,
     ProPresenterStatusResponse,
@@ -70,6 +71,7 @@ from stagepilot.plugins.planning_center.errors import (
     PlanningCenterPermissionError,
     PlanningCenterRateLimitError,
 )
+from stagepilot.plugins.propresenter.errors import ProPresenterError
 
 router = APIRouter(prefix="/api/v1")
 
@@ -163,6 +165,7 @@ def _propresenter_response(snapshot: ProPresenterSnapshot) -> ProPresenterStatus
         host=snapshot.host,
         port=snapshot.port,
         timer_name=snapshot.timer_name,
+        look_id=snapshot.look_id,
         request_timeout_seconds=snapshot.request_timeout_seconds,
         connection_status=snapshot.connection_status,
         detail=snapshot.detail,
@@ -178,6 +181,12 @@ def _propresenter_response(snapshot: ProPresenterSnapshot) -> ProPresenterStatus
         ],
         selected_timer_id=snapshot.selected_timer_id,
         timer_found=snapshot.timer_found,
+        looks=[
+            ProPresenterLookResponse(id=look.id, name=look.name, index=look.index)
+            for look in snapshot.looks
+        ],
+        current_look_id=snapshot.current_look_id,
+        look_found=snapshot.look_found,
         last_checked_at=snapshot.last_checked_at,
     )
 
@@ -217,12 +226,16 @@ async def _propresenter_status(
             host=settings.host,
             port=settings.port,
             timer_name=settings.timer_name,
+            look_id=settings.look_id,
             request_timeout_seconds=settings.request_timeout_seconds,
             connection_status=ConnectionStatus.DISCONNECTED,
             detail="The ProPresenter plugin is disabled.",
             timers=[],
             selected_timer_id=None,
             timer_found=False,
+            looks=[],
+            current_look_id=None,
+            look_found=settings.look_id is None,
             last_checked_at=None,
         )
     return _propresenter_response(await controller.snapshot(refresh=refresh))
@@ -541,6 +554,7 @@ async def update_propresenter_settings(
         host=settings.host,
         port=settings.port,
         timer_name=settings.timer_name,
+        look_id=settings.look_id,
         request_timeout_seconds=settings.request_timeout_seconds,
         reconnect_initial_seconds=current.reconnect_initial_seconds,
         reconnect_max_seconds=current.reconnect_max_seconds,
@@ -563,7 +577,22 @@ async def update_propresenter_settings(
         runtime.settings_service.persist_propresenter(updated)
     except SettingsFileError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    accepted = snapshot.connection_status is ConnectionStatus.CONNECTED and snapshot.timer_found
+    if updated.look_id is not None:
+        try:
+            snapshot = await controller.apply_look(updated.look_id)
+        except ProPresenterError as exc:
+            snapshot = await controller.snapshot()
+            return ProPresenterOperationResponse(
+                accepted=False,
+                message=f"ProPresenter settings were saved, but the Look was not applied: {exc}",
+                propresenter=_propresenter_response(snapshot),
+            )
+    accepted = (
+        snapshot.connection_status is ConnectionStatus.CONNECTED
+        and snapshot.timer_found
+        and snapshot.look_found
+        and (updated.look_id is None or snapshot.current_look_id == updated.look_id)
+    )
     message = snapshot.detail or (
         "ProPresenter session settings applied."
         if accepted

@@ -393,6 +393,7 @@ def _environment_overrides(values: Mapping[str, str]) -> dict[str, object]:
         ("STAGEPILOT_PROPRESENTER_HOST", "host", str),
         ("STAGEPILOT_PROPRESENTER_PORT", "port", int),
         ("STAGEPILOT_PROPRESENTER_TIMER_NAME", "timer_name", str),
+        ("STAGEPILOT_PROPRESENTER_LOOK_ID", "look_id", str),
         ("STAGEPILOT_PROPRESENTER_TIMEOUT_SECONDS", "request_timeout_seconds", float),
         ("STAGEPILOT_PROPRESENTER_RECONNECT_INITIAL_SECONDS", "reconnect_initial_seconds", float),
         ("STAGEPILOT_PROPRESENTER_RECONNECT_MAX_SECONDS", "reconnect_max_seconds", float),

@@ -15,7 +15,11 @@ from stagepilot.plugins.propresenter.errors import (
     ProPresenterTimerNotFoundError,
     ProPresenterTimerTypeError,
 )
-from stagepilot.plugins.propresenter.models import ProPresenterCountdown, ProPresenterTimer
+from stagepilot.plugins.propresenter.models import (
+    ProPresenterCountdown,
+    ProPresenterLook,
+    ProPresenterTimer,
+)
 
 
 class ProPresenterClientContract(Protocol):
@@ -24,6 +28,12 @@ class ProPresenterClientContract(Protocol):
     async def list_timers(self) -> list[ProPresenterTimer]: ...
 
     async def find_timer(self, name: str) -> ProPresenterTimer: ...
+
+    async def list_looks(self) -> list[ProPresenterLook]: ...
+
+    async def current_look(self) -> ProPresenterLook: ...
+
+    async def trigger_look(self, look_id: str) -> None: ...
 
     async def stop_timer(self, timer_id: str) -> None: ...
 
@@ -89,6 +99,30 @@ class ProPresenterClient:
                 f'ProPresenter timer "{name}" is not a countdown timer.'
             )
         return timer
+
+    async def list_looks(self) -> list[ProPresenterLook]:
+        payload = await self._request("GET", "/v1/looks")
+        raw_looks = self._extract_resource_list(payload, "looks")
+        try:
+            return [ProPresenterLook.model_validate(look) for look in raw_looks]
+        except ValidationError as exc:
+            raise ProPresenterResponseError(
+                "ProPresenter returned an invalid Look object."
+            ) from exc
+
+    async def current_look(self) -> ProPresenterLook:
+        payload = await self._request("GET", "/v1/look/current")
+        try:
+            return ProPresenterLook.model_validate(payload)
+        except ValidationError as exc:
+            raise ProPresenterResponseError(
+                "ProPresenter returned an invalid current Look object."
+            ) from exc
+
+    async def trigger_look(self, look_id: str) -> None:
+        if not look_id.strip():
+            raise ValueError("Look ID cannot be empty.")
+        await self._request("GET", f"/v1/look/{look_id}/trigger")
 
     async def stop_timer(self, timer_id: str) -> None:
         await self._timer_operation(timer_id, "stop")
@@ -176,6 +210,21 @@ class ProPresenterClient:
                         cast(dict[str, Any], value) for value in values if isinstance(value, dict)
                     ]
         raise ProPresenterResponseError("ProPresenter returned an unexpected timer-list response.")
+
+    @staticmethod
+    def _extract_resource_list(payload: Any, resource_key: str) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [cast(dict[str, Any], value) for value in payload if isinstance(value, dict)]
+        if isinstance(payload, dict):
+            for key in (resource_key, "items", "data"):
+                values = payload.get(key)
+                if isinstance(values, list):
+                    return [
+                        cast(dict[str, Any], value) for value in values if isinstance(value, dict)
+                    ]
+        raise ProPresenterResponseError(
+            f"ProPresenter returned an unexpected {resource_key}-list response."
+        )
 
     @staticmethod
     def _safe_response_detail(response: httpx.Response) -> str:

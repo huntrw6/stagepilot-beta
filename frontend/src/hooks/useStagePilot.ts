@@ -52,6 +52,7 @@ import type {
   SongLightingCueMap,
   StateEnvelope,
 } from "../types";
+import { restartDesktopBackend } from "../desktop";
 
 const MAX_RECONNECT_DELAY = 10_000;
 const MIDI_MONITOR_INTERVAL = 750;
@@ -377,6 +378,10 @@ export function useStagePilot() {
           midi: { ...input, enabled: true },
         });
         setSettings(response);
+        if (response.restart_required && await restartDesktopBackend()) {
+          window.location.reload();
+          return;
+        }
         setSettingsMessage(
           response.restart_required
             ? "MIDI settings saved. Restart StagePilot to apply the hardware input configuration."
@@ -447,9 +452,15 @@ export function useStagePilot() {
           },
         });
         setSettings(response);
+        if (response.restart_required && await restartDesktopBackend()) {
+          window.location.reload();
+          return;
+        }
         setPlanningCenterStatus(await getPlanningCenterStatus());
         setPlanningCenterMessage(
-          "Planning Center settings saved securely. Restart StagePilot to apply the service source.",
+          response.restart_required
+            ? "Planning Center settings saved securely. Restart StagePilot to apply the service source."
+            : "Planning Center settings saved securely and applied to the running service source.",
         );
       } catch (cause) {
         setPlanningCenterError(

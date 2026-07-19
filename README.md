@@ -70,6 +70,10 @@ If something is not working, first open the relevant connection card and review 
 
 More detailed setup information is available in the [configuration guide](docs/configuration.md), [ProPresenter guide](docs/propresenter.md), and [security notes](docs/security.md).
 
+## MultiTracks setlist cue utility
+
+The repository also includes [`stagepilot-cues`](tools/multitracks-cues/README.md), a standalone command-line utility that connects directly to the official MultiTracks MCP server. It can inspect a selected Playback setlist, dry-run the exact StagePilot Start-next MIDI additions, apply them only after explicit confirmation, and verify every created event by reading it back. It requires no ChatGPT, OpenAI API key, Claude, or AI model.
+
 ## Contributing
 
 StagePilot is open source and contributions are welcome. Developers can find the local setup, testing, and packaging workflow in [CONTRIBUTING.md](CONTRIBUTING.md) and the project direction in [ROADMAP.md](ROADMAP.md).

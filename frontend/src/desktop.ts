@@ -37,5 +37,11 @@ export const toggleMaximizeDesktopWindow = async () => {
 
 export const closeDesktopWindow = async () => {
   if (!isTauri()) return;
-  await getCurrentWindow().close();
+  await invoke("quit_application");
+};
+
+export const restartDesktopBackend = async (): Promise<boolean> => {
+  if (!isTauri()) return false;
+  await invoke<BackendSupervisorStatus>("restart_managed_backend");
+  return true;
 };

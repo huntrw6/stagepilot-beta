@@ -176,17 +176,27 @@ class ProPresenterTimerResponse(BaseModel):
     state: str | None = None
 
 
+class ProPresenterLookResponse(BaseModel):
+    id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=255)
+    index: int = Field(ge=0)
+
+
 class ProPresenterStatusResponse(BaseModel):
     enabled: bool
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(ge=1, le=65535)
     timer_name: str = Field(min_length=1, max_length=255)
+    look_id: str | None = Field(default=None, max_length=256)
     request_timeout_seconds: float = Field(gt=0, le=60.0)
     connection_status: ConnectionStatus
     detail: str | None = None
     timers: list[ProPresenterTimerResponse] = Field(default_factory=list)
     selected_timer_id: str | None = None
     timer_found: bool
+    looks: list[ProPresenterLookResponse] = Field(default_factory=list)
+    current_look_id: str | None = None
+    look_found: bool
     last_checked_at: datetime | None = None
 
 
@@ -194,6 +204,7 @@ class ProPresenterSettingsRequest(BaseModel):
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(ge=1, le=65535)
     timer_name: str = Field(min_length=1, max_length=255)
+    look_id: str | None = Field(default=None, max_length=256)
     request_timeout_seconds: float = Field(gt=0, le=60.0)
 
 

@@ -168,6 +168,21 @@ It grants only Tauri core defaults and does not expose shell execution or file
 system capabilities. Backend sidecar supervision, signing, installers, and
 updaters remain explicit future packaging work.
 
+## Standalone MultiTracks cue client
+
+`tools/multitracks-cues` is an independent Node.js/TypeScript package and direct
+Streamable HTTP MCP client. It does not depend on the Python backend or Tauri
+shell. OAuth/credential storage, MCP transport, MultiTracks normalization,
+canonical cue planning, sequential application, verification, reporting, and
+CLI presentation are separate boundaries. This keeps the deterministic safety
+logic reusable by a future desktop panel or supervised sidecar without moving
+remote-write behavior into the React UI.
+
+The package enforces a fixed tool allowlist. Read operations are available to
+inspection and dry-run; the three create operations require explicit apply
+mode. Destructive MIDI tools are rejected before transport invocation. Every
+write is preceded by a fresh read and followed by a complete scoped read-back.
+
 ## Technology decisions
 
 - **FastAPI and Pydantic** provide asynchronous request handling, WebSockets,

@@ -217,12 +217,12 @@ fn wait_for_backend(app: tauri::AppHandle, supervisor: BackendSupervisor, port: 
     });
 }
 
-fn start_backend(app: &tauri::App, supervisor: BackendSupervisor) -> Result<(), String> {
+fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Result<(), String> {
     let port = supervisor.snapshot().port;
     match probe_port(port) {
         PortProbe::StagePilot => {
             supervisor.update(
-                app.handle(),
+                app,
                 BackendState::External,
                 format!("Connected to an existing StagePilot backend on port {port}."),
                 false,
@@ -231,7 +231,7 @@ fn start_backend(app: &tauri::App, supervisor: BackendSupervisor) -> Result<(), 
         }
         PortProbe::Occupied => {
             supervisor.update(
-                app.handle(),
+                app,
                 BackendState::Failed,
                 format!("Port {port} is already in use by another application."),
                 false,
@@ -246,7 +246,8 @@ fn start_backend(app: &tauri::App, supervisor: BackendSupervisor) -> Result<(), 
         .sidecar("stagepilot-backend")
         .map_err(|error| format!("Unable to locate the packaged backend: {error}"))?
         .env("STAGEPILOT_HOST", "127.0.0.1")
-        .env("STAGEPILOT_PORT", port.to_string());
+        .env("STAGEPILOT_PORT", port.to_string())
+        .env("STAGEPILOT_SETTINGS_PATH", settings_path());
     let (mut events, child) = command
         .spawn()
         .map_err(|error| format!("Unable to start the packaged backend: {error}"))?;
@@ -259,7 +260,7 @@ fn start_backend(app: &tauri::App, supervisor: BackendSupervisor) -> Result<(), 
         .lock()
         .expect("backend child lock poisoned") = Some(child);
 
-    let event_app = app.handle().clone();
+    let event_app = app.clone();
     let event_supervisor = supervisor.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
@@ -279,7 +280,7 @@ fn start_backend(app: &tauri::App, supervisor: BackendSupervisor) -> Result<(), 
             }
         }
     });
-    wait_for_backend(app.handle().clone(), supervisor, port);
+    wait_for_backend(app.clone(), supervisor, port);
     Ok(())
 }
 
@@ -288,6 +289,74 @@ fn backend_supervisor_status(
     supervisor: tauri::State<'_, BackendSupervisor>,
 ) -> BackendSupervisorStatus {
     supervisor.snapshot()
+}
+
+#[tauri::command]
+async fn restart_managed_backend(
+    app: tauri::AppHandle,
+    supervisor: tauri::State<'_, BackendSupervisor>,
+) -> Result<BackendSupervisorStatus, String> {
+    if !supervisor.snapshot().managed {
+        return Err(
+            "StagePilot is connected to an older external backend. Fully quit StagePilot once, then reopen it."
+                .to_string(),
+        );
+    }
+    supervisor.update(
+        &app,
+        BackendState::Stopped,
+        "Restarting the StagePilot backend.",
+        true,
+    );
+    supervisor
+        .child_pid
+        .lock()
+        .expect("backend child PID lock poisoned")
+        .take();
+    if let Some(child) = supervisor
+        .child
+        .lock()
+        .expect("backend child lock poisoned")
+        .take()
+    {
+        child
+            .kill()
+            .map_err(|error| format!("Could not stop the current StagePilot backend: {error}"))?;
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline
+        && probe_port(supervisor.snapshot().port) != PortProbe::Available
+    {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if probe_port(supervisor.snapshot().port) != PortProbe::Available {
+        return Err("The previous StagePilot backend did not stop in time.".to_string());
+    }
+
+    supervisor.update(
+        &app,
+        BackendState::Starting,
+        format!(
+            "Starting the StagePilot backend on port {}.",
+            supervisor.snapshot().port
+        ),
+        true,
+    );
+    start_backend(&app, supervisor.inner().clone())?;
+    let deadline = Instant::now() + STARTUP_TIMEOUT;
+    while Instant::now() < deadline {
+        if probe_port(supervisor.snapshot().port) == PortProbe::StagePilot {
+            return Ok(supervisor.snapshot());
+        }
+        tokio::time::sleep(PROBE_INTERVAL).await;
+    }
+    Err("The restarted StagePilot backend did not become ready.".to_string())
+}
+
+#[tauri::command]
+fn quit_application(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 /// Starts the StagePilot native shell and supervises its packaged backend.
@@ -299,9 +368,13 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(supervisor.clone())
-        .invoke_handler(tauri::generate_handler![backend_supervisor_status])
+        .invoke_handler(tauri::generate_handler![
+            backend_supervisor_status,
+            restart_managed_backend,
+            quit_application
+        ])
         .setup(move |app| {
-            if let Err(message) = start_backend(app, supervisor.clone()) {
+            if let Err(message) = start_backend(app.handle(), supervisor.clone()) {
                 supervisor.update(app.handle(), BackendState::Failed, message, true);
             }
             Ok(())

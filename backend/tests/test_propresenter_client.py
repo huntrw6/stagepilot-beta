@@ -8,6 +8,7 @@ import pytest
 from stagepilot.core.config import ProPresenterSettings
 from stagepilot.plugins.propresenter import (
     ProPresenterClient,
+    ProPresenterLook,
     ProPresenterTimer,
     ProPresenterTimerNotFoundError,
     ProPresenterTimerTypeError,
@@ -139,3 +140,45 @@ async def test_client_rejects_missing_or_non_countdown_timer() -> None:
             await client.find_timer("Song Countdown")
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_lists_and_triggers_audience_looks() -> None:
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/v1/looks":
+            return httpx.Response(
+                200,
+                json=[{"id": {"uuid": "look-saved", "name": "Worship", "index": 0}}],
+            )
+        if request.url.path == "/v1/look/current":
+            return httpx.Response(
+                200,
+                json={"id": {"uuid": "unique-live-look", "name": "Worship", "index": 0}},
+            )
+        return httpx.Response(204)
+
+    client = ProPresenterClient(
+        ProPresenterSettings(enabled=True),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        looks = await client.list_looks()
+        await client.trigger_look("look-saved")
+        current = await client.current_look()
+    finally:
+        await client.close()
+
+    assert looks == [
+        ProPresenterLook.model_validate(
+            {"id": {"uuid": "look-saved", "name": "Worship", "index": 0}}
+        )
+    ]
+    assert current.id.uuid == "unique-live-look"
+    assert requests == [
+        ("GET", "/v1/looks"),
+        ("GET", "/v1/look/look-saved/trigger"),
+        ("GET", "/v1/look/current"),
+    ]

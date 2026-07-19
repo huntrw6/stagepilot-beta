@@ -186,6 +186,7 @@ export interface PersistentSettings {
     host: string;
     port: number;
     timer_name: string;
+    look_id?: string | null;
     request_timeout_seconds: number;
     reconnect_initial_seconds: number;
     reconnect_max_seconds: number;
@@ -365,17 +366,27 @@ export interface ProPresenterTimer {
   state: string | null;
 }
 
+export interface ProPresenterLook {
+  id: string;
+  name: string;
+  index: number;
+}
+
 export interface ProPresenterStatusResponse {
   enabled: boolean;
   host: string;
   port: number;
   timer_name: string;
+  look_id: string | null;
   request_timeout_seconds: number;
   connection_status: ConnectionStatus;
   detail: string | null;
   timers: ProPresenterTimer[];
   selected_timer_id: string | null;
   timer_found: boolean;
+  looks: ProPresenterLook[];
+  current_look_id: string | null;
+  look_found: boolean;
   last_checked_at: string | null;
 }
 
@@ -383,6 +394,7 @@ export interface ProPresenterSettingsInput {
   host: string;
   port: number;
   timer_name: string;
+  look_id?: string | null;
   request_timeout_seconds: number;
 }
 

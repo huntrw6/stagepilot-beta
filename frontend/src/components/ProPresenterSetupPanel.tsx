@@ -28,10 +28,12 @@ export function ProPresenterSetupPanel({
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("1025");
   const [timerName, setTimerName] = useState("Song Countdown");
+  const [lookId, setLookId] = useState("");
   const [timeout, setTimeout] = useState("3");
   const configuredHost = propresenter?.host;
   const configuredPort = propresenter?.port;
   const configuredTimerName = propresenter?.timer_name;
+  const configuredLookId = propresenter?.look_id;
   const configuredTimeout = propresenter?.request_timeout_seconds;
 
   useEffect(() => {
@@ -39,13 +41,15 @@ export function ProPresenterSetupPanel({
       configuredHost === undefined
       || configuredPort === undefined
       || configuredTimerName === undefined
+      || configuredLookId === undefined
       || configuredTimeout === undefined
     ) return;
     setHost(configuredHost);
     setPort(String(configuredPort));
     setTimerName(configuredTimerName);
+    setLookId(configuredLookId ?? "");
     setTimeout(String(configuredTimeout));
-  }, [configuredHost, configuredPort, configuredTimeout, configuredTimerName]);
+  }, [configuredHost, configuredLookId, configuredPort, configuredTimeout, configuredTimerName]);
 
   const parsedSettings = useMemo<ProPresenterSettingsInput | null>(() => {
     const parsedPort = Number(port);
@@ -57,15 +61,17 @@ export function ProPresenterSetupPanel({
       host: host.trim(),
       port: parsedPort,
       timer_name: timerName.trim(),
+      look_id: lookId || null,
       request_timeout_seconds: parsedTimeout,
     };
-  }, [host, port, timeout, timerName]);
+  }, [host, lookId, port, timeout, timerName]);
 
   const disabled = !propresenter?.enabled;
   const busy = pendingOperation !== null;
   const timerDetected = Boolean(
     propresenter?.timers.some((timer) => timer.name === timerName),
   );
+  const lookDetected = Boolean(propresenter?.looks.some((look) => look.id === lookId));
 
   return (
     <section className="setup-panel mt-5 rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20" id="propresenter-configuration">
@@ -144,6 +150,32 @@ export function ProPresenterSetupPanel({
         </label>
       </div>
 
+      <div className="mt-4 max-w-md">
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ProPresenter Look</span>
+          <select
+            aria-label="ProPresenter Look"
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-orange-300/50"
+            disabled={busy}
+            onChange={(event) => setLookId(event.target.value)}
+            value={lookId}
+          >
+            <option value="">Do not change the current Look</option>
+            {lookId && !lookDetected && (
+              <option value={lookId}>Saved Look (currently unavailable)</option>
+            )}
+            {propresenter?.looks.map((look) => (
+              <option key={look.id} value={look.id}>
+                {look.name}{look.id === propresenter.current_look_id ? " (current)" : ""}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1.5 block text-xs text-slate-500">
+            Selecting a Look does not change ProPresenter until you save these settings.
+          </span>
+        </label>
+      </div>
+
       <div className="mt-5 flex flex-wrap gap-2">
         <button
           className="rounded-lg border border-orange-200/40 bg-orange-300 px-3.5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
@@ -167,7 +199,7 @@ export function ProPresenterSetupPanel({
           onClick={onRefreshTimers}
           type="button"
         >
-          {pendingOperation === "refresh" ? "Refreshing…" : "Refresh timers"}
+          {pendingOperation === "refresh" ? "Refreshing…" : "Refresh timers and Looks"}
         </button>
       </div>
 

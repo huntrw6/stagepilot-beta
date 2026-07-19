@@ -88,3 +88,6 @@ scaffold or mock alone does not prove a production integration.
 - Multi-campus operation, multiple timers, and service history
 - Service statistics and diagnostics exports
 - Native Playback integration if a supported interface becomes available
+- Integrate the standalone MultiTracks MCP cue-planning package into an optional
+  StagePilot desktop setup panel after real OAuth registration and production
+  setlist validation are complete

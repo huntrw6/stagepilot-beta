@@ -14,6 +14,7 @@ from stagepilot.plugins.propresenter import (
     ProPresenterConnectionError,
     ProPresenterCountdown,
     ProPresenterIdentifier,
+    ProPresenterLook,
     ProPresenterResponseError,
     ProPresenterTimer,
 )
@@ -24,6 +25,10 @@ def timer() -> ProPresenterTimer:
         id=ProPresenterIdentifier(uuid="timer-uuid", name="Song Countdown", index=0),
         countdown=ProPresenterCountdown(duration=60),
     )
+
+
+def look() -> ProPresenterLook:
+    return ProPresenterLook(id=ProPresenterIdentifier(uuid="look-default", name="Default", index=0))
 
 
 @dataclass
@@ -46,6 +51,15 @@ class RecoveringClient:
 
     async def find_timer(self, _name: str) -> ProPresenterTimer:
         return timer()
+
+    async def list_looks(self) -> list[ProPresenterLook]:
+        return [look()]
+
+    async def current_look(self) -> ProPresenterLook:
+        return look()
+
+    async def trigger_look(self, _look_id: str) -> None:
+        return None
 
     async def stop_timer(self, _timer_id: str) -> None:
         return None
@@ -128,6 +142,15 @@ class RecreatedTimerClient:
 
     async def find_timer(self, _name: str) -> ProPresenterTimer:
         return timer()
+
+    async def list_looks(self) -> list[ProPresenterLook]:
+        return [look()]
+
+    async def current_look(self) -> ProPresenterLook:
+        return look()
+
+    async def trigger_look(self, _look_id: str) -> None:
+        return None
 
     async def stop_timer(self, timer_id: str) -> None:
         self.stopped_ids.append(timer_id)

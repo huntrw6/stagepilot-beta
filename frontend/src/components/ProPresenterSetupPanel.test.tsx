@@ -10,6 +10,7 @@ const status: ProPresenterStatusResponse = {
   host: "127.0.0.1",
   port: 1025,
   timer_name: "Song Countdown",
+  look_id: "look-default",
   request_timeout_seconds: 3,
   connection_status: "connected",
   detail: 'Connected; countdown timer "Song Countdown" is ready.',
@@ -24,6 +25,12 @@ const status: ProPresenterStatusResponse = {
   ],
   selected_timer_id: "timer-uuid",
   timer_found: true,
+  looks: [
+    { id: "look-default", name: "Default", index: 0 },
+    { id: "look-worship", name: "Worship", index: 1 },
+  ],
+  current_look_id: "look-default",
+  look_found: true,
   last_checked_at: "2026-07-14T12:00:00Z",
 };
 
@@ -50,12 +57,13 @@ describe("ProPresenterSetupPanel", () => {
     await user.type(screen.getByLabelText("Host"), "192.168.4.40");
     await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
     await user.click(screen.getByRole("button", { name: "Test connection" }));
-    await user.click(screen.getByRole("button", { name: "Refresh timers" }));
+    await user.click(screen.getByRole("button", { name: "Refresh timers and Looks" }));
 
     expect(onSave).toHaveBeenCalledWith({
       host: "192.168.4.40",
       port: 1025,
       timer_name: "Song Countdown",
+      look_id: "look-default",
       request_timeout_seconds: 3,
     });
     expect(onTest).toHaveBeenCalledOnce();
@@ -127,7 +135,30 @@ describe("ProPresenterSetupPanel", () => {
       host: "127.0.0.1",
       port: 1025,
       timer_name: "Song Countdown",
+      look_id: "look-default",
       request_timeout_seconds: 3,
     });
+  });
+
+  it("stages a Look change and applies it only when settings are saved", async () => {
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ProPresenterSetupPanel
+        error={null}
+        message={null}
+        onRefreshTimers={vi.fn()}
+        onSave={onSave}
+        onTest={vi.fn()}
+        pendingOperation={null}
+        propresenter={status}
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "ProPresenter Look" }), "look-worship");
+    expect(onSave).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ look_id: "look-worship" }));
   });
 });

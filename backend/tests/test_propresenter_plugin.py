@@ -11,6 +11,7 @@ from stagepilot.models.state import ConnectionStatus, TimerStatus
 from stagepilot.plugins.propresenter import (
     ProPresenterCountdown,
     ProPresenterIdentifier,
+    ProPresenterLook,
     ProPresenterTimer,
 )
 
@@ -41,6 +42,19 @@ class FakeProPresenterClient:
     async def find_timer(self, name: str) -> ProPresenterTimer:
         self.calls.append(("find", name))
         return self.timer
+
+    async def list_looks(self) -> list[ProPresenterLook]:
+        return [
+            ProPresenterLook(
+                id=ProPresenterIdentifier(uuid="look-default", name="Default", index=0)
+            )
+        ]
+
+    async def current_look(self) -> ProPresenterLook:
+        return (await self.list_looks())[0]
+
+    async def trigger_look(self, _look_id: str) -> None:
+        return None
 
     async def stop_timer(self, timer_id: str) -> None:
         self.calls.append(("stop", timer_id))

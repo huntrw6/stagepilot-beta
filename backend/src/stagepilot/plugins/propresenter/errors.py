@@ -21,3 +21,7 @@ class ProPresenterTimerNotFoundError(ProPresenterError):
 
 class ProPresenterTimerTypeError(ProPresenterError):
     """Raised when the configured timer is not a countdown timer."""
+
+
+class ProPresenterLookNotFoundError(ProPresenterError):
+    """Raised when a saved audience Look cannot be found or verified."""

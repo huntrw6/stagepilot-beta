@@ -9,6 +9,7 @@ from stagepilot.main import create_app
 from stagepilot.plugins.propresenter import (
     ProPresenterCountdown,
     ProPresenterIdentifier,
+    ProPresenterLook,
     ProPresenterTimer,
 )
 
@@ -31,6 +32,15 @@ def make_timer(
 class FakeClient:
     timers: list[ProPresenterTimer] = field(default_factory=lambda: [make_timer()])
     closed: bool = False
+    looks: list[ProPresenterLook] = field(
+        default_factory=lambda: [
+            ProPresenterLook(
+                id=ProPresenterIdentifier(uuid="look-worship", name="Worship", index=0)
+            )
+        ]
+    )
+    current: ProPresenterLook | None = None
+    triggered_look_ids: list[str] = field(default_factory=list)
 
     async def close(self) -> None:
         self.closed = True
@@ -40,6 +50,23 @@ class FakeClient:
 
     async def find_timer(self, name: str) -> ProPresenterTimer:
         return next(timer for timer in self.timers if timer.id.name == name)
+
+    async def list_looks(self) -> list[ProPresenterLook]:
+        return list(self.looks)
+
+    async def current_look(self) -> ProPresenterLook:
+        return self.current or self.looks[0]
+
+    async def trigger_look(self, look_id: str) -> None:
+        self.triggered_look_ids.append(look_id)
+        selected = next(look for look in self.looks if look.id.uuid == look_id)
+        self.current = ProPresenterLook(
+            id=ProPresenterIdentifier(
+                uuid="unique-live-look",
+                name=selected.id.name,
+                index=selected.id.index,
+            )
+        )
 
     async def stop_timer(self, _timer_id: str) -> None:
         return None
@@ -125,6 +152,7 @@ def test_session_settings_recreate_client_and_report_missing_timer() -> None:
                 "host": "192.168.4.40",
                 "port": 1026,
                 "timer_name": "Missing Timer",
+                "look_id": "look-worship",
                 "request_timeout_seconds": 4,
             },
         )
@@ -140,6 +168,7 @@ def test_session_settings_recreate_client_and_report_missing_timer() -> None:
     assert first.closed is True
     assert len(factory.settings) == 2
     assert factory.settings[-1].timer_name == "Missing Timer"
+    assert second.triggered_look_ids == ["look-worship"]
     persisted = app.state.runtime.settings_service.snapshot().propresenter
     assert persisted.host == "192.168.4.40"
     assert persisted.port == 1026
@@ -157,6 +186,7 @@ def test_disabled_propresenter_returns_safe_status() -> None:
                 "host": "192.168.1.20",
                 "port": 1026,
                 "timer_name": "Worship",
+                "look_id": None,
                 "request_timeout_seconds": 4,
             },
         )

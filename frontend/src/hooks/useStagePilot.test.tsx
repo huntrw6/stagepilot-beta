@@ -480,6 +480,10 @@ describe("useStagePilot", () => {
         timers: [],
         selected_timer_id: null,
         timer_found: false,
+        look_id: null,
+        looks: [],
+        current_look_id: null,
+        look_found: true,
         last_checked_at: null,
       },
     });

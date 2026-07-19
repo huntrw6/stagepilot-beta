@@ -18,7 +18,11 @@ from stagepilot.core.events import (
 )
 from stagepilot.core.logging import get_logger
 from stagepilot.core.plugin import Plugin
-from stagepilot.core.propresenter import ProPresenterSnapshot, ProPresenterTimerSummary
+from stagepilot.core.propresenter import (
+    ProPresenterLookSummary,
+    ProPresenterSnapshot,
+    ProPresenterTimerSummary,
+)
 from stagepilot.core.state import StateStore
 from stagepilot.models.state import ConnectionStatus, PluginHealth, PluginStatus
 from stagepilot.plugins.propresenter.client import (
@@ -28,10 +32,11 @@ from stagepilot.plugins.propresenter.client import (
 )
 from stagepilot.plugins.propresenter.errors import (
     ProPresenterError,
+    ProPresenterLookNotFoundError,
     ProPresenterTimerNotFoundError,
     ProPresenterTimerTypeError,
 )
-from stagepilot.plugins.propresenter.models import ProPresenterTimer
+from stagepilot.plugins.propresenter.models import ProPresenterLook, ProPresenterTimer
 
 
 class ProPresenterPlugin(Plugin):
@@ -54,6 +59,8 @@ class ProPresenterPlugin(Plugin):
         self._client: ProPresenterClientContract | None = None
         self._timer: ProPresenterTimer | None = None
         self._timers: list[ProPresenterTimer] = []
+        self._looks: list[ProPresenterLook] = []
+        self._current_look: ProPresenterLook | None = None
         self._subscriptions: list[Subscription] = []
         self._operation_lock = asyncio.Lock()
         self._status = PluginStatus.STOPPED
@@ -110,6 +117,8 @@ class ProPresenterPlugin(Plugin):
             await self._close_client_locked()
             self._timer = None
             self._timers = []
+            self._looks = []
+            self._current_look = None
         self._status = PluginStatus.STOPPED
         self._last_activity_at = datetime.now(UTC)
         await self._set_connection(
@@ -148,6 +157,8 @@ class ProPresenterPlugin(Plugin):
             self._client = self._client_factory(settings)
             self._timer = None
             self._timers = []
+            self._looks = []
+            self._current_look = None
             self._last_error = None
             await self._set_connection(
                 ConnectionStatus.CONNECTING,
@@ -155,6 +166,31 @@ class ProPresenterPlugin(Plugin):
             )
             await self._probe_locked(raise_errors=False)
         self._probe_event.set()
+        return self._snapshot()
+
+    async def apply_look(self, look_id: str) -> ProPresenterSnapshot:
+        """Trigger and verify one saved Look after an explicit settings save."""
+
+        async with self._operation_lock:
+            if not any(look.id.uuid == look_id for look in self._looks):
+                await self._probe_locked(raise_errors=True)
+            selected = next(
+                (look for look in self._looks if look.id.uuid == look_id),
+                None,
+            )
+            if selected is None:
+                raise ProPresenterLookNotFoundError(f'ProPresenter Look "{look_id}" was not found.')
+            client = self._require_client()
+            await client.trigger_look(look_id)
+            current = await client.current_look()
+            # ProPresenter assigns the live Look a unique UUID. Its documented
+            # index identifies the matching saved Look.
+            if current.id.index != selected.id.index:
+                raise ProPresenterLookNotFoundError(
+                    "ProPresenter did not confirm the selected Look as current."
+                )
+            self._current_look = current
+            self._last_activity_at = datetime.now(UTC)
         return self._snapshot()
 
     async def _on_song_event(self, event: StagePilotEvent) -> None:
@@ -293,11 +329,16 @@ class ProPresenterPlugin(Plugin):
     async def _probe_locked(self, *, raise_errors: bool) -> bool:
         self._last_checked_at = datetime.now(UTC)
         try:
-            timers = await self._require_client().list_timers()
+            client = self._require_client()
+            timers = await client.list_timers()
+            looks = await client.list_looks()
+            current_look = await client.current_look()
         except Exception as exc:
             detail = self._public_error(exc, "Could not reach the ProPresenter API.")
             self._timer = None
             self._timers = []
+            self._looks = []
+            self._current_look = None
             self._status = PluginStatus.STARTING
             self._last_error = detail
             await self._set_connection(ConnectionStatus.ERROR, detail)
@@ -306,6 +347,8 @@ class ProPresenterPlugin(Plugin):
             return False
 
         self._timers = timers
+        self._looks = looks
+        self._current_look = current_look
         matches = [
             timer
             for timer in timers
@@ -370,6 +413,7 @@ class ProPresenterPlugin(Plugin):
             host=self._settings.host,
             port=self._settings.port,
             timer_name=self._settings.timer_name,
+            look_id=self._settings.look_id,
             request_timeout_seconds=self._settings.request_timeout_seconds,
             connection_status=self._connection_status,
             detail=self._connection_detail,
@@ -385,8 +429,30 @@ class ProPresenterPlugin(Plugin):
             ],
             selected_timer_id=selected,
             timer_found=self._timer is not None,
+            looks=[
+                ProPresenterLookSummary(
+                    id=look.id.uuid,
+                    name=look.id.name,
+                    index=look.id.index,
+                )
+                for look in self._looks
+            ],
+            current_look_id=self._current_saved_look_id(),
+            look_found=(
+                self._settings.look_id is None
+                or any(look.id.uuid == self._settings.look_id for look in self._looks)
+            ),
             last_checked_at=self._last_checked_at,
         )
+
+    def _current_saved_look_id(self) -> str | None:
+        if self._current_look is None:
+            return None
+        matching = next(
+            (look for look in self._looks if look.id.index == self._current_look.id.index),
+            None,
+        )
+        return matching.id.uuid if matching is not None else None
 
     def _require_client(self) -> ProPresenterClientContract:
         if self._client is None:

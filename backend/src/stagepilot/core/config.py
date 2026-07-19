@@ -183,6 +183,7 @@ class ProPresenterSettings(BaseModel):
     host: str = Field(default="127.0.0.1", min_length=1, max_length=255)
     port: int = Field(default=1025, ge=1, le=65535)
     timer_name: str = Field(default="Song Countdown", min_length=1, max_length=255)
+    look_id: str | None = Field(default=None, max_length=256)
     request_timeout_seconds: float = Field(default=3.0, gt=0, le=60.0)
     reconnect_initial_seconds: float = Field(default=1.0, gt=0, le=60.0)
     reconnect_max_seconds: float = Field(default=30.0, gt=0, le=300.0)
@@ -206,6 +207,13 @@ class ProPresenterSettings(BaseModel):
             return stripped
         return value
 
+    @field_validator("look_id", mode="before")
+    @classmethod
+    def empty_look_id_is_unset(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @property
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
@@ -224,7 +232,7 @@ class PlanningCenterSettings(BaseModel):
     upcoming_lookahead_days: int = Field(default=30, ge=0, le=365)
     request_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     user_agent: str = Field(
-        default="StagePilot/0.9.7 (https://github.com/huntrw6/stage-pilot)",
+        default="StagePilot/0.9.8 (https://github.com/huntrw6/stage-pilot)",
         min_length=1,
         max_length=256,
     )
@@ -271,7 +279,7 @@ class Settings(BaseModel):
     """Validated runtime settings; integration secrets remain server-side only."""
 
     app_name: str = "StagePilot"
-    version: str = "0.9.7"
+    version: str = "0.9.8"
     bind_host: str = "127.0.0.1"
     bind_port: int = Field(default=8765, ge=1, le=65535)
     log_level: str = "INFO"

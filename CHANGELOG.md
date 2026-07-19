@@ -6,6 +6,21 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-07-18
+
+### Added
+
+- Select and apply a saved ProPresenter Look when ProPresenter settings are saved.
+- Standalone MultiTracks MCP cue utility with dry-run planning, guarded writes,
+  verification, secure authentication, and reporting.
+
+### Fixed
+
+- Restart the managed desktop backend automatically after MIDI or Planning
+  Center settings enable a previously inactive integration.
+- Fully quit the managed backend with the desktop application and pass the
+  saved-settings path explicitly to packaged backend processes on macOS.
+
 ## [0.9.7] - 2026-07-15
 
 ### Added
@@ -98,5 +113,6 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
   supervisor, owned-process-tree shutdown, NSIS release configuration, desktop
   connection-status bridge, and CI-built Windows installer artifact.
 
-[Unreleased]: https://github.com/huntrw6/stage-pilot/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/huntrw6/stage-pilot/compare/v0.9.8...HEAD
+[0.9.8]: https://github.com/huntrw6/stage-pilot/releases/tag/v0.9.8
 [0.9.7]: https://github.com/huntrw6/stage-pilot/releases/tag/v0.9.7

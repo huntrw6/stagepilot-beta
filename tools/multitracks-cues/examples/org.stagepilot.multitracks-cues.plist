@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>org.stagepilot.multitracks-cues</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/stagepilot-cues</string>
+    <string>sync-next</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>6</integer>
+    <key>Hour</key>
+    <integer>9</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/tmp/stagepilot-cues.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/stagepilot-cues-error.log</string>
+</dict>
+</plist>
