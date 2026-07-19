@@ -6,6 +6,23 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-07-19
+
+### Fixed
+
+- Preserve completed first-launch onboarding when a stale settings snapshot is
+  saved by another configuration panel.
+- Verify ProPresenter countdown durations before resetting and starting timers,
+  including delayed updates observed on Intel macOS.
+- Terminate nested PyInstaller backend processes when StagePilot exits or
+  restarts on macOS.
+- Explicitly create, show, focus, and restore the StagePilot window when the app
+  launches or is reopened from the macOS Dock.
+
+### Changed
+
+- Added macOS desktop lifecycle compilation and regression tests to CI.
+
 ## [0.9.8] - 2026-07-18
 
 ### Added
@@ -113,6 +130,7 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
   supervisor, owned-process-tree shutdown, NSIS release configuration, desktop
   connection-status bridge, and CI-built Windows installer artifact.
 
-[Unreleased]: https://github.com/huntrw6/stage-pilot/compare/v0.9.8...HEAD
+[Unreleased]: https://github.com/huntrw6/stage-pilot/compare/v0.9.9...HEAD
+[0.9.9]: https://github.com/huntrw6/stage-pilot/releases/tag/v0.9.9
 [0.9.8]: https://github.com/huntrw6/stage-pilot/releases/tag/v0.9.8
 [0.9.7]: https://github.com/huntrw6/stage-pilot/releases/tag/v0.9.7

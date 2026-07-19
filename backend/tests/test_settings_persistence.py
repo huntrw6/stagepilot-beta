@@ -363,3 +363,26 @@ def test_settings_put_is_validated_and_survives_subsequent_get(tmp_path: Path) -
     assert fetched.json()["settings"]["server_port"] == 9001
     assert fetched.json()["settings"]["onboarding"]["general_completed"] is True
     assert invalid.status_code == 422
+
+
+def test_stale_settings_put_cannot_clear_completed_general_onboarding(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    service = settings_service(path)
+    runtime_settings = service.load()
+    app = create_app(runtime_settings, settings_service=service)
+    completed = PersistentSettings(onboarding={"general_completed": True})
+    stale = PersistentSettings(
+        onboarding={"general_completed": False},
+        timezone="America/Denver",
+    )
+
+    with TestClient(app) as client:
+        first = client.put("/api/v1/settings", json=completed.model_dump(mode="json"))
+        second = client.put("/api/v1/settings", json=stale.model_dump(mode="json"))
+        fetched = client.get("/api/v1/settings")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert fetched.json()["settings"]["timezone"] == "America/Denver"
+    assert fetched.json()["settings"]["onboarding"]["general_completed"] is True
+    assert json.loads(path.read_text(encoding="utf-8"))["onboarding"] == {"general_completed": True}

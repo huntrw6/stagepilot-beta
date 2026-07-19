@@ -8,7 +8,7 @@ use std::{
 };
 
 use serde::Serialize;
-use tauri::{Emitter, RunEvent};
+use tauri::{Emitter, Manager, RunEvent, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
@@ -87,6 +87,10 @@ impl BackendSupervisor {
             "StagePilot backend stopped.",
             true,
         );
+        let _ = self.terminate_child();
+    }
+
+    fn terminate_child(&self) -> Result<(), String> {
         let pid = self
             .child_pid
             .lock()
@@ -102,7 +106,11 @@ impl BackendSupervisor {
                 .creation_flags(CREATE_NO_WINDOW)
                 .status();
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
+        if let Some(pid) = pid {
+            terminate_process_tree(pid);
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let _ = pid;
         if let Some(child) = self
             .child
@@ -111,6 +119,68 @@ impl BackendSupervisor {
             .take()
         {
             let _ = child.kill();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn direct_child_process_ids(parent_pid: u32) -> Vec<u32> {
+    let Ok(output) = std::process::Command::new("/usr/bin/pgrep")
+        .args(["-P", &parent_pid.to_string()])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|value| value.trim().parse().ok())
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn descendant_process_ids(parent_pid: u32) -> Vec<u32> {
+    fn collect(parent_pid: u32, descendants: &mut Vec<u32>) {
+        for child_pid in direct_child_process_ids(parent_pid) {
+            collect(child_pid, descendants);
+            descendants.push(child_pid);
+        }
+    }
+
+    let mut descendants = Vec::new();
+    collect(parent_pid, &mut descendants);
+    descendants
+}
+
+#[cfg(target_os = "macos")]
+fn process_exists(pid: u32) -> bool {
+    std::process::Command::new("/bin/kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(target_os = "macos")]
+fn signal_process(pid: u32, signal: &str) {
+    let _ = std::process::Command::new("/bin/kill")
+        .args([signal, &pid.to_string()])
+        .status();
+}
+
+#[cfg(target_os = "macos")]
+fn terminate_process_tree(root_pid: u32) {
+    let mut process_ids = descendant_process_ids(root_pid);
+    process_ids.push(root_pid);
+    for pid in &process_ids {
+        signal_process(*pid, "-TERM");
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    for pid in process_ids {
+        if process_exists(pid) {
+            signal_process(pid, "-KILL");
         }
     }
 }
@@ -154,6 +224,34 @@ fn configured_port() -> u16 {
         .as_deref()
         .and_then(port_from_settings)
         .unwrap_or(DEFAULT_PORT)
+}
+
+fn restore_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    let window = if let Some(window) = app.get_webview_window("main") {
+        window
+    } else {
+        let config = app
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|config| config.label == "main")
+            .ok_or_else(|| "The StagePilot main-window configuration is missing.".to_string())?;
+        WebviewWindowBuilder::from_config(app, config)
+            .map_err(|error| format!("Could not configure the StagePilot window: {error}"))?
+            .build()
+            .map_err(|error| format!("Could not create the StagePilot window: {error}"))?
+    };
+    window
+        .unminimize()
+        .map_err(|error| format!("Could not restore the StagePilot window: {error}"))?;
+    window
+        .show()
+        .map_err(|error| format!("Could not show the StagePilot window: {error}"))?;
+    window
+        .set_focus()
+        .map_err(|error| format!("Could not focus the StagePilot window: {error}"))?;
+    Ok(window)
 }
 
 fn port_from_settings(contents: &str) -> Option<u16> {
@@ -308,21 +406,7 @@ async fn restart_managed_backend(
         "Restarting the StagePilot backend.",
         true,
     );
-    supervisor
-        .child_pid
-        .lock()
-        .expect("backend child PID lock poisoned")
-        .take();
-    if let Some(child) = supervisor
-        .child
-        .lock()
-        .expect("backend child lock poisoned")
-        .take()
-    {
-        child
-            .kill()
-            .map_err(|error| format!("Could not stop the current StagePilot backend: {error}"))?;
-    }
+    supervisor.terminate_child()?;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline
@@ -374,6 +458,7 @@ pub fn run() {
             quit_application
         ])
         .setup(move |app| {
+            restore_main_window(app.handle()).map_err(std::io::Error::other)?;
             if let Err(message) = start_backend(app.handle(), supervisor.clone()) {
                 supervisor.update(app.handle(), BackendState::Failed, message, true);
             }
@@ -382,10 +467,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build the StagePilot desktop shell");
 
-    app.run(move |handle, event| {
-        if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
-            shutdown_supervisor.stop(handle);
+    app.run(move |handle, event| match event {
+        RunEvent::Exit | RunEvent::ExitRequested { .. } => shutdown_supervisor.stop(handle),
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => {
+            let _ = restore_main_window(handle);
         }
+        _ => {}
     });
 }
 
@@ -427,6 +515,39 @@ mod tests {
         });
         assert_eq!(probe_port(port), PortProbe::StagePilot);
         server.join().unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn nested_backend_process_tree_is_terminated() {
+        let mut root = std::process::Command::new("/bin/sh")
+            .args(["-c", "/bin/sh -c '/bin/sleep 30 & wait' & wait"])
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let descendants = loop {
+            let descendants = descendant_process_ids(root.id());
+            if descendants.len() >= 2 || Instant::now() >= deadline {
+                break descendants;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(
+            descendants.len() >= 2,
+            "expected a nested child process tree"
+        );
+
+        terminate_process_tree(root.id());
+        let _ = root.wait();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline
+            && (process_exists(root.id()) || descendants.iter().any(|pid| process_exists(*pid)))
+        {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        assert!(!process_exists(root.id()));
+        assert!(descendants.iter().all(|pid| !process_exists(*pid)));
     }
 
     #[test]

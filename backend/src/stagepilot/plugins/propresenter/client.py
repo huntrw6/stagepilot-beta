@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any, Protocol, cast
 
@@ -15,11 +16,10 @@ from stagepilot.plugins.propresenter.errors import (
     ProPresenterTimerNotFoundError,
     ProPresenterTimerTypeError,
 )
-from stagepilot.plugins.propresenter.models import (
-    ProPresenterCountdown,
-    ProPresenterLook,
-    ProPresenterTimer,
-)
+from stagepilot.plugins.propresenter.models import ProPresenterLook, ProPresenterTimer
+
+TIMER_UPDATE_VERIFICATION_ATTEMPTS = 20
+TIMER_UPDATE_VERIFICATION_INTERVAL_SECONDS = 0.1
 
 
 class ProPresenterClientContract(Protocol):
@@ -138,22 +138,38 @@ class ProPresenterClient:
             raise ProPresenterTimerTypeError(
                 f'ProPresenter timer "{timer.id.name}" is not a countdown timer.'
             )
-        payload = await self._request(
+        await self._request(
             "PUT",
             f"/v1/timer/{timer.id.uuid}",
             json=timer.update_payload(duration_seconds),
         )
-        if payload is None:
-            return timer.model_copy(
-                update={"countdown": ProPresenterCountdown(duration=duration_seconds)}
+        return await self._verify_timer_duration(timer, duration_seconds)
+
+    async def _verify_timer_duration(
+        self,
+        timer: ProPresenterTimer,
+        duration_seconds: int,
+    ) -> ProPresenterTimer:
+        """Wait until ProPresenter exposes the saved duration before it is reset or started."""
+
+        for attempt in range(TIMER_UPDATE_VERIFICATION_ATTEMPTS):
+            timers = await self.list_timers()
+            current = next(
+                (candidate for candidate in timers if candidate.id.uuid == timer.id.uuid),
+                None,
             )
-        try:
-            return ProPresenterTimer.model_validate(payload)
-        except ValidationError:
-            # Some ProPresenter builds acknowledge a successful PUT with a non-timer body.
-            return timer.model_copy(
-                update={"countdown": ProPresenterCountdown(duration=duration_seconds)}
-            )
+            if (
+                current is not None
+                and current.countdown is not None
+                and current.countdown.duration == duration_seconds
+            ):
+                return current
+            if attempt + 1 < TIMER_UPDATE_VERIFICATION_ATTEMPTS:
+                await asyncio.sleep(TIMER_UPDATE_VERIFICATION_INTERVAL_SECONDS)
+        raise ProPresenterResponseError(
+            f'ProPresenter did not confirm timer "{timer.id.name}" duration '
+            f"as {duration_seconds} seconds. The timer was not started."
+        )
 
     async def reset_timer(self, timer_id: str) -> None:
         await self._timer_operation(timer_id, "reset")

@@ -9,6 +9,7 @@ from stagepilot.core.config import ProPresenterSettings
 from stagepilot.plugins.propresenter import (
     ProPresenterClient,
     ProPresenterLook,
+    ProPresenterResponseError,
     ProPresenterTimer,
     ProPresenterTimerNotFoundError,
     ProPresenterTimerTypeError,
@@ -34,13 +35,17 @@ def timer_payload(
 @pytest.mark.asyncio
 async def test_client_preserves_timer_identity_when_updating_duration() -> None:
     requests: list[tuple[str, str, object | None]] = []
+    saved_duration = 60
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal saved_duration
         body = json.loads(request.content) if request.content else None
         requests.append((request.method, request.url.path, body))
         if request.method == "GET" and request.url.path == "/v1/timers":
-            return httpx.Response(200, json=[timer_payload()])
+            return httpx.Response(200, json=[timer_payload(duration=saved_duration)])
         if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid":
+            assert isinstance(body, dict)
+            saved_duration = body["countdown"]["duration"]
             return httpx.Response(204)
         return httpx.Response(200, json={})
 
@@ -54,7 +59,7 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
 
     assert updated.countdown is not None
     assert updated.countdown.duration == 336
-    assert requests[-1] == (
+    assert requests[-2] == (
         "PUT",
         "/v1/timer/timer-uuid",
         {
@@ -67,15 +72,24 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
             "countdown": {"duration": 336},
         },
     )
+    assert requests[-1][:2] == ("GET", "/v1/timers")
 
 
 @pytest.mark.asyncio
 async def test_client_can_set_countdown_duration_to_zero_for_position_reset() -> None:
     requests: list[tuple[str, str, object | None]] = []
+    saved_duration = 60
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal saved_duration
         body = json.loads(request.content) if request.content else None
         requests.append((request.method, request.url.path, body))
+        if request.method == "PUT":
+            assert isinstance(body, dict)
+            saved_duration = body["countdown"]["duration"]
+            return httpx.Response(204)
+        if request.method == "GET" and request.url.path == "/v1/timers":
+            return httpx.Response(200, json=[timer_payload(duration=saved_duration)])
         return httpx.Response(204)
 
     client = ProPresenterClient(
@@ -103,8 +117,62 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
                 "allows_overrun": False,
                 "countdown": {"duration": 0},
             },
-        )
+        ),
+        ("GET", "/v1/timers", None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_client_waits_for_timer_duration_to_be_visible_before_returning() -> None:
+    reads_after_update = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal reads_after_update
+        if request.method == "PUT":
+            return httpx.Response(204)
+        reads_after_update += 1
+        duration = 60 if reads_after_update < 3 else 281
+        return httpx.Response(200, json=[timer_payload(duration=duration)])
+
+    client = ProPresenterClient(
+        ProPresenterSettings(enabled=True),
+        transport=httpx.MockTransport(handler),
+    )
+    timer = ProPresenterTimer.model_validate(timer_payload())
+    try:
+        updated = await client.set_timer_duration(timer, 281)
+    finally:
+        await client.close()
+
+    assert updated.countdown is not None
+    assert updated.countdown.duration == 281
+    assert reads_after_update == 3
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_unconfirmed_timer_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "stagepilot.plugins.propresenter.client.TIMER_UPDATE_VERIFICATION_ATTEMPTS",
+        1,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            return httpx.Response(204)
+        return httpx.Response(200, json=[timer_payload(duration=0)])
+
+    client = ProPresenterClient(
+        ProPresenterSettings(enabled=True),
+        transport=httpx.MockTransport(handler),
+    )
+    timer = ProPresenterTimer.model_validate(timer_payload(duration=0))
+    try:
+        with pytest.raises(ProPresenterResponseError, match="timer was not started"):
+            await client.set_timer_duration(timer, 281)
+    finally:
+        await client.close()
 
 
 @pytest.mark.asyncio
