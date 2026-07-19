@@ -176,10 +176,20 @@ jobs:
           npm ci --prefix frontend
           npm --prefix frontend run build
 
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          working-directory: backend
+
       - name: Select stable Rust
         run: |
           rustup update stable
           rustup default stable
+
+      - name: Build packaged backend sidecar
+        run: npm --prefix desktop run build:sidecar
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
