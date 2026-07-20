@@ -92,10 +92,6 @@ Packaged macOS logs are stored at `~/Library/Logs/org.stagepilot.desktop/stagepi
 
 Test the complete signal path with the same computers, network, MIDI routes, Playback session, ProPresenter timer, and lighting setup that will be used during the event.
 
-## MultiTracks cue utility
-
-The repository also contains [`stagepilot-cues`](tools/multitracks-cues/README.md), a standalone command-line MCP client for inspecting a MultiTracks Playback setlist, preparing the StagePilot Start Next cue, applying it only after explicit approval, and verifying the result. It has no ChatGPT, OpenAI, Claude, or other AI runtime dependency.
-
 ## Contributing
 
 StagePilot is open source. Development, testing, and packaging instructions are in [CONTRIBUTING.md](CONTRIBUTING.md), with future direction in [ROADMAP.md](ROADMAP.md).
