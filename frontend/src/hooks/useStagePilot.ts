@@ -189,6 +189,11 @@ export function useStagePilot() {
         setHealth(nextHealth);
         applyState(nextState);
         setError(null);
+        // On packaged macOS builds the first HTTP request can race the sidecar
+        // becoming ready and WebKit reports that as "Load failed.".  Load
+        // settings only after the health/state probe has proved the backend is
+        // reachable so a stale startup error is not left in the setup panel.
+        await loadSettings();
       } catch (cause) {
         if (active) {
           setError(cause instanceof Error ? cause.message : "Backend unavailable.");
@@ -232,7 +237,6 @@ export function useStagePilot() {
     void loadMidiMessages();
     void loadProPresenter();
     void loadLights();
-    void loadSettings();
     void loadPlanningCenterStatus();
     connect();
 

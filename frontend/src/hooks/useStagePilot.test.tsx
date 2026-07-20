@@ -246,6 +246,20 @@ afterEach(() => {
 });
 
 describe("useStagePilot", () => {
+  it("loads settings only after the packaged backend health probe succeeds", async () => {
+    const startupHealth = deferred<HealthResponse>();
+    mockedGetHealth.mockReturnValueOnce(startupHealth.promise);
+
+    const { result } = renderHook(() => useStagePilot());
+
+    expect(mockedGetSettings).not.toHaveBeenCalled();
+    startupHealth.resolve(health);
+
+    await waitFor(() => expect(result.current.settings).toEqual(settings));
+    expect(result.current.settingsError).toBeNull();
+    expect(mockedGetSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the newest state when an older REST snapshot arrives after WebSocket state", async () => {
     const initialState = deferred<ApplicationState>();
     mockedGetState.mockReturnValueOnce(initialState.promise);

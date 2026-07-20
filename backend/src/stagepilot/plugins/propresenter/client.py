@@ -18,8 +18,8 @@ from stagepilot.plugins.propresenter.errors import (
 )
 from stagepilot.plugins.propresenter.models import ProPresenterLook, ProPresenterTimer
 
-TIMER_UPDATE_VERIFICATION_ATTEMPTS = 20
-TIMER_UPDATE_VERIFICATION_INTERVAL_SECONDS = 0.1
+TIMER_UPDATE_VERIFICATION_ATTEMPTS = 30
+TIMER_UPDATE_VERIFICATION_INTERVAL_SECONDS = 0.2
 
 
 class ProPresenterClientContract(Protocol):
@@ -100,6 +100,17 @@ class ProPresenterClient:
             )
         return timer
 
+    async def get_timer(self, timer_id: str) -> ProPresenterTimer:
+        """Read one timer directly so write verification does not use a stale list."""
+
+        payload = await self._request("GET", f"/v1/timer/{timer_id}")
+        try:
+            return ProPresenterTimer.model_validate(payload)
+        except ValidationError as exc:
+            raise ProPresenterResponseError(
+                "ProPresenter returned an invalid timer object."
+            ) from exc
+
     async def list_looks(self) -> list[ProPresenterLook]:
         payload = await self._request("GET", "/v1/looks")
         raw_looks = self._extract_resource_list(payload, "looks")
@@ -153,11 +164,7 @@ class ProPresenterClient:
         """Wait until ProPresenter exposes the saved duration before it is reset or started."""
 
         for attempt in range(TIMER_UPDATE_VERIFICATION_ATTEMPTS):
-            timers = await self.list_timers()
-            current = next(
-                (candidate for candidate in timers if candidate.id.uuid == timer.id.uuid),
-                None,
-            )
+            current = await self.get_timer(timer.id.uuid)
             if (
                 current is not None
                 and current.countdown is not None

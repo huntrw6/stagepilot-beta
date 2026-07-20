@@ -6,6 +6,15 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-07-19
+
+### Fixed
+
+- Retry loading general settings only after the packaged backend is reachable,
+  preventing a stale macOS WebKit `Load failed.` message.
+- Verify ProPresenter duration changes through the documented single-timer API
+  and allow slower Intel Mac updates without starting an unconfirmed timer.
+
 ## [0.9.9] - 2026-07-19
 
 ### Fixed

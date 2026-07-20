@@ -41,8 +41,15 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
         nonlocal saved_duration
         body = json.loads(request.content) if request.content else None
         requests.append((request.method, request.url.path, body))
-        if request.method == "GET" and request.url.path == "/v1/timers":
-            return httpx.Response(200, json=[timer_payload(duration=saved_duration)])
+        if request.method == "GET" and request.url.path in (
+            "/v1/timers",
+            "/v1/timer/timer-uuid",
+        ):
+            payload = timer_payload(duration=saved_duration)
+            return httpx.Response(
+                200,
+                json=[payload] if request.url.path == "/v1/timers" else payload,
+            )
         if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid":
             assert isinstance(body, dict)
             saved_duration = body["countdown"]["duration"]
@@ -72,7 +79,7 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
             "countdown": {"duration": 336},
         },
     )
-    assert requests[-1][:2] == ("GET", "/v1/timers")
+    assert requests[-1][:2] == ("GET", "/v1/timer/timer-uuid")
 
 
 @pytest.mark.asyncio
@@ -88,8 +95,8 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
             assert isinstance(body, dict)
             saved_duration = body["countdown"]["duration"]
             return httpx.Response(204)
-        if request.method == "GET" and request.url.path == "/v1/timers":
-            return httpx.Response(200, json=[timer_payload(duration=saved_duration)])
+        if request.method == "GET" and request.url.path == "/v1/timer/timer-uuid":
+            return httpx.Response(200, json=timer_payload(duration=saved_duration))
         return httpx.Response(204)
 
     client = ProPresenterClient(
@@ -118,7 +125,7 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
                 "countdown": {"duration": 0},
             },
         ),
-        ("GET", "/v1/timers", None),
+        ("GET", "/v1/timer/timer-uuid", None),
     ]
 
 
@@ -132,7 +139,7 @@ async def test_client_waits_for_timer_duration_to_be_visible_before_returning() 
             return httpx.Response(204)
         reads_after_update += 1
         duration = 60 if reads_after_update < 3 else 281
-        return httpx.Response(200, json=[timer_payload(duration=duration)])
+        return httpx.Response(200, json=timer_payload(duration=duration))
 
     client = ProPresenterClient(
         ProPresenterSettings(enabled=True),
@@ -161,7 +168,7 @@ async def test_client_rejects_unconfirmed_timer_duration(
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "PUT":
             return httpx.Response(204)
-        return httpx.Response(200, json=[timer_payload(duration=0)])
+        return httpx.Response(200, json=timer_payload(duration=0))
 
     client = ProPresenterClient(
         ProPresenterSettings(enabled=True),
