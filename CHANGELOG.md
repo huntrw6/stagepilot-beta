@@ -6,6 +6,21 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-19
+
+### Added
+
+- Production-ready Windows and macOS desktop packaging.
+- Persistent Planning Center, MIDI, ProPresenter, lighting, and backend configuration.
+- Secure Planning Center credential storage and automatic service-plan loading.
+- Playback MIDI automation, synchronized ProPresenter countdowns, and lighting cue timelines.
+- Persistent drag-and-snap dashboard layouts with accessible movement controls.
+
+### Reliability
+
+- Added cached service-plan fallback, connection recovery, readiness checks, structured diagnostics,
+  and verified ProPresenter timer configuration across repeated cues.
+
 ## [0.9.14] - 2026-07-19
 
 - Fixed ProPresenter timer-type conversion by atomically configuring and resetting timers.
