@@ -140,6 +140,45 @@ describe("ProPresenterSetupPanel", () => {
     });
   });
 
+  it("allows a non-countdown timer to be selected for conversion when cued", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProPresenterSetupPanel
+        error={null}
+        message={null}
+        onRefreshTimers={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
+        pendingOperation={null}
+        propresenter={{
+          ...status,
+          timers: [
+            ...status.timers,
+            {
+              id: "timer-other",
+              name: "Alternate Timer",
+              index: 1,
+              is_countdown: false,
+              state: "stopped",
+            },
+          ],
+        }}
+      />,
+    );
+
+    const option = screen.getByRole("option", {
+      name: "Alternate Timer (converted when cued)",
+    });
+    expect(option).not.toBeDisabled();
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /Detected timer/i }),
+      "Alternate Timer",
+    );
+    expect(screen.getByRole("combobox", { name: /Detected timer/i })).toHaveValue(
+      "Alternate Timer",
+    );
+  });
+
   it("stages a Look change and applies it only when settings are saved", async () => {
     const onSave = vi.fn();
     const user = userEvent.setup();

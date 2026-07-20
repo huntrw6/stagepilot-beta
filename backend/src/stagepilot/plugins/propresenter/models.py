@@ -104,12 +104,10 @@ class ProPresenterTimer(BaseModel):
         return data
 
     def update_payload(self, duration_seconds: int) -> dict[str, Any]:
-        """Return a complete countdown definition while preserving timer identity and name."""
+        """Return a countdown definition, replacing any previous timer type."""
 
         if duration_seconds < 0:
             raise ValueError("Timer duration must not be negative.")
-        if self.countdown is None:
-            raise ValueError(f'Timer "{self.id.name}" is not a countdown timer.')
         return {
             "id": self.id.model_dump(mode="json"),
             "allows_overrun": self.allows_overrun,

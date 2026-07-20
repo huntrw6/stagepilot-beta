@@ -132,8 +132,8 @@ export function ProPresenterSetupPanel({
               <option value={timerName}>{timerName} (currently unavailable)</option>
             )}
             {propresenter?.timers.map((timer) => (
-              <option disabled={!timer.is_countdown} key={timer.id} value={timer.name}>
-                {timer.name}{timer.is_countdown ? "" : " (not a countdown)"}
+              <option key={timer.id} value={timer.name}>
+                {timer.name}{timer.is_countdown ? "" : " (converted when cued)"}
               </option>
             ))}
           </select>

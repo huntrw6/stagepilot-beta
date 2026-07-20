@@ -14,7 +14,6 @@ from stagepilot.plugins.propresenter.errors import (
     ProPresenterConnectionError,
     ProPresenterResponseError,
     ProPresenterTimerNotFoundError,
-    ProPresenterTimerTypeError,
 )
 from stagepilot.plugins.propresenter.models import ProPresenterLook, ProPresenterTimer
 
@@ -94,10 +93,6 @@ class ProPresenterClient:
                 f'Multiple ProPresenter timers are named "{name}".'
             )
         timer = matches[0]
-        if timer.countdown is None:
-            raise ProPresenterTimerTypeError(
-                f'ProPresenter timer "{name}" is not a countdown timer.'
-            )
         return timer
 
     async def get_timer(self, timer_id: str) -> ProPresenterTimer:
@@ -145,13 +140,9 @@ class ProPresenterClient:
     ) -> ProPresenterTimer:
         if duration_seconds < 0:
             raise ValueError("Timer duration must not be negative.")
-        if timer.countdown is None:
-            raise ProPresenterTimerTypeError(
-                f'ProPresenter timer "{timer.id.name}" is not a countdown timer.'
-            )
         await self._request(
             "PUT",
-            f"/v1/timer/{timer.id.uuid}",
+            f"/v1/timer/{timer.id.uuid}/reset",
             json=timer.update_payload(duration_seconds),
         )
         return await self._verify_timer_duration(timer, duration_seconds)

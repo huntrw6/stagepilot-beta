@@ -34,7 +34,6 @@ from stagepilot.plugins.propresenter.errors import (
     ProPresenterError,
     ProPresenterLookNotFoundError,
     ProPresenterTimerNotFoundError,
-    ProPresenterTimerTypeError,
 )
 from stagepilot.plugins.propresenter.models import ProPresenterLook, ProPresenterTimer
 
@@ -291,7 +290,6 @@ class ProPresenterPlugin(Plugin):
         timer = await self._require_timer_locked()
         await client.stop_timer(timer.id.uuid)
         timer = await client.set_timer_duration(timer, duration_seconds)
-        await client.reset_timer(timer.id.uuid)
         started_at = datetime.now(UTC)
         await client.start_timer(timer.id.uuid)
         self._timer = timer
@@ -310,7 +308,6 @@ class ProPresenterPlugin(Plugin):
         timer = await self._require_timer_locked()
         await client.stop_timer(timer.id.uuid)
         timer = await client.set_timer_duration(timer, 0)
-        await client.reset_timer(timer.id.uuid)
         self._timer = timer
 
     async def _require_timer_locked(self) -> ProPresenterTimer:
@@ -363,11 +360,6 @@ class ProPresenterPlugin(Plugin):
             timer_error = ProPresenterTimerNotFoundError(
                 f'API connected, but multiple timers are named "{self._settings.timer_name}".'
             )
-        elif matches[0].countdown is None:
-            timer_error = ProPresenterTimerTypeError(
-                f'API connected, but timer "{self._settings.timer_name}" is not a countdown timer.'
-            )
-
         if timer_error is not None:
             self._timer = None
             self._status = PluginStatus.ERROR
@@ -383,7 +375,8 @@ class ProPresenterPlugin(Plugin):
         self._last_activity_at = datetime.now(UTC)
         await self._set_connection(
             ConnectionStatus.CONNECTED,
-            f'Connected; countdown timer "{self._timer.id.name}" is ready.',
+            f'Connected; timer "{self._timer.id.name}" is ready and will be configured '
+            "as a countdown when cued.",
         )
         return True
 

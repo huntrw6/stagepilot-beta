@@ -1,6 +1,6 @@
 [package]
 name = "stagepilot-desktop"
-version = "0.9.10"
+version = "0.9.11"
 description = "Native desktop shell for StagePilot"
 authors = ["StagePilot contributors"]
 edition = "2021"

@@ -1,6 +1,6 @@
 # ProPresenter integration
 
-StagePilot controls one reusable ProPresenter countdown timer through ProPresenter's local HTTP API.
+StagePilot controls one reusable ProPresenter timer through ProPresenter's local HTTP API. When a song cue arrives, StagePilot configures the selected timer as a Countdown Timer, applies the song duration, resets it, verifies the saved duration, and then starts it.
 
 ## Required ProPresenter setup
 
@@ -60,6 +60,14 @@ than displaying the previous whole second for nearly one extra second.
 ## Recovery
 
 StagePilot periodically probes ProPresenter. If ProPresenter is offline at startup or restarts later, the plugin retries with capped exponential backoff. Timer identities are rediscovered by visible name, and failed timer operations clear the cached timer before one immediate retry.
+
+## macOS diagnostic log
+
+Packaged macOS builds save backend diagnostics here:
+
+`~/Library/Logs/org.stagepilot.desktop/stagepilot-backend.log`
+
+In Finder, choose **Go → Go to Folder**, paste that path, and press Return. Fully quit and reopen StagePilot before reproducing a problem so the latest session appears at the end of the file. Review the file before sharing it; it should not contain saved secrets, but service and timer names may appear.
 
 The dashboard distinguishes:
 

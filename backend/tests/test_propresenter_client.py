@@ -12,7 +12,6 @@ from stagepilot.plugins.propresenter import (
     ProPresenterResponseError,
     ProPresenterTimer,
     ProPresenterTimerNotFoundError,
-    ProPresenterTimerTypeError,
 )
 
 
@@ -50,7 +49,7 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
                 200,
                 json=[payload] if request.url.path == "/v1/timers" else payload,
             )
-        if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid":
+        if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid/reset":
             assert isinstance(body, dict)
             saved_duration = body["countdown"]["duration"]
             return httpx.Response(204)
@@ -68,7 +67,7 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
     assert updated.countdown.duration == 336
     assert requests[-2] == (
         "PUT",
-        "/v1/timer/timer-uuid",
+        "/v1/timer/timer-uuid/reset",
         {
             "id": {
                 "uuid": "timer-uuid",
@@ -114,7 +113,7 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
     assert requests == [
         (
             "PUT",
-            "/v1/timer/timer-uuid",
+            "/v1/timer/timer-uuid/reset",
             {
                 "id": {
                     "uuid": "timer-uuid",
@@ -157,6 +156,43 @@ async def test_client_waits_for_timer_duration_to_be_visible_before_returning() 
 
 
 @pytest.mark.asyncio
+async def test_client_converts_an_elapsed_timer_to_countdown_when_setting_duration() -> None:
+    request_bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            request_bodies.append(json.loads(request.content))
+            return httpx.Response(204)
+        return httpx.Response(200, json=timer_payload(duration=253))
+
+    elapsed = ProPresenterTimer.model_validate(
+        {
+            "id": {"uuid": "timer-uuid", "name": "Song Countdown", "index": 0},
+            "allows_overrun": False,
+            "elapsed": {"start_time": 0},
+        }
+    )
+    client = ProPresenterClient(
+        ProPresenterSettings(enabled=True),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        converted = await client.set_timer_duration(elapsed, 253)
+    finally:
+        await client.close()
+
+    assert converted.countdown is not None
+    assert converted.countdown.duration == 253
+    assert request_bodies == [
+        {
+            "id": {"uuid": "timer-uuid", "name": "Song Countdown", "index": 0},
+            "allows_overrun": False,
+            "countdown": {"duration": 253},
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_client_rejects_unconfirmed_timer_duration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -183,7 +219,7 @@ async def test_client_rejects_unconfirmed_timer_duration(
 
 
 @pytest.mark.asyncio
-async def test_client_rejects_missing_or_non_countdown_timer() -> None:
+async def test_client_rejects_missing_timer_and_accepts_other_timer_types() -> None:
     responses = iter(
         [
             [timer_payload(name="Other Timer")],
@@ -211,8 +247,8 @@ async def test_client_rejects_missing_or_non_countdown_timer() -> None:
     try:
         with pytest.raises(ProPresenterTimerNotFoundError):
             await client.find_timer("Song Countdown")
-        with pytest.raises(ProPresenterTimerTypeError):
-            await client.find_timer("Song Countdown")
+        convertible = await client.find_timer("Song Countdown")
+        assert convertible.countdown is None
     finally:
         await client.close()
 

@@ -6,6 +6,16 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.11] - 2026-07-19
+
+### Fixed
+
+- Configure and reset ProPresenter timers atomically before duration verification,
+  allowing repeated song cues to start reliably.
+- Allow Countdown to Time and Elapsed Time timers to be selected and convert
+  them to Countdown Timers when a song-start cue arrives.
+- Preserve packaged backend diagnostics in the macOS application log directory.
+
 ## [0.9.10] - 2026-07-19
 
 ### Fixed

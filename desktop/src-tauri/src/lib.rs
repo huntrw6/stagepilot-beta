@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    fs::OpenOptions,
     io::{Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
     path::PathBuf,
@@ -358,23 +359,49 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
         .lock()
         .expect("backend child lock poisoned") = Some(child);
 
+    let backend_log = app.path().app_log_dir().ok().and_then(|directory| {
+        fs::create_dir_all(&directory).ok()?;
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(directory.join("stagepilot-backend.log"))
+            .ok()
+    });
+    let backend_log = Arc::new(Mutex::new(backend_log));
+
     let event_app = app.clone();
     let event_supervisor = supervisor.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
-            if let CommandEvent::Terminated(payload) = event {
-                if !matches!(event_supervisor.snapshot().state, BackendState::Stopped) {
-                    event_supervisor.update(
-                        &event_app,
-                        BackendState::Failed,
-                        format!(
-                            "The StagePilot backend exited unexpectedly (code {:?}).",
-                            payload.code
-                        ),
-                        true,
-                    );
+            match event {
+                CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                    if let Some(file) = backend_log
+                        .lock()
+                        .expect("backend log lock poisoned")
+                        .as_mut()
+                    {
+                        let _ = file.write_all(&line);
+                        if !line.ends_with(b"\n") {
+                            let _ = file.write_all(b"\n");
+                        }
+                        let _ = file.flush();
+                    }
                 }
-                break;
+                CommandEvent::Terminated(payload) => {
+                    if !matches!(event_supervisor.snapshot().state, BackendState::Stopped) {
+                        event_supervisor.update(
+                            &event_app,
+                            BackendState::Failed,
+                            format!(
+                                "The StagePilot backend exited unexpectedly (code {:?}).",
+                                payload.code
+                            ),
+                            true,
+                        );
+                    }
+                    break;
+                }
+                _ => {}
             }
         }
     });
