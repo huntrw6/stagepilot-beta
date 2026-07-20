@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 
 import type {
   ActionName,
@@ -41,6 +41,102 @@ type HeaderNotification = {
 
 const NOTIFICATION_DURATION_MS = 6_000;
 const MAX_NOTIFICATION_QUEUE = 2;
+// Retain the first-launch implementation for possible future use while keeping
+// it disabled in every production configuration state.
+const FIRST_LAUNCH_SETUP_ENABLED = false;
+const DASHBOARD_WIDGET_ORDER_KEY = "stagepilot.dashboard-widget-order.v1";
+const DASHBOARD_WIDGET_IDS = ["service-plan", "now-playing", "readiness", "events"] as const;
+type DashboardWidgetId = (typeof DASHBOARD_WIDGET_IDS)[number];
+
+const loadDashboardWidgetOrder = (): DashboardWidgetId[] => {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(DASHBOARD_WIDGET_ORDER_KEY) ?? "null");
+    if (
+      Array.isArray(saved)
+      && saved.length === DASHBOARD_WIDGET_IDS.length
+      && DASHBOARD_WIDGET_IDS.every((id) => saved.includes(id))
+    ) {
+      return saved as DashboardWidgetId[];
+    }
+  } catch {
+    // Invalid or unavailable local storage should never prevent the dashboard loading.
+  }
+  return [...DASHBOARD_WIDGET_IDS];
+};
+
+function MovableWidget({
+  children,
+  id,
+  label,
+  position,
+  total,
+  dragged,
+  dropTarget,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  onMove,
+}: {
+  children: ReactNode;
+  id: DashboardWidgetId;
+  label: string;
+  position: number;
+  total: number;
+  dragged: boolean;
+  dropTarget: boolean;
+  onDragStart: (event: DragEvent<HTMLButtonElement>, id: DashboardWidgetId) => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => void;
+  onDragEnd: () => void;
+  onMove: (id: DashboardWidgetId, offset: -1 | 1) => void;
+}) {
+  return (
+    <div
+      className={`group/widget grid min-w-0 content-start transition duration-200 motion-reduce:transition-none ${dragged ? "scale-[0.99] opacity-45" : "opacity-100"} ${dropTarget ? "rounded-xl ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-950" : ""}`}
+      data-testid={`dashboard-widget-${id}`}
+      onDragOver={(event) => onDragOver(event, id)}
+      onDrop={(event) => onDrop(event, id)}
+      style={{ order: position }}
+    >
+      <div className="mb-1 flex items-center justify-end gap-1 text-slate-500">
+        <button
+          aria-label={`Move ${label} earlier`}
+          className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-sm transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-25"
+          disabled={position === 0}
+          onClick={() => onMove(id, -1)}
+          title={`Move ${label} earlier`}
+          type="button"
+        >
+          ←
+        </button>
+        <button
+          aria-label={`Drag ${label} to a new dashboard position`}
+          className="flex h-7 cursor-grab items-center gap-1.5 rounded-md border border-transparent px-2 text-[0.65rem] font-bold uppercase tracking-wider transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 active:cursor-grabbing"
+          draggable
+          onDragEnd={onDragEnd}
+          onDragStart={(event) => onDragStart(event, id)}
+          title={`Drag ${label} to a new dashboard position`}
+          type="button"
+        >
+          <span aria-hidden="true" className="text-base leading-none">⠿</span>
+          Move
+        </button>
+        <button
+          aria-label={`Move ${label} later`}
+          className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-sm transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-25"
+          disabled={position === total - 1}
+          onClick={() => onMove(id, 1)}
+          title={`Move ${label} later`}
+          type="button"
+        >
+          →
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const formatDuration = (seconds: number | null | undefined) => {
   if (seconds == null) return "—:——";
@@ -265,12 +361,64 @@ export function Dashboard({
   const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
   const [notificationQueue, setNotificationQueue] = useState<HeaderNotification[]>([]);
+  const [widgetOrder, setWidgetOrder] = useState<DashboardWidgetId[]>(loadDashboardWidgetOrder);
+  const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
+  const [dropTargetWidget, setDropTargetWidget] = useState<DashboardWidgetId | null>(null);
   const notificationId = useRef(0);
   const previousNotificationSources = useRef({
     action: null as string | null,
     error: null as string | null,
     service: null as string | null,
   });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DASHBOARD_WIDGET_ORDER_KEY, JSON.stringify(widgetOrder));
+    } catch {
+      // Keep reordering available for this session when storage is unavailable.
+    }
+  }, [widgetOrder]);
+
+  const reorderWidget = (source: DashboardWidgetId, target: DashboardWidgetId) => {
+    if (source === target) return;
+    setWidgetOrder((current) => {
+      const next = current.filter((id) => id !== source);
+      next.splice(current.indexOf(target), 0, source);
+      return next;
+    });
+  };
+  const moveWidget = (id: DashboardWidgetId, offset: -1 | 1) => {
+    setWidgetOrder((current) => {
+      const index = current.indexOf(id);
+      const target = index + offset;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      next[index] = current[target]!;
+      next[target] = id;
+      return next;
+    });
+  };
+  const handleWidgetDragStart = (event: DragEvent<HTMLButtonElement>, id: DashboardWidgetId) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+    setDraggedWidget(id);
+  };
+  const handleWidgetDragOver = (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => {
+    if (!draggedWidget || draggedWidget === id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetWidget(id);
+  };
+  const handleWidgetDrop = (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => {
+    event.preventDefault();
+    const source = draggedWidget ?? event.dataTransfer.getData("text/plain") as DashboardWidgetId;
+    if (DASHBOARD_WIDGET_IDS.includes(source)) reorderWidget(source, id);
+    setDraggedWidget(null);
+    setDropTargetWidget(null);
+  };
+  const handleWidgetDragEnd = () => {
+    setDraggedWidget(null);
+    setDropTargetWidget(null);
+  };
   useEffect(() => {
     setClockNow(Date.now());
     if (state.timer.status !== "running" || !state.timer.started_at) return;
@@ -404,15 +552,16 @@ export function Dashboard({
         </div>
       </header>
 
-      <SetupChecklist
-        live={live}
-        midi={midi}
-        onOpen={setActiveConnection}
-        propresenter={propresenter}
-        settings={settings}
-
-        state={state}
-      />
+      {FIRST_LAUNCH_SETUP_ENABLED && (
+        <SetupChecklist
+          live={live}
+          midi={midi}
+          onOpen={setActiveConnection}
+          propresenter={propresenter}
+          settings={settings}
+          state={state}
+        />
+      )}
 
       {serviceLoad.status === "ambiguous" && (
         <section className="mb-5 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4" aria-live="polite">
@@ -576,7 +725,21 @@ export function Dashboard({
         />
       )}
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(350px,0.8fr)]">
+      <div className="mt-5 grid items-start gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(350px,0.8fr)]">
+      <div className="contents">
+        <MovableWidget
+          dragged={draggedWidget === "service-plan"}
+          dropTarget={dropTargetWidget === "service-plan"}
+          id="service-plan"
+          label="Service Plan"
+          onDragEnd={handleWidgetDragEnd}
+          onDragOver={handleWidgetDragOver}
+          onDragStart={handleWidgetDragStart}
+          onDrop={handleWidgetDrop}
+          onMove={moveWidget}
+          position={widgetOrder.indexOf("service-plan")}
+          total={widgetOrder.length}
+        >
         <section className="overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
           <div className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div>
@@ -599,8 +762,22 @@ export function Dashboard({
               : <ReferenceItemRow key={`reference-${entry.item.item_id}`} item={entry.item} />)}
           </ol>
         </section>
+        </MovableWidget>
 
-        <div className="grid content-start gap-5">
+        <div className="contents">
+          <MovableWidget
+            dragged={draggedWidget === "now-playing"}
+            dropTarget={dropTargetWidget === "now-playing"}
+            id="now-playing"
+            label="Now Playing"
+            onDragEnd={handleWidgetDragEnd}
+            onDragOver={handleWidgetDragOver}
+            onDragStart={handleWidgetDragStart}
+            onDrop={handleWidgetDrop}
+            onMove={moveWidget}
+            position={widgetOrder.indexOf("now-playing")}
+            total={widgetOrder.length}
+          >
           <section className="now-playing-panel rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20">
             <div className="flex items-center justify-between gap-3">
               <p className="text-[0.68rem] font-black uppercase tracking-[0.2em] text-orange-700">Now playing</p>
@@ -625,8 +802,9 @@ export function Dashboard({
               <div><p className="text-xs text-slate-500">Last action</p><p className="mt-1 font-semibold capitalize text-slate-200">{state.last_action?.replaceAll("_", " ") ?? "None"}</p></div>
             </div>
           </section>
+          </MovableWidget>
 
-          <section className="rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
+          <section className="order-[4] rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
             <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Manual controls</p>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
               <ActionButton action="start_next" label="Start next" tone="green" disabled={pendingAction !== null} onAction={dispatch} />
@@ -641,14 +819,41 @@ export function Dashboard({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+      <div className="contents">
+        <MovableWidget
+          dragged={draggedWidget === "readiness"}
+          dropTarget={dropTargetWidget === "readiness"}
+          id="readiness"
+          label="Readiness Check"
+          onDragEnd={handleWidgetDragEnd}
+          onDragOver={handleWidgetDragOver}
+          onDragStart={handleWidgetDragStart}
+          onDrop={handleWidgetDrop}
+          onMove={moveWidget}
+          position={widgetOrder.indexOf("readiness")}
+          total={widgetOrder.length}
+        >
         <section className="rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
           <div className="flex items-center justify-between"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Readiness check</p><span className={ready ? "text-emerald-300" : "text-amber-300"}>{ready ? "All systems ready" : "Attention required"}</span></div>
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
             {checks.map(([successLabel, errorLabel, passed]) => <li key={successLabel} className="flex items-center gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-sm"><span className={`grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black ${passed ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{passed ? "✓" : "!"}</span><span className={passed ? "text-slate-300" : "text-rose-200"}>{passed ? successLabel : errorLabel}</span></li>)}
           </ul>
         </section>
+        </MovableWidget>
 
+        <MovableWidget
+          dragged={draggedWidget === "events"}
+          dropTarget={dropTargetWidget === "events"}
+          id="events"
+          label="Recent Event Stream"
+          onDragEnd={handleWidgetDragEnd}
+          onDragOver={handleWidgetDragOver}
+          onDragStart={handleWidgetDragStart}
+          onDrop={handleWidgetDrop}
+          onMove={moveWidget}
+          position={widgetOrder.indexOf("events")}
+          total={widgetOrder.length}
+        >
         <section className="overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
           <div className="flex items-center justify-between p-4"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Recent event stream</p><span className="text-xs text-slate-600">Latest {activity.length}</span></div>
           <div className="max-h-64 overflow-auto border-t border-white/5">
@@ -657,6 +862,8 @@ export function Dashboard({
             {!activity.length && <p className="p-4 text-sm text-slate-500">Waiting for demo events…</p>}
           </div>
         </section>
+        </MovableWidget>
+      </div>
       </div>
     </main>
   );

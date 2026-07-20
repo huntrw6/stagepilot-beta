@@ -431,20 +431,42 @@ describe("Dashboard Planning Center plan states", () => {
   });
 });
 
-describe("Dashboard connection configuration panels", () => {
-  it("guides an incomplete first launch into the selected setup panel", async () => {
+describe("Dashboard widget layout", () => {
+  it("moves only the requested dashboard widgets and saves their snapped order", async () => {
+    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
     const user = userEvent.setup();
+    renderDashboard(loadedServiceState);
+
+    const servicePlan = screen.getByTestId("dashboard-widget-service-plan");
+    const nowPlaying = screen.getByTestId("dashboard-widget-now-playing");
+    expect(servicePlan).toHaveStyle({ order: "0" });
+    expect(nowPlaying).toHaveStyle({ order: "1" });
+
+    await user.click(screen.getByRole("button", { name: "Move Service Plan later" }));
+
+    expect(servicePlan).toHaveStyle({ order: "1" });
+    expect(nowPlaying).toHaveStyle({ order: "0" });
+    expect(JSON.parse(window.localStorage.getItem("stagepilot.dashboard-widget-order.v1")!)).toEqual([
+      "now-playing",
+      "service-plan",
+      "readiness",
+      "events",
+    ]);
+    expect(screen.queryByRole("button", { name: /Move Manual Controls/ })).not.toBeInTheDocument();
+    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
+  });
+});
+
+describe("Dashboard connection configuration panels", () => {
+  it("keeps the retained first-launch setup UI disabled", () => {
     renderDashboard(loadedServiceState, {
       state: applicationState(loadedServiceState, { plugins: {} }),
     });
 
-    expect(screen.getByRole("heading", { name: "Finish configuring StagePilot" })).toBeInTheDocument();
-    expect(screen.getByText("0 of 6 complete")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /General settings/ }));
-
-    expect(screen.getByRole("heading", { name: "StagePilot backend" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save general settings" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("StagePilot setup progress")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Finish configuring StagePilot" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens only the clicked connection and toggles it closed on a second click", async () => {

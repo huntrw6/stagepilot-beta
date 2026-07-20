@@ -183,7 +183,7 @@ export function ProPresenterSetupPanel({
           onClick={() => parsedSettings && onSave(parsedSettings)}
           type="button"
         >
-          {pendingOperation === "save" ? "Saving…" : disabled ? "Save settings" : "Save and reconnect"}
+          {pendingOperation === "save" ? "Saving…" : "Save settings"}
         </button>
         <button
           className="rounded-lg border border-orange-300/30 bg-orange-300/10 px-3.5 py-2.5 text-sm font-semibold text-orange-200 transition hover:bg-orange-300/20 disabled:cursor-not-allowed disabled:opacity-40"

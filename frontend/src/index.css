@@ -33,7 +33,7 @@ body {
   background-color: #090d12;
   background-attachment: scroll;
   background-image: url("./assets/film-flare.jpg");
-  background-position: top center;
+  background-position: top left;
   background-repeat: no-repeat;
   background-size: 1700px 2560px;
 }

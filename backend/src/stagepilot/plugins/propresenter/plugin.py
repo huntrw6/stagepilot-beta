@@ -37,6 +37,9 @@ from stagepilot.plugins.propresenter.errors import (
 )
 from stagepilot.plugins.propresenter.models import ProPresenterLook, ProPresenterTimer
 
+LOOK_UPDATE_VERIFICATION_ATTEMPTS = 20
+LOOK_UPDATE_VERIFICATION_INTERVAL_SECONDS = 0.1
+
 
 class ProPresenterPlugin(Plugin):
     """Translate song lifecycle events into one reusable ProPresenter countdown."""
@@ -181,10 +184,18 @@ class ProPresenterPlugin(Plugin):
                 raise ProPresenterLookNotFoundError(f'ProPresenter Look "{look_id}" was not found.')
             client = self._require_client()
             await client.trigger_look(look_id)
-            current = await client.current_look()
-            # ProPresenter assigns the live Look a unique UUID. Its documented
-            # index identifies the matching saved Look.
-            if current.id.index != selected.id.index:
+            current: ProPresenterLook | None = None
+            for attempt in range(LOOK_UPDATE_VERIFICATION_ATTEMPTS):
+                candidate = await client.current_look()
+                if (
+                    candidate.id.index == selected.id.index
+                    or candidate.id.name.strip().casefold() == selected.id.name.strip().casefold()
+                ):
+                    current = candidate
+                    break
+                if attempt + 1 < LOOK_UPDATE_VERIFICATION_ATTEMPTS:
+                    await asyncio.sleep(LOOK_UPDATE_VERIFICATION_INTERVAL_SECONDS)
+            if current is None:
                 raise ProPresenterLookNotFoundError(
                     "ProPresenter did not confirm the selected Look as current."
                 )

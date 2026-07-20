@@ -39,7 +39,7 @@ export default function App() {
         <DesktopTitleBar />
         <main className="grid min-h-[calc(100vh-2.25rem)] place-items-center px-6 text-center">
           <div>
-            <h1 className="font-brand text-4xl text-white">StagePilot</h1>
+            <h1 className="font-brand text-[11.25rem] leading-none text-white">StagePilot</h1>
             <p className="mt-5 text-lg font-semibold text-white">Connecting to the local backend</p>
             <p className={`mt-2 text-sm ${backendSupervisor?.state === "failed" ? "text-rose-300" : "text-slate-400"}`}>
               {backendSupervisor?.message ?? "Waiting for the StagePilot backend."}

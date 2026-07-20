@@ -6,6 +6,13 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.13] - 2026-07-19
+
+- Added movable, snapping dashboard widgets with persistent layouts and accessible controls.
+- Improved ProPresenter Look confirmation, settings messaging, and timer behavior.
+- Disabled the first-launch setup overlay while preserving its implementation.
+- Refined the application background placement and loading-screen branding.
+
 ## [0.9.12] - 2026-07-19
 
 ### Fixed
