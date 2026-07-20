@@ -1,6 +1,6 @@
 # StagePilot
 
-StagePilot brings the moving parts of a live production into one dependable dashboard. It loads the service plan from Planning Center, listens for song cues from MultiTracks Playback, keeps ProPresenter's countdown in sync, and sends scheduled MIDI cues to lighting software such as Lightkey.
+StagePilot brings the moving parts of a live production into one dependable dashboard. It loads service plans from Planning Center, listens for MIDI cues from MultiTracks Playback, keeps a ProPresenter countdown in sync, and sends scheduled MIDI cues to a lighting controller such as Lightkey.
 
 The result is a clear view of what is playing, what comes next, how much time remains, and whether every connection is ready.
 
