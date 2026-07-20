@@ -1,6 +1,6 @@
 # ProPresenter integration
 
-StagePilot controls one reusable ProPresenter timer through ProPresenter's local HTTP API. When a song cue arrives, StagePilot configures the selected timer as a Countdown Timer, applies the song duration, resets it, verifies the saved duration, and then starts it.
+StagePilot controls one reusable ProPresenter timer through ProPresenter's local HTTP API. When a song cue arrives, StagePilot stops the timer, configures it as a Countdown Timer with the song duration, resets it, verifies the saved duration, and then starts it.
 
 ## Required ProPresenter setup
 

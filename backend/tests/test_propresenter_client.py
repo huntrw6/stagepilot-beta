@@ -49,7 +49,7 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
                 200,
                 json=[payload] if request.url.path == "/v1/timers" else payload,
             )
-        if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid/reset":
+        if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid":
             assert isinstance(body, dict)
             saved_duration = body["countdown"]["duration"]
             return httpx.Response(204)
@@ -65,9 +65,9 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
 
     assert updated.countdown is not None
     assert updated.countdown.duration == 336
-    assert requests[-2] == (
+    assert requests[-3] == (
         "PUT",
-        "/v1/timer/timer-uuid/reset",
+        "/v1/timer/timer-uuid",
         {
             "id": {
                 "uuid": "timer-uuid",
@@ -78,6 +78,7 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
             "countdown": {"duration": 336},
         },
     )
+    assert requests[-2][:2] == ("GET", "/v1/timer/timer-uuid/reset")
     assert requests[-1][:2] == ("GET", "/v1/timer/timer-uuid")
 
 
@@ -113,7 +114,7 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
     assert requests == [
         (
             "PUT",
-            "/v1/timer/timer-uuid/reset",
+            "/v1/timer/timer-uuid",
             {
                 "id": {
                     "uuid": "timer-uuid",
@@ -124,6 +125,7 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
                 "countdown": {"duration": 0},
             },
         ),
+        ("GET", "/v1/timer/timer-uuid/reset", None),
         ("GET", "/v1/timer/timer-uuid", None),
     ]
 

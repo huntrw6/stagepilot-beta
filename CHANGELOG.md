@@ -6,6 +6,15 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-07-19
+
+### Fixed
+
+- Configure ProPresenter timer type and duration before issuing Reset, preventing
+  the previous song duration from appearing before the next countdown starts.
+- Explicitly reset the ProPresenter timer after Reset Position changes its
+  duration to `0:00`.
+
 ## [0.9.11] - 2026-07-19
 
 ### Fixed

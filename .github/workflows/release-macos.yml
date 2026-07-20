@@ -6,7 +6,7 @@ on:
       release_tag:
         description: GitHub release tag that receives the disk images
         required: true
-        default: v0.9.11
+        default: v0.9.12
   push:
     tags:
       - "v*"

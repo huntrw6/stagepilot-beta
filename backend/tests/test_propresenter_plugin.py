@@ -65,6 +65,7 @@ class FakeProPresenterClient:
         duration_seconds: int,
     ) -> ProPresenterTimer:
         self.calls.append(("set", duration_seconds))
+        self.calls.append(("reset", timer.id.uuid))
         self.timer = timer.model_copy(
             update={"countdown": ProPresenterCountdown(duration=duration_seconds)}
         )
@@ -112,14 +113,16 @@ async def test_demo_plan_can_drive_real_propresenter_plugin() -> None:
             ("list", None),
             ("stop", "timer-uuid"),
             ("set", 281),
+            ("reset", "timer-uuid"),
             ("start", "timer-uuid"),
         ]
 
         restart = await runtime.state_service.dispatch(ActionName.RESTART_CURRENT, source="test")
         assert restart.accepted
-        assert fake.calls[-3:] == [
+        assert fake.calls[-4:] == [
             ("stop", "timer-uuid"),
             ("set", 281),
+            ("reset", "timer-uuid"),
             ("start", "timer-uuid"),
         ]
 
@@ -135,9 +138,10 @@ async def test_demo_plan_can_drive_real_propresenter_plugin() -> None:
         assert reset_state.current_song is None
         assert reset_state.timer.status is TimerStatus.STOPPED
         assert reset_state.timer.duration_seconds is None
-        assert fake.calls[-2:] == [
+        assert fake.calls[-3:] == [
             ("stop", "timer-uuid"),
             ("set", 0),
+            ("reset", "timer-uuid"),
         ]
 
     assert fake.closed
