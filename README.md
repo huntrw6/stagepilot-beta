@@ -76,6 +76,17 @@ Lighting cue times are elapsed from the beginning of the song. Each cue sends a 
 
 See the [ProPresenter guide](docs/propresenter.md) and [lighting guide](docs/lights.md) for connection-specific setup.
 
+## Planning Center access
+
+To use the Service Plan features, sign in to Planning Center's [Personal Access Token page](https://api.planningcenteronline.com/personal_access_tokens) and create a Personal Access Token for StagePilot.
+
+1. Create a new token with a recognizable name such as `StagePilot`.
+2. Copy the token's **Client ID** into StagePilot's **Application ID** field.
+3. Copy the token's **Secret** into StagePilot's **Secret** field.
+4. Select **Test connection**, load the available service types, choose the service StagePilot should follow, and save the settings.
+
+Treat the Client ID and Secret like a password. Do not include them in screenshots, logs, support requests, or GitHub issues. StagePilot stores the secret in the operating system credential store rather than its normal settings file.
+
 ## Reliability and troubleshooting
 
 StagePilot caches the last successfully loaded service plan. If Planning Center is temporarily unavailable, the cached plan remains visible with a stale warning rather than leaving the production dashboard empty.
