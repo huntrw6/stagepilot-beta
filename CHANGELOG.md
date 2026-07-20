@@ -6,6 +6,12 @@ intends to use [Semantic Versioning](https://semver.org/) once releases begin.
 
 ## [Unreleased]
 
+## [0.9.14] - 2026-07-19
+
+- Fixed ProPresenter timer-type conversion by atomically configuring and resetting timers.
+- Added pointer-based dashboard widget dragging and made Manual Controls movable.
+- Enlarged the dashboard logo without changing header height and refined loading-screen spacing.
+
 ## [0.9.13] - 2026-07-19
 
 - Added movable, snapping dashboard widgets with persistent layouts and accessible controls.

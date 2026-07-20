@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -432,7 +432,7 @@ describe("Dashboard Planning Center plan states", () => {
 });
 
 describe("Dashboard widget layout", () => {
-  it("moves only the requested dashboard widgets and saves their snapped order", async () => {
+  it("moves dashboard widgets with arrows and saves the manual-controls position", async () => {
     window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
     const user = userEvent.setup();
     renderDashboard(loadedServiceState);
@@ -449,10 +449,35 @@ describe("Dashboard widget layout", () => {
     expect(JSON.parse(window.localStorage.getItem("stagepilot.dashboard-widget-order.v1")!)).toEqual([
       "now-playing",
       "service-plan",
+      "manual-controls",
       "readiness",
       "events",
     ]);
-    expect(screen.queryByRole("button", { name: /Move Manual Controls/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Drag Manual Controls to a new dashboard position" })).toBeInTheDocument();
+    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
+  });
+
+  it("snaps a widget to the hovered position when a pointer drag is released", () => {
+    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
+    renderDashboard(loadedServiceState);
+
+    const servicePlan = screen.getByTestId("dashboard-widget-service-plan");
+    const events = screen.getByTestId("dashboard-widget-events");
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Drag Service Plan to a new dashboard position" }),
+    );
+    fireEvent.pointerEnter(events);
+    fireEvent.pointerUp(window);
+
+    expect(servicePlan).toHaveStyle({ order: "4" });
+    expect(events).toHaveStyle({ order: "3" });
+    expect(JSON.parse(window.localStorage.getItem("stagepilot.dashboard-widget-order.v1")!)).toEqual([
+      "now-playing",
+      "manual-controls",
+      "readiness",
+      "events",
+      "service-plan",
+    ]);
     window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
   });
 });

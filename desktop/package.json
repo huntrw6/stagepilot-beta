@@ -1,6 +1,6 @@
 {
   "name": "@stagepilot/desktop",
-  "version": "0.9.13",
+  "version": "0.9.14",
   "private": true,
   "description": "Tauri v2 shell for the StagePilot dashboard",
   "scripts": {

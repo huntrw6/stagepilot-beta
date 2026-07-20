@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 
 import type {
   ActionName,
@@ -45,8 +45,21 @@ const MAX_NOTIFICATION_QUEUE = 2;
 // it disabled in every production configuration state.
 const FIRST_LAUNCH_SETUP_ENABLED = false;
 const DASHBOARD_WIDGET_ORDER_KEY = "stagepilot.dashboard-widget-order.v1";
-const DASHBOARD_WIDGET_IDS = ["service-plan", "now-playing", "readiness", "events"] as const;
+const DASHBOARD_WIDGET_IDS = [
+  "service-plan",
+  "now-playing",
+  "manual-controls",
+  "readiness",
+  "events",
+] as const;
 type DashboardWidgetId = (typeof DASHBOARD_WIDGET_IDS)[number];
+const DASHBOARD_SNAP_CLASSES = [
+  "lg:col-start-1 lg:row-start-1 lg:row-span-2",
+  "lg:col-start-2 lg:row-start-1",
+  "lg:col-start-2 lg:row-start-2",
+  "lg:col-start-1 lg:row-start-3",
+  "lg:col-start-2 lg:row-start-3",
+] as const;
 
 const loadDashboardWidgetOrder = (): DashboardWidgetId[] => {
   try {
@@ -72,10 +85,8 @@ function MovableWidget({
   total,
   dragged,
   dropTarget,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  onPointerStart,
+  onPointerTarget,
   onMove,
 }: {
   children: ReactNode;
@@ -85,18 +96,15 @@ function MovableWidget({
   total: number;
   dragged: boolean;
   dropTarget: boolean;
-  onDragStart: (event: DragEvent<HTMLButtonElement>, id: DashboardWidgetId) => void;
-  onDragOver: (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => void;
-  onDragEnd: () => void;
+  onPointerStart: (event: PointerEvent<HTMLButtonElement>, id: DashboardWidgetId) => void;
+  onPointerTarget: (id: DashboardWidgetId) => void;
   onMove: (id: DashboardWidgetId, offset: -1 | 1) => void;
 }) {
   return (
     <div
-      className={`group/widget grid min-w-0 content-start transition duration-200 motion-reduce:transition-none ${dragged ? "scale-[0.99] opacity-45" : "opacity-100"} ${dropTarget ? "rounded-xl ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-950" : ""}`}
+      className={`group/widget grid min-w-0 content-start transition duration-200 motion-reduce:transition-none ${DASHBOARD_SNAP_CLASSES[position] ?? ""} ${dragged ? "scale-[0.99] opacity-45" : "opacity-100"} ${dropTarget ? "rounded-xl ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-950" : ""}`}
       data-testid={`dashboard-widget-${id}`}
-      onDragOver={(event) => onDragOver(event, id)}
-      onDrop={(event) => onDrop(event, id)}
+      onPointerEnter={() => onPointerTarget(id)}
       style={{ order: position }}
     >
       <div className="mb-1 flex items-center justify-end gap-1 text-slate-500">
@@ -112,10 +120,8 @@ function MovableWidget({
         </button>
         <button
           aria-label={`Drag ${label} to a new dashboard position`}
-          className="flex h-7 cursor-grab items-center gap-1.5 rounded-md border border-transparent px-2 text-[0.65rem] font-bold uppercase tracking-wider transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 active:cursor-grabbing"
-          draggable
-          onDragEnd={onDragEnd}
-          onDragStart={(event) => onDragStart(event, id)}
+          className="flex h-7 cursor-grab touch-none select-none items-center gap-1.5 rounded-md border border-transparent px-2 text-[0.65rem] font-bold uppercase tracking-wider transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 active:cursor-grabbing"
+          onPointerDown={(event) => onPointerStart(event, id)}
           title={`Drag ${label} to a new dashboard position`}
           type="button"
         >
@@ -397,28 +403,32 @@ export function Dashboard({
       return next;
     });
   };
-  const handleWidgetDragStart = (event: DragEvent<HTMLButtonElement>, id: DashboardWidgetId) => {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", id);
-    setDraggedWidget(id);
-  };
-  const handleWidgetDragOver = (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => {
-    if (!draggedWidget || draggedWidget === id) return;
+  const handleWidgetPointerStart = (
+    event: PointerEvent<HTMLButtonElement>,
+    id: DashboardWidgetId,
+  ) => {
     event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
+    setDraggedWidget(id);
     setDropTargetWidget(id);
   };
-  const handleWidgetDrop = (event: DragEvent<HTMLDivElement>, id: DashboardWidgetId) => {
-    event.preventDefault();
-    const source = draggedWidget ?? event.dataTransfer.getData("text/plain") as DashboardWidgetId;
-    if (DASHBOARD_WIDGET_IDS.includes(source)) reorderWidget(source, id);
-    setDraggedWidget(null);
-    setDropTargetWidget(null);
+  const handleWidgetPointerTarget = (id: DashboardWidgetId) => {
+    if (!draggedWidget) return;
+    setDropTargetWidget(id);
   };
-  const handleWidgetDragEnd = () => {
-    setDraggedWidget(null);
-    setDropTargetWidget(null);
-  };
+  useEffect(() => {
+    if (!draggedWidget) return;
+    const finishMove = () => {
+      if (dropTargetWidget) reorderWidget(draggedWidget, dropTargetWidget);
+      setDraggedWidget(null);
+      setDropTargetWidget(null);
+    };
+    window.addEventListener("pointerup", finishMove, { once: true });
+    window.addEventListener("pointercancel", finishMove, { once: true });
+    return () => {
+      window.removeEventListener("pointerup", finishMove);
+      window.removeEventListener("pointercancel", finishMove);
+    };
+  }, [draggedWidget, dropTargetWidget]);
   useEffect(() => {
     setClockNow(Date.now());
     if (state.timer.status !== "running" || !state.timer.started_at) return;
@@ -531,7 +541,7 @@ export function Dashboard({
     <main className="mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:gap-4">
         <div className="flex items-center">
-          <h1 className="font-brand text-4xl leading-none text-white">StagePilot</h1>
+          <h1 className="relative z-10 origin-bottom-left scale-[1.8] font-brand text-4xl leading-none text-white">StagePilot</h1>
         </div>
         <div
           aria-atomic="true"
@@ -732,11 +742,9 @@ export function Dashboard({
           dropTarget={dropTargetWidget === "service-plan"}
           id="service-plan"
           label="Service Plan"
-          onDragEnd={handleWidgetDragEnd}
-          onDragOver={handleWidgetDragOver}
-          onDragStart={handleWidgetDragStart}
-          onDrop={handleWidgetDrop}
           onMove={moveWidget}
+          onPointerStart={handleWidgetPointerStart}
+          onPointerTarget={handleWidgetPointerTarget}
           position={widgetOrder.indexOf("service-plan")}
           total={widgetOrder.length}
         >
@@ -770,11 +778,9 @@ export function Dashboard({
             dropTarget={dropTargetWidget === "now-playing"}
             id="now-playing"
             label="Now Playing"
-            onDragEnd={handleWidgetDragEnd}
-            onDragOver={handleWidgetDragOver}
-            onDragStart={handleWidgetDragStart}
-            onDrop={handleWidgetDrop}
             onMove={moveWidget}
+            onPointerStart={handleWidgetPointerStart}
+            onPointerTarget={handleWidgetPointerTarget}
             position={widgetOrder.indexOf("now-playing")}
             total={widgetOrder.length}
           >
@@ -804,7 +810,18 @@ export function Dashboard({
           </section>
           </MovableWidget>
 
-          <section className="order-[4] rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
+          <MovableWidget
+            dragged={draggedWidget === "manual-controls"}
+            dropTarget={dropTargetWidget === "manual-controls"}
+            id="manual-controls"
+            label="Manual Controls"
+            onMove={moveWidget}
+            onPointerStart={handleWidgetPointerStart}
+            onPointerTarget={handleWidgetPointerTarget}
+            position={widgetOrder.indexOf("manual-controls")}
+            total={widgetOrder.length}
+          >
+          <section className="rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
             <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Manual controls</p>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
               <ActionButton action="start_next" label="Start next" tone="green" disabled={pendingAction !== null} onAction={dispatch} />
@@ -816,6 +833,7 @@ export function Dashboard({
               <ActionButton action="reset_position" label="Reset position" tone="red" disabled={pendingAction !== null} onAction={dispatch} />
             </div>
           </section>
+          </MovableWidget>
         </div>
       </div>
 
@@ -825,11 +843,9 @@ export function Dashboard({
           dropTarget={dropTargetWidget === "readiness"}
           id="readiness"
           label="Readiness Check"
-          onDragEnd={handleWidgetDragEnd}
-          onDragOver={handleWidgetDragOver}
-          onDragStart={handleWidgetDragStart}
-          onDrop={handleWidgetDrop}
           onMove={moveWidget}
+          onPointerStart={handleWidgetPointerStart}
+          onPointerTarget={handleWidgetPointerTarget}
           position={widgetOrder.indexOf("readiness")}
           total={widgetOrder.length}
         >
@@ -846,11 +862,9 @@ export function Dashboard({
           dropTarget={dropTargetWidget === "events"}
           id="events"
           label="Recent Event Stream"
-          onDragEnd={handleWidgetDragEnd}
-          onDragOver={handleWidgetDragOver}
-          onDragStart={handleWidgetDragStart}
-          onDrop={handleWidgetDrop}
           onMove={moveWidget}
+          onPointerStart={handleWidgetPointerStart}
+          onPointerTarget={handleWidgetPointerTarget}
           position={widgetOrder.indexOf("events")}
           total={widgetOrder.length}
         >
