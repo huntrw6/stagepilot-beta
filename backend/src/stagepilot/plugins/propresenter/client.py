@@ -140,15 +140,15 @@ class ProPresenterClient:
     ) -> ProPresenterTimer:
         if duration_seconds < 0:
             raise ValueError("Timer duration must not be negative.")
+        # ProPresenter exposes an atomic endpoint for replacing the timer
+        # definition and applying Reset. On macOS, a standalone PUT followed by
+        # GET /reset can acknowledge both requests while retaining the previous
+        # elapsed/countdown-to-time variant.
         await self._request(
             "PUT",
-            f"/v1/timer/{timer.id.uuid}",
+            f"/v1/timer/{timer.id.uuid}/reset",
             json=timer.update_payload(duration_seconds),
         )
-        # ProPresenter can defer exposing a replacement duration until Reset.
-        # Keep configuration and reset as distinct operations so Reset always
-        # applies to the new timer type and duration rather than the old value.
-        await self.reset_timer(timer.id.uuid)
         return await self._verify_timer_duration(timer, duration_seconds)
 
     async def _verify_timer_duration(
@@ -158,6 +158,7 @@ class ProPresenterClient:
     ) -> ProPresenterTimer:
         """Wait until ProPresenter exposes the reset countdown before it is started."""
 
+        current: ProPresenterTimer | None = None
         for attempt in range(TIMER_UPDATE_VERIFICATION_ATTEMPTS):
             current = await self.get_timer(timer.id.uuid)
             if (
@@ -168,9 +169,11 @@ class ProPresenterClient:
                 return current
             if attempt + 1 < TIMER_UPDATE_VERIFICATION_ATTEMPTS:
                 await asyncio.sleep(TIMER_UPDATE_VERIFICATION_INTERVAL_SECONDS)
+        observed = current.timer_type if current is not None else "no readable timer"
         raise ProPresenterResponseError(
             f'ProPresenter did not confirm timer "{timer.id.name}" duration '
-            f"as {duration_seconds} seconds. The timer was not started."
+            f"as {duration_seconds} seconds; it still reported {observed}. "
+            "The timer was not started."
         )
 
     async def reset_timer(self, timer_id: str) -> None:

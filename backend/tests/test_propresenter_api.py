@@ -41,6 +41,8 @@ class FakeClient:
     )
     current: ProPresenterLook | None = None
     triggered_look_ids: list[str] = field(default_factory=list)
+    stale_current_look_reads: int = 0
+    current_look_reads_after_trigger: int = 0
 
     async def close(self) -> None:
         self.closed = True
@@ -55,6 +57,14 @@ class FakeClient:
         return list(self.looks)
 
     async def current_look(self) -> ProPresenterLook:
+        if (
+            self.triggered_look_ids
+            and self.current_look_reads_after_trigger < self.stale_current_look_reads
+        ):
+            self.current_look_reads_after_trigger += 1
+            return ProPresenterLook(
+                id=ProPresenterIdentifier(uuid="old-live-look", name="Previous", index=99)
+            )
         return self.current or self.looks[0]
 
     async def trigger_look(self, look_id: str) -> None:
@@ -174,6 +184,31 @@ def test_session_settings_recreate_client_and_report_missing_timer() -> None:
     assert persisted.port == 1026
     assert persisted.timer_name == "Missing Timer"
     assert persisted.request_timeout_seconds == 4
+
+
+def test_saved_look_tolerates_delayed_current_look_confirmation() -> None:
+    first = FakeClient()
+    second = FakeClient(stale_current_look_reads=2)
+    factory = RecordingFactory([first, second])
+    app = create_app(enabled_settings(), propresenter_client_factory=factory)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/propresenter/settings",
+            json={
+                "host": "127.0.0.1",
+                "port": 1025,
+                "timer_name": "Song Countdown",
+                "look_id": "look-worship",
+                "request_timeout_seconds": 3,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is True
+    assert "Look was not applied" not in response.json()["message"]
+    assert second.triggered_look_ids == ["look-worship"]
+    assert second.current_look_reads_after_trigger == 2
 
 
 def test_disabled_propresenter_returns_safe_status() -> None:

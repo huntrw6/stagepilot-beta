@@ -64,8 +64,20 @@ class ProPresenterTimer(BaseModel):
     id: ProPresenterIdentifier
     allows_overrun: bool = False
     countdown: ProPresenterCountdown | None = None
+    count_down_to_time: dict[str, Any] | None = None
+    elapsed: dict[str, Any] | None = None
     state: str | None = None
     time: str | None = None
+
+    @property
+    def timer_type(self) -> str:
+        if self.countdown is not None:
+            return "Countdown Timer"
+        if self.count_down_to_time is not None:
+            return "Countdown to Time"
+        if self.elapsed is not None:
+            return "Elapsed Time"
+        return "an unknown timer type"
 
     @model_validator(mode="before")
     @classmethod

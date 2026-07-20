@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 
 import type {
   ActionName,
@@ -41,6 +41,108 @@ type HeaderNotification = {
 
 const NOTIFICATION_DURATION_MS = 6_000;
 const MAX_NOTIFICATION_QUEUE = 2;
+// Retain the first-launch implementation for possible future use while keeping
+// it disabled in every production configuration state.
+const FIRST_LAUNCH_SETUP_ENABLED = false;
+const DASHBOARD_WIDGET_ORDER_KEY = "stagepilot.dashboard-widget-order.v1";
+const DASHBOARD_WIDGET_IDS = [
+  "service-plan",
+  "now-playing",
+  "manual-controls",
+  "readiness",
+  "events",
+] as const;
+type DashboardWidgetId = (typeof DASHBOARD_WIDGET_IDS)[number];
+const DASHBOARD_SNAP_CLASSES = [
+  "lg:col-start-1 lg:row-start-1 lg:row-span-2",
+  "lg:col-start-2 lg:row-start-1",
+  "lg:col-start-2 lg:row-start-2",
+  "lg:col-start-1 lg:row-start-3",
+  "lg:col-start-2 lg:row-start-3",
+] as const;
+
+const loadDashboardWidgetOrder = (): DashboardWidgetId[] => {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(DASHBOARD_WIDGET_ORDER_KEY) ?? "null");
+    if (
+      Array.isArray(saved)
+      && saved.length === DASHBOARD_WIDGET_IDS.length
+      && DASHBOARD_WIDGET_IDS.every((id) => saved.includes(id))
+    ) {
+      return saved as DashboardWidgetId[];
+    }
+  } catch {
+    // Invalid or unavailable local storage should never prevent the dashboard loading.
+  }
+  return [...DASHBOARD_WIDGET_IDS];
+};
+
+function MovableWidget({
+  children,
+  id,
+  label,
+  position,
+  total,
+  dragged,
+  dropTarget,
+  onPointerStart,
+  onPointerTarget,
+  onMove,
+}: {
+  children: ReactNode;
+  id: DashboardWidgetId;
+  label: string;
+  position: number;
+  total: number;
+  dragged: boolean;
+  dropTarget: boolean;
+  onPointerStart: (event: PointerEvent<HTMLButtonElement>, id: DashboardWidgetId) => void;
+  onPointerTarget: (id: DashboardWidgetId) => void;
+  onMove: (id: DashboardWidgetId, offset: -1 | 1) => void;
+}) {
+  return (
+    <div
+      className={`group/widget grid min-w-0 content-start transition duration-200 motion-reduce:transition-none ${DASHBOARD_SNAP_CLASSES[position] ?? ""} ${dragged ? "scale-[0.99] opacity-45" : "opacity-100"} ${dropTarget ? "rounded-xl ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-950" : ""}`}
+      data-testid={`dashboard-widget-${id}`}
+      onPointerEnter={() => onPointerTarget(id)}
+      style={{ order: position }}
+    >
+      <div className="mb-1 flex items-center justify-end gap-1 text-slate-500">
+        <button
+          aria-label={`Move ${label} earlier`}
+          className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-sm transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-25"
+          disabled={position === 0}
+          onClick={() => onMove(id, -1)}
+          title={`Move ${label} earlier`}
+          type="button"
+        >
+          ←
+        </button>
+        <button
+          aria-label={`Drag ${label} to a new dashboard position`}
+          className="flex h-7 cursor-grab touch-none select-none items-center gap-1.5 rounded-md border border-transparent px-2 text-[0.65rem] font-bold uppercase tracking-wider transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 active:cursor-grabbing"
+          onPointerDown={(event) => onPointerStart(event, id)}
+          title={`Drag ${label} to a new dashboard position`}
+          type="button"
+        >
+          <span aria-hidden="true" className="text-base leading-none">⠿</span>
+          Move
+        </button>
+        <button
+          aria-label={`Move ${label} later`}
+          className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-sm transition hover:border-white/10 hover:bg-black/35 hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-25"
+          disabled={position === total - 1}
+          onClick={() => onMove(id, 1)}
+          title={`Move ${label} later`}
+          type="button"
+        >
+          →
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const formatDuration = (seconds: number | null | undefined) => {
   if (seconds == null) return "—:——";
@@ -265,12 +367,68 @@ export function Dashboard({
   const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
   const [notificationQueue, setNotificationQueue] = useState<HeaderNotification[]>([]);
+  const [widgetOrder, setWidgetOrder] = useState<DashboardWidgetId[]>(loadDashboardWidgetOrder);
+  const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
+  const [dropTargetWidget, setDropTargetWidget] = useState<DashboardWidgetId | null>(null);
   const notificationId = useRef(0);
   const previousNotificationSources = useRef({
     action: null as string | null,
     error: null as string | null,
     service: null as string | null,
   });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DASHBOARD_WIDGET_ORDER_KEY, JSON.stringify(widgetOrder));
+    } catch {
+      // Keep reordering available for this session when storage is unavailable.
+    }
+  }, [widgetOrder]);
+
+  const reorderWidget = (source: DashboardWidgetId, target: DashboardWidgetId) => {
+    if (source === target) return;
+    setWidgetOrder((current) => {
+      const next = current.filter((id) => id !== source);
+      next.splice(current.indexOf(target), 0, source);
+      return next;
+    });
+  };
+  const moveWidget = (id: DashboardWidgetId, offset: -1 | 1) => {
+    setWidgetOrder((current) => {
+      const index = current.indexOf(id);
+      const target = index + offset;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      next[index] = current[target]!;
+      next[target] = id;
+      return next;
+    });
+  };
+  const handleWidgetPointerStart = (
+    event: PointerEvent<HTMLButtonElement>,
+    id: DashboardWidgetId,
+  ) => {
+    event.preventDefault();
+    setDraggedWidget(id);
+    setDropTargetWidget(id);
+  };
+  const handleWidgetPointerTarget = (id: DashboardWidgetId) => {
+    if (!draggedWidget) return;
+    setDropTargetWidget(id);
+  };
+  useEffect(() => {
+    if (!draggedWidget) return;
+    const finishMove = () => {
+      if (dropTargetWidget) reorderWidget(draggedWidget, dropTargetWidget);
+      setDraggedWidget(null);
+      setDropTargetWidget(null);
+    };
+    window.addEventListener("pointerup", finishMove, { once: true });
+    window.addEventListener("pointercancel", finishMove, { once: true });
+    return () => {
+      window.removeEventListener("pointerup", finishMove);
+      window.removeEventListener("pointercancel", finishMove);
+    };
+  }, [draggedWidget, dropTargetWidget]);
   useEffect(() => {
     setClockNow(Date.now());
     if (state.timer.status !== "running" || !state.timer.started_at) return;
@@ -383,7 +541,7 @@ export function Dashboard({
     <main className="mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:gap-4">
         <div className="flex items-center">
-          <h1 className="font-brand text-4xl leading-none text-white">StagePilot</h1>
+          <h1 className="relative z-10 origin-bottom-left scale-[1.8] font-brand text-4xl leading-none text-white">StagePilot</h1>
         </div>
         <div
           aria-atomic="true"
@@ -404,15 +562,16 @@ export function Dashboard({
         </div>
       </header>
 
-      <SetupChecklist
-        live={live}
-        midi={midi}
-        onOpen={setActiveConnection}
-        propresenter={propresenter}
-        settings={settings}
-
-        state={state}
-      />
+      {FIRST_LAUNCH_SETUP_ENABLED && (
+        <SetupChecklist
+          live={live}
+          midi={midi}
+          onOpen={setActiveConnection}
+          propresenter={propresenter}
+          settings={settings}
+          state={state}
+        />
+      )}
 
       {serviceLoad.status === "ambiguous" && (
         <section className="mb-5 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4" aria-live="polite">
@@ -576,7 +735,19 @@ export function Dashboard({
         />
       )}
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(350px,0.8fr)]">
+      <div className="mt-5 grid items-start gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(350px,0.8fr)]">
+      <div className="contents">
+        <MovableWidget
+          dragged={draggedWidget === "service-plan"}
+          dropTarget={dropTargetWidget === "service-plan"}
+          id="service-plan"
+          label="Service Plan"
+          onMove={moveWidget}
+          onPointerStart={handleWidgetPointerStart}
+          onPointerTarget={handleWidgetPointerTarget}
+          position={widgetOrder.indexOf("service-plan")}
+          total={widgetOrder.length}
+        >
         <section className="overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
           <div className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div>
@@ -599,8 +770,20 @@ export function Dashboard({
               : <ReferenceItemRow key={`reference-${entry.item.item_id}`} item={entry.item} />)}
           </ol>
         </section>
+        </MovableWidget>
 
-        <div className="grid content-start gap-5">
+        <div className="contents">
+          <MovableWidget
+            dragged={draggedWidget === "now-playing"}
+            dropTarget={dropTargetWidget === "now-playing"}
+            id="now-playing"
+            label="Now Playing"
+            onMove={moveWidget}
+            onPointerStart={handleWidgetPointerStart}
+            onPointerTarget={handleWidgetPointerTarget}
+            position={widgetOrder.indexOf("now-playing")}
+            total={widgetOrder.length}
+          >
           <section className="now-playing-panel rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20">
             <div className="flex items-center justify-between gap-3">
               <p className="text-[0.68rem] font-black uppercase tracking-[0.2em] text-orange-700">Now playing</p>
@@ -625,7 +808,19 @@ export function Dashboard({
               <div><p className="text-xs text-slate-500">Last action</p><p className="mt-1 font-semibold capitalize text-slate-200">{state.last_action?.replaceAll("_", " ") ?? "None"}</p></div>
             </div>
           </section>
+          </MovableWidget>
 
+          <MovableWidget
+            dragged={draggedWidget === "manual-controls"}
+            dropTarget={dropTargetWidget === "manual-controls"}
+            id="manual-controls"
+            label="Manual Controls"
+            onMove={moveWidget}
+            onPointerStart={handleWidgetPointerStart}
+            onPointerTarget={handleWidgetPointerTarget}
+            position={widgetOrder.indexOf("manual-controls")}
+            total={widgetOrder.length}
+          >
           <section className="rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
             <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Manual controls</p>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
@@ -638,17 +833,41 @@ export function Dashboard({
               <ActionButton action="reset_position" label="Reset position" tone="red" disabled={pendingAction !== null} onAction={dispatch} />
             </div>
           </section>
+          </MovableWidget>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+      <div className="contents">
+        <MovableWidget
+          dragged={draggedWidget === "readiness"}
+          dropTarget={dropTargetWidget === "readiness"}
+          id="readiness"
+          label="Readiness Check"
+          onMove={moveWidget}
+          onPointerStart={handleWidgetPointerStart}
+          onPointerTarget={handleWidgetPointerTarget}
+          position={widgetOrder.indexOf("readiness")}
+          total={widgetOrder.length}
+        >
         <section className="rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
           <div className="flex items-center justify-between"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Readiness check</p><span className={ready ? "text-emerald-300" : "text-amber-300"}>{ready ? "All systems ready" : "Attention required"}</span></div>
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
             {checks.map(([successLabel, errorLabel, passed]) => <li key={successLabel} className="flex items-center gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-sm"><span className={`grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black ${passed ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{passed ? "✓" : "!"}</span><span className={passed ? "text-slate-300" : "text-rose-200"}>{passed ? successLabel : errorLabel}</span></li>)}
           </ul>
         </section>
+        </MovableWidget>
 
+        <MovableWidget
+          dragged={draggedWidget === "events"}
+          dropTarget={dropTargetWidget === "events"}
+          id="events"
+          label="Recent Event Stream"
+          onMove={moveWidget}
+          onPointerStart={handleWidgetPointerStart}
+          onPointerTarget={handleWidgetPointerTarget}
+          position={widgetOrder.indexOf("events")}
+          total={widgetOrder.length}
+        >
         <section className="overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
           <div className="flex items-center justify-between p-4"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Recent event stream</p><span className="text-xs text-slate-600">Latest {activity.length}</span></div>
           <div className="max-h-64 overflow-auto border-t border-white/5">
@@ -657,6 +876,8 @@ export function Dashboard({
             {!activity.length && <p className="p-4 text-sm text-slate-500">Waiting for demo events…</p>}
           </div>
         </section>
+        </MovableWidget>
+      </div>
       </div>
     </main>
   );

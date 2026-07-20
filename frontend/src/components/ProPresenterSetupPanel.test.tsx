@@ -55,7 +55,7 @@ describe("ProPresenterSetupPanel", () => {
 
     await user.clear(screen.getByLabelText("Host"));
     await user.type(screen.getByLabelText("Host"), "192.168.4.40");
-    await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
     await user.click(screen.getByRole("button", { name: "Test connection" }));
     await user.click(screen.getByRole("button", { name: "Refresh timers and Looks" }));
 
@@ -197,7 +197,7 @@ describe("ProPresenterSetupPanel", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "ProPresenter Look" }), "look-worship");
     expect(onSave).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ look_id: "look-worship" }));
   });
 });

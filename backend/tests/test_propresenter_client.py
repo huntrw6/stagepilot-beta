@@ -49,7 +49,7 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
                 200,
                 json=[payload] if request.url.path == "/v1/timers" else payload,
             )
-        if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid":
+        if request.method == "PUT" and request.url.path == "/v1/timer/timer-uuid/reset":
             assert isinstance(body, dict)
             saved_duration = body["countdown"]["duration"]
             return httpx.Response(204)
@@ -65,9 +65,9 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
 
     assert updated.countdown is not None
     assert updated.countdown.duration == 336
-    assert requests[-3] == (
+    assert requests[-2] == (
         "PUT",
-        "/v1/timer/timer-uuid",
+        "/v1/timer/timer-uuid/reset",
         {
             "id": {
                 "uuid": "timer-uuid",
@@ -78,7 +78,6 @@ async def test_client_preserves_timer_identity_when_updating_duration() -> None:
             "countdown": {"duration": 336},
         },
     )
-    assert requests[-2][:2] == ("GET", "/v1/timer/timer-uuid/reset")
     assert requests[-1][:2] == ("GET", "/v1/timer/timer-uuid")
 
 
@@ -114,7 +113,7 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
     assert requests == [
         (
             "PUT",
-            "/v1/timer/timer-uuid",
+            "/v1/timer/timer-uuid/reset",
             {
                 "id": {
                     "uuid": "timer-uuid",
@@ -125,7 +124,6 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
                 "countdown": {"duration": 0},
             },
         ),
-        ("GET", "/v1/timer/timer-uuid/reset", None),
         ("GET", "/v1/timer/timer-uuid", None),
     ]
 
@@ -160,10 +158,12 @@ async def test_client_waits_for_timer_duration_to_be_visible_before_returning() 
 @pytest.mark.asyncio
 async def test_client_converts_an_elapsed_timer_to_countdown_when_setting_duration() -> None:
     request_bodies: list[dict[str, object]] = []
+    request_paths: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "PUT":
             request_bodies.append(json.loads(request.content))
+            request_paths.append(request.url.path)
             return httpx.Response(204)
         return httpx.Response(200, json=timer_payload(duration=253))
 
@@ -185,6 +185,7 @@ async def test_client_converts_an_elapsed_timer_to_countdown_when_setting_durati
 
     assert converted.countdown is not None
     assert converted.countdown.duration == 253
+    assert request_paths == ["/v1/timer/timer-uuid/reset"]
     assert request_bodies == [
         {
             "id": {"uuid": "timer-uuid", "name": "Song Countdown", "index": 0},
@@ -206,7 +207,14 @@ async def test_client_rejects_unconfirmed_timer_duration(
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "PUT":
             return httpx.Response(204)
-        return httpx.Response(200, json=timer_payload(duration=0))
+        return httpx.Response(
+            200,
+            json={
+                "id": {"uuid": "timer-uuid", "name": "Song Countdown", "index": 0},
+                "allows_overrun": False,
+                "count_down_to_time": {"time_of_day": 3600, "period": "pm"},
+            },
+        )
 
     client = ProPresenterClient(
         ProPresenterSettings(enabled=True),
@@ -214,7 +222,7 @@ async def test_client_rejects_unconfirmed_timer_duration(
     )
     timer = ProPresenterTimer.model_validate(timer_payload(duration=0))
     try:
-        with pytest.raises(ProPresenterResponseError, match="timer was not started"):
+        with pytest.raises(ProPresenterResponseError, match="still reported Countdown to Time"):
             await client.set_timer_duration(timer, 281)
     finally:
         await client.close()

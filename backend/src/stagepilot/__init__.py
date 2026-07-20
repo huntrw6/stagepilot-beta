@@ -1,3 +1,3 @@
 """StagePilot backend package."""
 
-__version__ = "0.9.12"
+__version__ = "1.0.0"
