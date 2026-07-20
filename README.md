@@ -1,8 +1,6 @@
 # StagePilot
 
-StagePilot is a desktop production dashboard for keeping a live service coordinated. It loads the current or next upcoming service plan from Planning Center, responds to MIDI cues from MultiTracks Playback, controls a ProPresenter song countdown, and sends scheduled MIDI cues to lighting software such as Lightkey.
-
-The dashboard provides one dependable view of the service order, current song, remaining and elapsed time, upcoming items, connection readiness, and recent activity.
+StagePilot brings the moving parts of a live production into one dependable dashboard. It loads service plans from Planning Center, listens for MIDI cues from MultiTracks Playback, keeps a ProPresenter countdown in sync, and sends scheduled MIDI cues to a lighting controller such as Lightkey.
 
 ## Download StagePilot 1.0
 
@@ -67,14 +65,6 @@ The default Playback cue uses MIDI channel 1 and note 112 (`E7`). Velocities sel
 | 105 | Stop timer |
 
 The note, channel, and velocities can be changed in MIDI Configuration. **Reset Position** remains available from Manual Controls and returns both StagePilot and the configured ProPresenter timer to `0:00`.
-
-## ProPresenter and lighting
-
-For Start Next, StagePilot stops the selected timer, configures and resets it as a Countdown Timer with the Planning Center song duration, verifies the update, and starts it. This keeps StagePilot and ProPresenter aligned while preventing an unverified timer from starting.
-
-Lighting cue times are elapsed from the beginning of the song. Each cue sends a short MIDI Note On/Note Off pulse with its configured note and velocity. A network MIDI session can route StagePilot on one Mac to Lightkey on another.
-
-See the [ProPresenter guide](docs/propresenter.md) and [lighting guide](docs/lights.md) for connection-specific setup.
 
 ## Planning Center access
 
