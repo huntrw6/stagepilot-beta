@@ -6,7 +6,7 @@ completed a production security review.
 
 ## Current defaults
 
-- FastAPI binds to `127.0.0.1:8765`, not all interfaces.
+- FastAPI binds to `127.0.0.1:8765` unless LAN dashboard access is explicitly enabled.
 - Demo mode is enabled and needs no external credentials.
 - Local environment and configuration files are ignored by Git.
 - The Tauri window receives only `core:default`; shell execution and broad file
@@ -37,7 +37,12 @@ is convenient for development, not a production secret vault.
 
 ## Remote access
 
-Remote and LAN access are disabled by default. Before listening beyond loopback,
+Remote and LAN access are disabled by default. The general settings panel offers
+an explicit LAN mode for trusted private production networks. It serves the
+dashboard and control API without a separate login or TLS, so every device on
+that network must be treated as trusted. Do not enable it on public Wi-Fi.
+
+Internet-facing access is unsupported. Before listening beyond a trusted LAN,
 the project needs an explicit threat model and tested controls for:
 
 - user and device authentication;

@@ -263,6 +263,13 @@ fn port_from_settings(contents: &str) -> Option<u16> {
         .filter(|port| *port > 0)
 }
 
+fn lan_access_from_settings(contents: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(contents)
+        .ok()
+        .and_then(|settings| settings.get("lan_access")?.as_bool())
+        .unwrap_or(false)
+}
+
 fn probe_port(port: u16) -> PortProbe {
     let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(300)) else {
@@ -340,11 +347,16 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
         PortProbe::Available => {}
     }
 
+    let bind_host = fs::read_to_string(settings_path())
+        .ok()
+        .is_some_and(|settings| lan_access_from_settings(&settings))
+        .then_some("0.0.0.0")
+        .unwrap_or("127.0.0.1");
     let command = app
         .shell()
         .sidecar("stagepilot-backend")
         .map_err(|error| format!("Unable to locate the packaged backend: {error}"))?
-        .env("STAGEPILOT_HOST", "127.0.0.1")
+        .env("STAGEPILOT_HOST", bind_host)
         .env("STAGEPILOT_PORT", port.to_string())
         .env("STAGEPILOT_SETTINGS_PATH", settings_path());
     let (mut events, child) = command
@@ -514,6 +526,14 @@ mod tests {
         assert_eq!(port_from_settings(r#"{"server_port": 0}"#), None);
         assert_eq!(port_from_settings(r#"{"server_port": 70000}"#), None);
         assert_eq!(port_from_settings("not-json"), None);
+    }
+
+    #[test]
+    fn lan_access_requires_an_explicit_saved_setting() {
+        assert!(lan_access_from_settings(r#"{"lan_access": true}"#));
+        assert!(!lan_access_from_settings(r#"{"lan_access": false}"#));
+        assert!(!lan_access_from_settings(r#"{"server_port": 8765}"#));
+        assert!(!lan_access_from_settings("not-json"));
     }
 
     #[test]

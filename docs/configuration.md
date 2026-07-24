@@ -273,22 +273,22 @@ mapping value.
 
 ## Network configuration
 
-The browser dashboard initially expects the backend at `http://127.0.0.1:8765`
+The packaged backend serves the browser dashboard at `http://127.0.0.1:8765`
 and its WebSocket endpoint at `ws://127.0.0.1:8765/ws`. When the server port is
 saved in the general settings panel, the dashboard remembers it for its next
-launch. The Tauri content security policy permits loopback HTTP and WebSocket
-connections on the saved port.
+launch. Browser-hosted copies use the same host and port from which the page was
+loaded.
 
 For a different development API origin, copy `frontend/.env.example` to
 `frontend/.env.local` and set `VITE_STAGEPILOT_API_URL`. Vite embeds every
 `VITE_*` value into public browser assets, so this setting must never contain a
 credential or other secret.
 
-Changing `STAGEPILOT_HOST` to `0.0.0.0` or a LAN address makes the service
-reachable beyond the local process boundary. Do not do this merely to solve a
-CORS error. First address authentication, TLS or a trusted reverse proxy,
-allowed origins, firewall policy, and exposure of state and log data. See
-[security.md](security.md).
+The **Allow dashboard access from this local network** setting binds the
+packaged backend to all network interfaces after StagePilot restarts. Other
+devices can then open `http://<stagepilot-computer-ip>:<server-port>`. This mode
+has no separate authentication or TLS and exposes dashboard controls, so use it
+only on a trusted private network. See [security.md](security.md).
 
 ## Local files
 

@@ -1,9 +1,14 @@
 """PyInstaller recipe for the self-contained StagePilot backend sidecar."""
 
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 
-datas: list[tuple[str, str]] = []
+frontend_dist = Path("../frontend/dist")
+if not (frontend_dist / "index.html").is_file():
+    raise SystemExit("Build frontend/dist before packaging the StagePilot backend.")
+
+datas: list[tuple[str, str]] = [(str(frontend_dist), "stagepilot_web")]
 binaries: list[tuple[str, str]] = []
 hiddenimports: list[str] = []
 

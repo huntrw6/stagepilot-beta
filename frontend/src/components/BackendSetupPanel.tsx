@@ -33,12 +33,14 @@ export function BackendSetupPanel({
   const [timezone, setTimezone] = useState("America/Los_Angeles");
   const [logLevel, setLogLevel] = useState<GeneralSettingsInput["log_level"]>("INFO");
   const [serverPort, setServerPort] = useState("8765");
+  const [lanAccess, setLanAccess] = useState(false);
 
   useEffect(() => {
     if (!settings) return;
     setTimezone(settings.settings.timezone);
     setLogLevel(settings.settings.log_level);
     setServerPort(String(settings.settings.server_port));
+    setLanAccess(settings.settings.lan_access ?? false);
   }, [settings]);
 
   const parsedSettings = useMemo<GeneralSettingsInput | null>(() => {
@@ -49,8 +51,9 @@ export function BackendSetupPanel({
       timezone: timezone.trim(),
       log_level: logLevel,
       server_port: parsedPort,
+      lan_access: lanAccess,
     };
-  }, [logLevel, serverPort, timezone]);
+  }, [lanAccess, logLevel, serverPort, timezone]);
   const connectionStatus = live
     ? "connected"
     : state.application_status === "error" ? "error" : "disconnected";
@@ -106,6 +109,24 @@ export function BackendSetupPanel({
         </label>
       </div>
 
+      <label className="mt-4 flex max-w-2xl items-start gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300">
+        <input
+          checked={lanAccess}
+          className="mt-0.5 size-4 accent-rose-500"
+          disabled={pending}
+          onChange={(event) => setLanAccess(event.target.checked)}
+          type="checkbox"
+        />
+        <span>
+          <span className="block font-semibold text-slate-200">
+            Allow dashboard access from this local network
+          </span>
+          <span className="mt-1 block text-xs text-slate-400">
+            Other devices can open http://&lt;this-computer&apos;s-IP&gt;:{serverPort}. Use only on a trusted production network; remote controls do not require a separate login.
+          </span>
+        </span>
+      </label>
+
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           className="rounded-lg border border-rose-400/40 bg-rose-500 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:opacity-40"
@@ -116,7 +137,7 @@ export function BackendSetupPanel({
           {pending ? "Saving…" : "Save general settings"}
         </button>
         <p className="text-xs text-slate-500">
-          Timezone, logging, and port changes take effect after a backend restart.
+          Timezone, logging, port, and network-access changes take effect after a backend restart.
         </p>
       </div>
 
