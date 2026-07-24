@@ -13,6 +13,7 @@ Download the installer for your computer from the [StagePilot 1.0.0 release](htt
 On **Windows**, run the installer and open StagePilot from the Start menu.
 
 On **macOS**, open the DMG and drag StagePilot to Applications. On Mac, StagePilot is not currently code-signed or notarized, so the operating system may ask you to confirm that you trust the application. If the application can't be opened on your computer try opening **System Settings**, **Privacy & Security**, scrolling to the bottom of the menu it should give you an option to **Open Anyway** where it says *"StagePilot was blocked to protect your Mac."* You also may need to adjust the setting *Allow applications from* under Security to **App Store & Known Developers**. Then it should give you the option to *Move to Trash* or **Open Anyway** to open the app.
+
 Only install downloads from the **official StagePilot GitHub release page**.
 
 ## What you need
