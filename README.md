@@ -4,13 +4,13 @@ StagePilot is a desktop production dashboard for keeping a live service coordina
 
 The dashboard provides one dependable view of the service order, current song, remaining and elapsed time, upcoming items, connection readiness, and recent activity.
 
-## Download StagePilot 1.0
+## Download StagePilot 1.1
 
-Download the installer for your computer from the [StagePilot 1.0.0 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.0.0):
+Download the installer for your computer from the [StagePilot 1.1.0 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.0):
 
-- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.0.0/StagePilot_1.0.0_x64-setup.exe)
-- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.0.0/StagePilot_1.0.0_x64.dmg)
-- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.0.0/StagePilot_1.0.0_aarch64.dmg)
+- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.0/StagePilot_1.1.0_x64-setup.exe)
+- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.0/StagePilot_1.1.0_x64.dmg)
+- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.0/StagePilot_1.1.0_aarch64.dmg)
 
 On Windows, run the installer and open StagePilot from the Start menu. On macOS, open the DMG and drag StagePilot into Applications.
 
@@ -38,6 +38,19 @@ All normal setup happens inside StagePilot; command-line variables are not requi
 5. Click **Lights** to select an output and add elapsed-time lighting cues when lighting automation is needed.
 
 Settings persist between launches. Planning Center credentials are stored separately in the operating system credential store and are never returned by the StagePilot API.
+
+## Browser dashboard
+
+While the StagePilot desktop app is running, the same dashboard is available in a browser at [http://127.0.0.1:8765](http://127.0.0.1:8765), using the server port saved in **StagePilot backend**.
+
+To open it from another computer on the same trusted network:
+
+1. Open **StagePilot backend** and enable **Allow dashboard access from this local network**.
+2. Save the settings and fully restart StagePilot.
+3. Find the StagePilot computer's local IP address, such as `192.168.1.40`.
+4. On the other computer, open `http://192.168.1.40:8765`, replacing the address and port as needed.
+
+Allow StagePilot through the operating-system firewall if prompted. LAN dashboard access has no separate login, so enable it only on a trusted, private production network—not public Wi-Fi.
 
 ## Weekly operation
 

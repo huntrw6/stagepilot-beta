@@ -171,6 +171,7 @@ export interface PersistentSettings {
   timezone: string;
   log_level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
   server_port: number;
+  lan_access?: boolean;
   planning_center: PlanningCenterPublicSettings;
   midi: {
     enabled: boolean;
@@ -255,7 +256,7 @@ export interface SettingsResponse {
 
 export type GeneralSettingsInput = Pick<
   PersistentSettings,
-  "timezone" | "log_level" | "server_port"
+  "timezone" | "log_level" | "server_port" | "lan_access"
 >;
 
 export type MidiSettingsInput = PersistentSettings["midi"];

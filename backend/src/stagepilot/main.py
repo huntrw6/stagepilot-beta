@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from stagepilot.api.routes import router as api_router
 from stagepilot.api.websocket import router as websocket_router
@@ -38,6 +42,27 @@ from stagepilot.services.planning_center_setup import PlanningCenterSetupService
 from stagepilot.services.state_service import StateService
 
 
+def default_web_root() -> Path | None:
+    """Locate the compiled dashboard in development and packaged sidecars."""
+
+    configured = os.environ.get("STAGEPILOT_WEB_ROOT")
+    candidates = [
+        Path(configured) if configured else None,
+        Path(getattr(sys, "_MEIPASS", "")) / "stagepilot_web"
+        if getattr(sys, "_MEIPASS", None)
+        else None,
+        Path(__file__).resolve().parents[3] / "frontend" / "dist",
+    ]
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate is not None and (candidate / "index.html").is_file()
+        ),
+        None,
+    )
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -48,6 +73,7 @@ def create_app(
     propresenter_client_factory: ProPresenterClientFactory | None = None,
     settings_service: SettingsService | None = None,
     plan_cache_store: PlanCacheStore | None = None,
+    web_root: Path | None = None,
 ) -> FastAPI:
     """Create an independently testable StagePilot application instance."""
 
@@ -187,6 +213,13 @@ def create_app(
     )
     application.include_router(api_router)
     application.include_router(websocket_router)
+    dashboard_root = web_root or default_web_root()
+    if dashboard_root is not None and (dashboard_root / "index.html").is_file():
+        application.mount(
+            "/",
+            StaticFiles(directory=dashboard_root, html=True),
+            name="dashboard",
+        )
     return application
 
 

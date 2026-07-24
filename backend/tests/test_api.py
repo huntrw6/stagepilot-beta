@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -155,6 +156,28 @@ def test_health_state_and_action_endpoints() -> None:
     assert action.json()["accepted"] is True
     assert action.json()["state"]["current_song"]["title"] == "Battle Belongs"
     assert action.json()["state"]["timer"]["status"] == "running"
+
+
+def test_dashboard_is_served_from_the_backend_root(tmp_path: Path) -> None:
+    (tmp_path / "index.html").write_text(
+        '<html><script src="/assets/dashboard.js"></script></html>',
+        encoding="utf-8",
+    )
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "dashboard.js").write_text("window.stagepilot = true;", encoding="utf-8")
+    app = create_app(Settings(demo_mode=True), web_root=tmp_path)
+
+    with TestClient(app) as client:
+        dashboard = client.get("/")
+        asset = client.get("/assets/dashboard.js")
+        health = client.get("/api/v1/health")
+
+    assert dashboard.status_code == 200
+    assert 'src="/assets/dashboard.js"' in dashboard.text
+    assert asset.status_code == 200
+    assert asset.text == "window.stagepilot = true;"
+    assert health.status_code == 200
 
 
 def test_unknown_action_is_rejected_by_validation() -> None:

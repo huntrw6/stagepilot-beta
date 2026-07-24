@@ -90,6 +90,7 @@ class PersistentSettings(BaseModel):
     timezone: str = "America/Los_Angeles"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     server_port: int = Field(default=8765, ge=1, le=65535)
+    lan_access: bool = False
     planning_center: PersistentPlanningCenterSettings = Field(
         default_factory=PersistentPlanningCenterSettings
     )
@@ -117,6 +118,7 @@ class PersistentSettings(BaseModel):
                 settings.log_level.upper(),
             ),
             server_port=settings.bind_port,
+            lan_access=settings.bind_host == "0.0.0.0",
             planning_center=PersistentPlanningCenterSettings(
                 app_id=app_id.get_secret_value() if app_id is not None else None,
                 service_type_id=settings.planning_center.service_type_id,
@@ -143,6 +145,7 @@ class PersistentSettings(BaseModel):
     def to_runtime(self, secret: str | None) -> Settings:
         planning_center = self.planning_center
         return Settings(
+            bind_host="0.0.0.0" if self.lan_access else "127.0.0.1",
             bind_port=self.server_port,
             log_level=self.log_level,
             integration_modes=self.integration_modes,

@@ -45,8 +45,14 @@ export const rememberServerPort = (port: number) => {
   }
 };
 
+const browserHostedOrigin =
+  ["http:", "https:"].includes(window.location.protocol) &&
+  Number(window.location.port) === savedServerPort()
+    ? window.location.origin
+    : undefined;
+
 export const apiOrigin = (
-  configuredOrigin ?? `http://127.0.0.1:${savedServerPort()}`
+  configuredOrigin ?? browserHostedOrigin ?? `http://127.0.0.1:${savedServerPort()}`
 ).replace(/\/$/, "");
 export const websocketUrl = `${apiOrigin.replace(/^http/, "ws")}/ws`;
 
