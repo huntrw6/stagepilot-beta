@@ -312,6 +312,7 @@ export function Dashboard({
   refreshLights = () => undefined,
   sendLightingTest = () => undefined,
   saveLightingCues = () => undefined,
+  clearAllLightingCues = () => undefined,
 }: {
   state: ApplicationState;
   health: HealthResponse | null;
@@ -363,6 +364,7 @@ export function Dashboard({
   refreshLights?: () => void;
   sendLightingTest?: (note: number, velocity: number) => void;
   saveLightingCues?: (song: Song, cues: LightingCue[]) => void;
+  clearAllLightingCues?: (songs: Song[]) => void;
 }) {
   const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
@@ -538,7 +540,7 @@ export function Dashboard({
   ].sort((left, right) => left.sequence - right.sequence);
 
   return (
-    <main className="mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
+    <main className="stagepilot-dashboard mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:gap-4">
         <div className="flex items-center">
           <h1 className="relative z-10 origin-bottom-left scale-[1.8] font-brand text-4xl leading-none text-white">StagePilot</h1>
@@ -710,6 +712,7 @@ export function Dashboard({
           error={lightsError}
           lights={lights}
           message={lightsMessage}
+          onClearAllCues={clearAllLightingCues}
           onClose={closeConnection}
           onRefresh={refreshLights}
           onSaveCues={saveLightingCues}

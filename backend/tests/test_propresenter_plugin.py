@@ -138,9 +138,10 @@ async def test_demo_plan_can_drive_real_propresenter_plugin() -> None:
         assert reset_state.current_song is None
         assert reset_state.timer.status is TimerStatus.STOPPED
         assert reset_state.timer.duration_seconds is None
-        assert fake.calls[-3:] == [
+        assert fake.calls[-4:] == [
             ("stop", "timer-uuid"),
             ("set", 0),
+            ("reset", "timer-uuid"),
             ("reset", "timer-uuid"),
         ]
 

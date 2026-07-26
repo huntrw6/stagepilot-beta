@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import uvicorn
@@ -39,6 +40,7 @@ from stagepilot.plugins.planning_center import (
 )
 from stagepilot.plugins.propresenter import ProPresenterClientFactory, ProPresenterPlugin
 from stagepilot.services.planning_center_setup import PlanningCenterSetupService
+from stagepilot.services.startup_activation import StartupActivationService
 from stagepilot.services.state_service import StateService
 
 
@@ -93,6 +95,7 @@ def create_app(
     )
     plugin_manager = PluginManager(event_bus)
     midi_plugin: MidiPlaybackPlugin | None = None
+    planning_center_plugin: PlanningCenterPlugin | None = None
     propresenter_plugin: ProPresenterPlugin | None = None
     lights_plugin = LightsPlugin(
         event_bus,
@@ -121,17 +124,16 @@ def create_app(
             )
         )
     else:
-        plugin_manager.register(
-            PlanningCenterPlugin(
-                event_bus,
-                state_store,
-                resolved_settings.planning_center,
-                timezone_name=resolved_settings.timezone,
-                client_factory=planning_center_client_factory,
-                today_provider=planning_center_today_provider,
-                plan_cache_store=resolved_plan_cache_store,
-            )
+        planning_center_plugin = PlanningCenterPlugin(
+            event_bus,
+            state_store,
+            resolved_settings.planning_center,
+            timezone_name=resolved_settings.timezone,
+            client_factory=planning_center_client_factory,
+            today_provider=planning_center_today_provider,
+            plan_cache_store=resolved_plan_cache_store,
         )
+        plugin_manager.register(planning_center_plugin)
 
     real_midi_enabled = (
         resolved_settings.midi.enabled
@@ -175,6 +177,16 @@ def create_app(
         propresenter_controller=propresenter_plugin,
         lights_controller=lights_plugin,
     )
+    startup_activation = StartupActivationService(
+        plugin_manager=plugin_manager,
+        state_store=state_store,
+        midi=midi_plugin,
+        propresenter=propresenter_plugin,
+        propresenter_settings=resolved_settings.propresenter,
+        lights=lights_plugin,
+        lights_settings=resolved_settings.lights,
+        planning_center=planning_center_plugin,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -183,10 +195,17 @@ def create_app(
         await plugin_manager.start_all()
         await event_bus.publish(new_event(EventType.APPLICATION_STARTED, source="application"))
         logger.info("application_started", version=resolved_settings.version)
+        activation_task = asyncio.create_task(
+            _run_startup_activation(startup_activation),
+            name="stagepilot-startup-activation",
+        )
         try:
             yield
         finally:
             logger.info("application_stopping")
+            activation_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await activation_task
             await event_bus.publish(new_event(EventType.APPLICATION_STOPPING, source="application"))
             await plugin_manager.stop_all()
             await state_service.stop()
@@ -221,6 +240,13 @@ def create_app(
             name="dashboard",
         )
     return application
+
+
+async def _run_startup_activation(service: StartupActivationService) -> None:
+    """Let macOS and network integrations settle, then reconcile saved settings."""
+
+    await asyncio.sleep(1)
+    await service.run()
 
 
 app = create_app()

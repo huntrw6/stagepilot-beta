@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ApplicationState,
@@ -9,6 +9,10 @@ import type {
   Song,
 } from "../types";
 import { LightsSetupPanel } from "./LightsSetupPanel";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const song: Song = {
   id: "item-1",
@@ -138,7 +142,7 @@ const state: ApplicationState = {
 };
 
 describe("LightsSetupPanel", () => {
-  it("loads and saves a per-song elapsed-time cue map", async () => {
+  it("loads and automatically saves a per-song elapsed-time cue map", async () => {
     const user = userEvent.setup();
     const onSaveCues = vi.fn();
     render(
@@ -163,13 +167,74 @@ describe("LightsSetupPanel", () => {
     const label = screen.getByLabelText("Lighting cue label");
     await user.clear(label);
     await user.type(label, "Chorus wash");
-    await user.click(screen.getByRole("button", { name: "Save song lighting cues" }));
+    await user.tab();
 
     expect(onSaveCues).toHaveBeenCalledOnce();
     expect(onSaveCues).toHaveBeenCalledWith(
       song,
       [expect.objectContaining({ at_seconds: 65, note: 72, velocity: 110, label: "Chorus wash" })],
     );
+    expect(screen.queryByRole("button", { name: "Save song lighting cues" })).not.toBeInTheDocument();
+  });
+
+  it("automatically saves added and individually removed cues", async () => {
+    const user = userEvent.setup();
+    const onSaveCues = vi.fn();
+    render(
+      <LightsSetupPanel
+        error={null}
+        lights={lights}
+        message={null}
+        onRefresh={vi.fn()}
+        onSaveCues={onSaveCues}
+        onSaveSettings={vi.fn()}
+        onTest={vi.fn()}
+        pendingOperation={null}
+        settings={settings}
+        state={state}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add lighting cue" }));
+    expect(onSaveCues).toHaveBeenLastCalledWith(song, [
+      expect.objectContaining({ at_seconds: 0, note: 60, velocity: 127 }),
+      expect.objectContaining({ at_seconds: 65, note: 72, velocity: 110 }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Remove cue at 01:05" }));
+    expect(onSaveCues).toHaveBeenLastCalledWith(song, [
+      expect.objectContaining({ at_seconds: 0, note: 60, velocity: 127 }),
+    ]);
+  });
+
+  it("requires confirmation before clearing all cues", async () => {
+    const user = userEvent.setup();
+    const onSaveCues = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    render(
+      <LightsSetupPanel
+        error={null}
+        lights={lights}
+        message={null}
+        onRefresh={vi.fn()}
+        onSaveCues={onSaveCues}
+        onSaveSettings={vi.fn()}
+        onTest={vi.fn()}
+        pendingOperation={null}
+        settings={settings}
+        state={state}
+      />,
+    );
+
+    const clearAll = screen.getByRole("button", { name: "Clear all" });
+    await user.click(clearAll);
+    expect(confirm).toHaveBeenCalledWith(
+      'Clear all lighting cues for "Holy Forever"? This cannot be undone.',
+    );
+    expect(onSaveCues).not.toHaveBeenCalled();
+
+    await user.click(clearAll);
+    expect(onSaveCues).toHaveBeenCalledWith(song, []);
   });
 
   it("sends an explicit Note On/Off compatibility test", async () => {

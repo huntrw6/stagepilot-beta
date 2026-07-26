@@ -64,6 +64,19 @@ class PluginManager:
             *(self._stop_plugin(plugin) for plugin in reversed(self._plugins.values()))
         )
 
+    async def restart_failed(self) -> None:
+        """Retry plugins whose first startup attempt failed after dependencies settle."""
+
+        failed = [
+            plugin
+            for plugin in self._plugins.values()
+            if self._health[plugin.name].status is PluginStatus.ERROR
+        ]
+        for plugin in failed:
+            await self._stop_plugin(plugin)
+            if self._health[plugin.name].status is PluginStatus.STOPPED:
+                await self._start_plugin(plugin)
+
     async def health(self) -> list[PluginHealth]:
         return list(
             await asyncio.gather(

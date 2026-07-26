@@ -35,9 +35,9 @@ export const toggleMaximizeDesktopWindow = async () => {
   await getCurrentWindow().toggleMaximize();
 };
 
-export const closeDesktopWindow = async () => {
+export const hideDesktopWindow = async () => {
   if (!isTauri()) return;
-  await invoke("quit_application");
+  await invoke("hide_application_window");
 };
 
 export const restartDesktopBackend = async (): Promise<boolean> => {

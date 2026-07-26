@@ -1,5 +1,5 @@
 import {
-  closeDesktopWindow,
+  hideDesktopWindow,
   isDesktopShell,
   minimizeDesktopWindow,
   toggleMaximizeDesktopWindow,
@@ -37,9 +37,10 @@ export function DesktopTitleBar() {
           <span aria-hidden="true" className="h-3 w-3 border border-current" />
         </button>
         <button
-          aria-label="Close window"
+          aria-label="Hide StagePilot window"
           className="grid h-9 w-12 place-items-center text-xl leading-none text-white/80 transition hover:bg-red-600 hover:text-white"
-          onClick={() => runWindowAction(closeDesktopWindow)}
+          onClick={() => runWindowAction(hideDesktopWindow)}
+          title="Hide StagePilot (it will keep running)"
           type="button"
         >
           <span aria-hidden="true">×</span>

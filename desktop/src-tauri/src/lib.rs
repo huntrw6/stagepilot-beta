@@ -9,7 +9,11 @@ use std::{
 };
 
 use serde::Serialize;
-use tauri::{Emitter, Manager, RunEvent, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, RunEvent, WebviewWindow, WebviewWindowBuilder,
+};
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
@@ -478,8 +482,59 @@ async fn restart_managed_backend(
 }
 
 #[tauri::command]
-fn quit_application(app: tauri::AppHandle) {
-    app.exit(0);
+fn hide_application_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The StagePilot window is unavailable.".to_string())?;
+    window
+        .hide()
+        .map_err(|error| format!("StagePilot could not hide its window: {error}"))
+}
+
+fn install_tray(app: &tauri::App) -> Result<(), String> {
+    let show = MenuItem::with_id(
+        app,
+        "show-stagepilot",
+        "Show StagePilot",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| error.to_string())?;
+    let quit = MenuItem::with_id(
+        app,
+        "quit-stagepilot",
+        "Quit StagePilot",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| error.to_string())?;
+    let menu = Menu::with_items(app, &[&show, &quit]).map_err(|error| error.to_string())?;
+    let mut tray = TrayIconBuilder::new()
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("StagePilot")
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show-stagepilot" => {
+                let _ = restore_main_window(app);
+            }
+            "quit-stagepilot" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let _ = restore_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 /// Starts the StagePilot native shell and supervises its packaged backend.
@@ -494,10 +549,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_supervisor_status,
             restart_managed_backend,
-            quit_application
+            hide_application_window
         ])
         .setup(move |app| {
             restore_main_window(app.handle()).map_err(std::io::Error::other)?;
+            install_tray(app).map_err(std::io::Error::other)?;
             if let Err(message) = start_backend(app.handle(), supervisor.clone()) {
                 supervisor.update(app.handle(), BackendState::Failed, message, true);
             }
