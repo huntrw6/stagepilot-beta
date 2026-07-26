@@ -2,13 +2,13 @@
 
 StagePilot brings the moving parts of a live production into one dependable dashboard. It loads service plans from Planning Center, listens for MIDI cues from MultiTracks Playback, keeps a ProPresenter countdown in sync, and sends scheduled MIDI cues to a lighting controller such as Lightkey.
 
-## Download StagePilot 1.1
+## Download StagePilot 1.1.5
 
-Download the installer for your computer from the [StagePilot 1.1.0 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.0):
+Download the installer for your computer from the [StagePilot 1.1.5 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.5):
 
-- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.0/StagePilot_1.1.0_x64-setup.exe)
-- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.0/StagePilot_1.1.0_x64.dmg)
-- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.0/StagePilot_1.1.0_aarch64.dmg)
+- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.5/StagePilot_1.1.5_x64-setup.exe)
+- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.5/StagePilot_1.1.5_x64.dmg)
+- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.5/StagePilot_1.1.5_aarch64.dmg)
 
 On **Windows**, run the installer and open StagePilot from the Start menu.
 
