@@ -191,6 +191,13 @@ class PlanningCenterPlugin(Plugin):
             last_activity_at=self._last_activity_at,
         )
 
+    async def refresh_now(self) -> None:
+        """Refresh the saved service after the desktop startup reconciliation pass."""
+
+        if self._status is not PluginStatus.RUNNING or self._client is None:
+            return
+        await self._request_regular_refresh(wait=True)
+
     async def _on_reload_requested(self, _event: StagePilotEvent) -> None:
         if self._stopping:
             return

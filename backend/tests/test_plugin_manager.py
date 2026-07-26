@@ -76,6 +76,23 @@ async def test_plugin_start_failure_does_not_stop_healthy_plugin() -> None:
     assert health["healthy"].status is PluginStatus.RUNNING
 
 
+async def test_failed_plugin_can_be_restarted_after_dependency_becomes_available() -> None:
+    bus = EventBus()
+    store = StateStore()
+    manager = PluginManager(bus)
+    plugin = TestPlugin("late_dependency", bus, store, fail=True)
+    manager.register(plugin)
+    await manager.start_all()
+
+    plugin.fail = False
+    await manager.restart_failed()
+
+    health = (await manager.health())[0]
+    assert plugin.started is True
+    assert health.status is PluginStatus.RUNNING
+    assert health.last_error is None
+
+
 async def test_health_uses_live_plugin_report_after_successful_start() -> None:
     bus = EventBus()
     store = StateStore()

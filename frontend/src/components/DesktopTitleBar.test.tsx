@@ -9,7 +9,7 @@ const windowActions = vi.hoisted(() => ({
 }));
 
 vi.mock("../desktop", () => ({
-  closeDesktopWindow: windowActions.close,
+  hideDesktopWindow: windowActions.close,
   isDesktopShell: () => true,
   minimizeDesktopWindow: windowActions.minimize,
   toggleMaximizeDesktopWindow: windowActions.toggleMaximize,
@@ -27,7 +27,7 @@ describe("DesktopTitleBar", () => {
 
     await user.click(screen.getByRole("button", { name: "Minimize window" }));
     await user.click(screen.getByRole("button", { name: "Maximize or restore window" }));
-    await user.click(screen.getByRole("button", { name: "Close window" }));
+    await user.click(screen.getByRole("button", { name: "Hide StagePilot window" }));
 
     expect(windowActions.minimize).toHaveBeenCalledOnce();
     expect(windowActions.toggleMaximize).toHaveBeenCalledOnce();

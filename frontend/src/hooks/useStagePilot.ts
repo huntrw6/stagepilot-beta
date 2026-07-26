@@ -663,6 +663,32 @@ export function useStagePilot() {
     }
   }, []);
 
+  const clearAllLightingCues = useCallback(async (songs: Song[]) => {
+    setPendingLightsOperation("save-cues");
+    setLightsError(null);
+    setLightsMessage(null);
+    try {
+      let latestLights: LightsStatusResponse | null = null;
+      for (const song of songs) {
+        const response = await updateLightingCueMap({
+          song_key: song.source_song_id ?? song.id,
+          song_title: song.title,
+          cues: [],
+        });
+        latestLights = response.lights;
+      }
+      if (latestLights) setLights(latestLights);
+      setSettings(await getSettings());
+      setLightsMessage(`Cleared lighting cues for all ${songs.length} songs in the service plan.`);
+    } catch (cause) {
+      setLightsError(
+        cause instanceof Error ? cause.message : "Lighting cue maps failed to clear.",
+      );
+    } finally {
+      setPendingLightsOperation(null);
+    }
+  }, []);
+
   return {
     state,
     health,
@@ -711,5 +737,6 @@ export function useStagePilot() {
     refreshLights,
     sendLightingTest,
     saveLightingCues,
+    clearAllLightingCues,
   };
 }

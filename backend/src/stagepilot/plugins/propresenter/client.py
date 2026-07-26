@@ -19,6 +19,9 @@ from stagepilot.plugins.propresenter.models import ProPresenterLook, ProPresente
 
 TIMER_UPDATE_VERIFICATION_ATTEMPTS = 30
 TIMER_UPDATE_VERIFICATION_INTERVAL_SECONDS = 0.2
+TIMER_RESET_COMMAND_ATTEMPTS = 2
+TIMER_RESET_VERIFICATION_ATTEMPTS = 5
+TIMER_RESET_VERIFICATION_INTERVAL_SECONDS = 0.1
 
 
 class ProPresenterClientContract(Protocol):
@@ -177,13 +180,37 @@ class ProPresenterClient:
         )
 
     async def reset_timer(self, timer_id: str) -> None:
-        await self._timer_operation(timer_id, "reset")
+        current: ProPresenterTimer | None = None
+        for command_attempt in range(TIMER_RESET_COMMAND_ATTEMPTS):
+            await self._timer_operation(timer_id, "reset")
+            for verification_attempt in range(TIMER_RESET_VERIFICATION_ATTEMPTS):
+                current = await self.get_timer(timer_id)
+                if self._timer_is_zero(current):
+                    return
+                if verification_attempt + 1 < TIMER_RESET_VERIFICATION_ATTEMPTS:
+                    await asyncio.sleep(TIMER_RESET_VERIFICATION_INTERVAL_SECONDS)
+            if command_attempt + 1 < TIMER_RESET_COMMAND_ATTEMPTS:
+                continue
+        observed = current.time if current is not None else "no readable timer"
+        raise ProPresenterResponseError(
+            "ProPresenter did not confirm that the timer reset to 0:00; "
+            f"it still reported {observed}."
+        )
 
     async def start_timer(self, timer_id: str) -> None:
         await self._timer_operation(timer_id, "start")
 
     async def _timer_operation(self, timer_id: str, operation: str) -> None:
         await self._request("GET", f"/v1/timer/{timer_id}/{operation}")
+
+    @staticmethod
+    def _timer_is_zero(timer: ProPresenterTimer) -> bool:
+        if timer.countdown is None or timer.countdown.duration != 0:
+            return False
+        if timer.time is None:
+            return True
+        normalized_time = timer.time.strip()
+        return bool(normalized_time) and not normalized_time.strip("0:.- ")
 
     async def _request(
         self,

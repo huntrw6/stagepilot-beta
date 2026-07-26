@@ -8,6 +8,10 @@ import type {
   SettingsResponse,
   Song,
 } from "../types";
+import {
+  confirmClearAllLightingCues,
+  confirmClearSelectedLightingCues,
+} from "./lightingCueConfirmations";
 import { SetupPanelHeader } from "./SetupPanelHeader";
 
 const midiNoteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
@@ -49,6 +53,7 @@ export function LightsSetupPanel({
   onSaveSettings,
   onTest,
   onSaveCues,
+  onClearAllCues,
 }: {
   lights: LightsStatusResponse | null;
   settings: SettingsResponse | null;
@@ -61,6 +66,7 @@ export function LightsSetupPanel({
   onSaveSettings: (settings: LightsSettingsInput) => void;
   onTest: (note: number, velocity: number) => void;
   onSaveCues: (song: Song, cues: LightingCue[]) => void;
+  onClearAllCues?: (songs: Song[]) => void;
 }) {
   const songs = useMemo(() => state.plan?.songs ?? [], [state.plan?.songs]);
   const preferredSongKey = state.current_song ? songKey(state.current_song) : songs[0] ? songKey(songs[0]) : "";
@@ -109,25 +115,21 @@ export function LightsSetupPanel({
     };
   }, [channel, outputName, pulseMs]);
 
-  const cueMapValid = Boolean(selectedSong) && cues.every((cue) => (
-    Number.isInteger(cue.at_seconds)
-    && cue.at_seconds >= 0
-    && (selectedSong?.duration_seconds == null || cue.at_seconds <= selectedSong.duration_seconds)
-    && Number.isInteger(cue.note)
-    && cue.note >= 0
-    && cue.note <= 127
-    && Number.isInteger(cue.velocity)
-    && cue.velocity >= 1
-    && cue.velocity <= 127
-  ));
+  const persistCues = (nextCues: LightingCue[]) => {
+    const sortedCues = [...nextCues].sort((left, right) => left.at_seconds - right.at_seconds);
+    setCues(sortedCues);
+    if (selectedSong) onSaveCues(selectedSong, sortedCues);
+  };
 
-  const updateCue = (id: string, update: Partial<LightingCue>) => {
-    setCues((current) => current.map((cue) => cue.id === id ? { ...cue, ...update } : cue));
+  const updateCue = (id: string, update: Partial<LightingCue>, save = false) => {
+    const nextCues = cues.map((cue) => cue.id === id ? { ...cue, ...update } : cue);
+    if (save) persistCues(nextCues);
+    else setCues(nextCues);
   };
 
   const addCue = () => {
-    setCues((current) => [
-      ...current,
+    persistCues([
+      ...cues,
       {
         id: newCueId(),
         at_seconds: 0,
@@ -136,6 +138,22 @@ export function LightsSetupPanel({
         label: "",
       },
     ]);
+  };
+
+  const clearSelectedSongCues = () => {
+    if (!selectedSong || !cues.length) return;
+    if (confirmClearSelectedLightingCues(selectedSong.title)) {
+      persistCues([]);
+    }
+  };
+
+  const clearEverySongCues = () => {
+    if (!songs.length) return;
+    if (confirmClearAllLightingCues(songs.map((song) => song.title), state.plan?.title ?? null)) {
+      setCues([]);
+      if (onClearAllCues) onClearAllCues(songs);
+      else songs.forEach((song) => onSaveCues(song, []));
+    }
   };
 
   const currentOutputMissing = outputName
@@ -209,25 +227,28 @@ export function LightsSetupPanel({
           </label>
           <button className="rounded-lg border border-sky-300/30 bg-sky-300/10 px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-300/20 disabled:opacity-40" disabled={!selectedSong || pendingOperation !== null} onClick={addCue} type="button">Add lighting cue</button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">Cue times are elapsed from song start. The timeline begins only after the ProPresenter countdown confirms it started.</p>
+        <p className="mt-2 text-xs text-slate-500">Cue times are elapsed from song start. Changes save automatically. The timeline begins only after the ProPresenter countdown confirms it started.</p>
 
         <div className="mt-3 grid gap-2">
           {cues.map((cue) => (
             <div className="grid gap-2 rounded-lg border border-white/7 bg-white/[0.025] p-3 md:grid-cols-[7rem_minmax(11rem,1fr)_7rem_minmax(9rem,1fr)_auto_auto]" key={cue.id}>
-              <input aria-label="Cue elapsed time" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 font-mono text-slate-100" defaultValue={formatElapsed(cue.at_seconds)} onBlur={(event) => { const parsed = parseElapsed(event.target.value); if (parsed !== null) updateCue(cue.id, { at_seconds: parsed }); else event.target.value = formatElapsed(cue.at_seconds); }} placeholder="00:00" />
-              <select aria-label="Lighting cue note" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100" onChange={(event) => updateCue(cue.id, { note: Number(event.target.value) })} value={cue.note}>
+              <input aria-label="Cue elapsed time" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 font-mono text-slate-100 disabled:opacity-50" defaultValue={formatElapsed(cue.at_seconds)} disabled={pendingOperation !== null} onBlur={(event) => { const parsed = parseElapsed(event.target.value); if (parsed !== null && (selectedSong?.duration_seconds == null || parsed <= selectedSong.duration_seconds)) updateCue(cue.id, { at_seconds: parsed }, true); else event.target.value = formatElapsed(cue.at_seconds); }} placeholder="00:00" />
+              <select aria-label="Lighting cue note" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 disabled:opacity-50" disabled={pendingOperation !== null} onChange={(event) => updateCue(cue.id, { note: Number(event.target.value) }, true)} value={cue.note}>
                 {midiNoteOptions.map((option) => <option key={option.note} value={option.note}>{option.label}</option>)}
               </select>
-              <input aria-label="Lighting cue velocity" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100" max={127} min={1} onChange={(event) => updateCue(cue.id, { velocity: Number(event.target.value) })} type="number" value={cue.velocity} />
-              <input aria-label="Lighting cue label" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100" maxLength={120} onChange={(event) => updateCue(cue.id, { label: event.target.value })} placeholder="Verse, chorus, blackout…" value={cue.label} />
+              <input aria-label="Lighting cue velocity" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 disabled:opacity-50" disabled={pendingOperation !== null} max={127} min={1} onBlur={() => cue.velocity >= 1 && cue.velocity <= 127 && persistCues(cues)} onChange={(event) => updateCue(cue.id, { velocity: Number(event.target.value) })} type="number" value={cue.velocity} />
+              <input aria-label="Lighting cue label" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 disabled:opacity-50" disabled={pendingOperation !== null} maxLength={120} onBlur={() => persistCues(cues)} onChange={(event) => updateCue(cue.id, { label: event.target.value })} placeholder="Verse, chorus, blackout…" value={cue.label} />
               <button className="rounded-lg border border-sky-300/30 bg-sky-300/10 px-3 py-2 text-xs font-bold text-sky-200 transition hover:bg-sky-300/20 disabled:opacity-40" disabled={lights?.connection_status !== "connected" || pendingOperation !== null} onClick={() => onTest(cue.note, cue.velocity)} type="button">Test</button>
-              <button aria-label={`Remove cue at ${formatElapsed(cue.at_seconds)}`} className="rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-300" onClick={() => setCues((current) => current.filter((item) => item.id !== cue.id))} type="button">Remove</button>
+              <button aria-label={`Remove cue at ${formatElapsed(cue.at_seconds)}`} className="rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-300 disabled:opacity-40" disabled={pendingOperation !== null} onClick={() => persistCues(cues.filter((item) => item.id !== cue.id))} type="button">Remove</button>
             </div>
           ))}
           {!cues.length && <p className="rounded-lg border border-dashed border-white/10 px-4 py-5 text-center text-sm text-slate-500">No lighting cues saved for this song.</p>}
         </div>
         {selectedSong?.duration_seconds != null && <p className="mt-2 text-xs text-slate-500">Scheduled song length: {formatElapsed(selectedSong.duration_seconds)}. Cues must fall within this duration.</p>}
-        <button className="mt-4 rounded-lg bg-sky-300 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-sky-200 disabled:opacity-40" disabled={!cueMapValid || pendingOperation !== null || !selectedSong} onClick={() => selectedSong && onSaveCues(selectedSong, [...cues].sort((a, b) => a.at_seconds - b.at_seconds))} type="button">{pendingOperation === "save-cues" ? "Saving cues…" : "Save song lighting cues"}</button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-4 py-2 text-sm font-bold text-rose-200 transition hover:bg-rose-400/20 disabled:opacity-40" disabled={!cues.length || pendingOperation !== null || !selectedSong} onClick={clearSelectedSongCues} type="button">{pendingOperation === "save-cues" ? "Saving cues…" : "Clear"}</button>
+          <button className="rounded-lg border border-rose-400/40 bg-rose-400/20 px-4 py-2 text-sm font-bold text-rose-100 transition hover:bg-rose-400/30 disabled:opacity-40" disabled={!songs.length || pendingOperation !== null} onClick={clearEverySongCues} type="button">{pendingOperation === "save-cues" ? "Saving cues…" : "Clear all"}</button>
+        </div>
       </div>
     </section>
   );

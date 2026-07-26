@@ -253,6 +253,7 @@ class MidiPlaybackPlugin(Plugin, MidiController):
         if refresh and self._backend is not None and self._executor is not None:
             try:
                 await self._refresh_input_names()
+                self._wake.set()
             except Exception:
                 await self._set_connection(
                     ConnectionStatus.ERROR,

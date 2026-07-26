@@ -129,6 +129,42 @@ async def test_client_can_set_countdown_duration_to_zero_for_position_reset() ->
 
 
 @pytest.mark.asyncio
+async def test_client_repeats_reset_when_timer_display_is_not_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "stagepilot.plugins.propresenter.client.TIMER_RESET_VERIFICATION_ATTEMPTS",
+        1,
+    )
+    reset_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal reset_calls
+        if request.url.path.endswith("/reset"):
+            reset_calls += 1
+            return httpx.Response(204)
+        displayed_time = "00:00:12" if reset_calls < 2 else "00:00:00"
+        return httpx.Response(
+            200,
+            json={
+                **timer_payload(duration=0),
+                "time": displayed_time,
+            },
+        )
+
+    client = ProPresenterClient(
+        ProPresenterSettings(enabled=True),
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        await client.reset_timer("timer-uuid")
+    finally:
+        await client.close()
+
+    assert reset_calls == 2
+
+
+@pytest.mark.asyncio
 async def test_client_waits_for_timer_duration_to_be_visible_before_returning() -> None:
     reads_after_update = 0
 

@@ -319,6 +319,7 @@ class ProPresenterPlugin(Plugin):
         timer = await self._require_timer_locked()
         await client.stop_timer(timer.id.uuid)
         timer = await client.set_timer_duration(timer, 0)
+        await client.reset_timer(timer.id.uuid)
         self._timer = timer
 
     async def _require_timer_locked(self) -> ProPresenterTimer:

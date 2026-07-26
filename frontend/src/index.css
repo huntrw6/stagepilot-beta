@@ -42,6 +42,11 @@ body {
   min-height: 100vh;
 }
 
+/* The desktop titlebar provides this headroom in Tauri; the browser does not. */
+#root > .stagepilot-dashboard:first-child {
+  padding-top: 2rem;
+}
+
 .font-brand {
   font-family: "StagePilot Logo", ui-sans-serif, system-ui, sans-serif;
   -webkit-text-stroke: 1px #000;
@@ -51,6 +56,83 @@ body {
     1px -1px 0 #000,
     -1px 1px 0 #000,
     1px 1px 0 #000;
+}
+
+.loading-progress-track {
+  height: 18px;
+  overflow: hidden;
+  border: 3px solid #020617;
+  outline: 2px solid #dbeafe;
+  outline-offset: 0;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #07101f 0,
+      #07101f 14px,
+      #0f1f35 14px,
+      #0f1f35 18px
+    );
+  box-shadow:
+    5px 5px 0 #020617,
+    0 0 0 1px #38bdf8,
+    0 0 20px rgb(14 165 233 / 25%);
+  image-rendering: pixelated;
+}
+
+.loading-progress-fill {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #0284c7 0,
+      #0284c7 10px,
+      #38bdf8 10px,
+      #38bdf8 14px,
+      #67e8f9 14px,
+      #67e8f9 16px,
+      #082f49 16px,
+      #082f49 20px
+    );
+  box-shadow:
+    inset 0 3px 0 rgb(255 255 255 / 38%),
+    inset 0 -3px 0 rgb(3 105 161 / 75%),
+    4px 0 0 #f8fafc,
+    8px 0 0 #0ea5e9;
+  transition: width 300ms steps(8, end);
+}
+
+.loading-progress-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -42px;
+  width: 28px;
+  background: rgb(255 255 255 / 70%);
+  box-shadow: 12px 0 0 rgb(186 230 253 / 35%);
+  animation: loading-pixel-scan 900ms steps(7, end) infinite;
+}
+
+@keyframes loading-pixel-scan {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(620px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-progress-fill {
+    transition: none;
+  }
+
+  .loading-progress-scan {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 .setup-panel .text-slate-500,
