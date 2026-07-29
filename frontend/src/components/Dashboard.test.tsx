@@ -7,6 +7,8 @@ import type {
   MidiInputsResponse,
   ServiceLoadState,
   ServicePlan,
+  SettingsResponse,
+  ProPresenterStatusResponse,
 } from "../types";
 import type { UpdaterController } from "../hooks/useUpdater";
 import { Dashboard } from "./Dashboard";
@@ -74,8 +76,14 @@ const midi: MidiInputsResponse = {
   channel: 1,
   note: 112,
   configured_input_name: null,
-  selected_input_name: null,
-  inputs: [],
+  selected_input_name: "Playback",
+  inputs: [{
+    id: "playback",
+    name: "Playback",
+    ambiguous: false,
+    selected: true,
+    connected: true,
+  }],
   mappings: {
     start_next: 100,
     restart_current: 101,
@@ -84,6 +92,77 @@ const midi: MidiInputsResponse = {
     reload_plan: 104,
     stop_timer: 105,
   },
+};
+
+const productionSettings: SettingsResponse = {
+  settings: {
+    schema_version: 1,
+    onboarding: { general_completed: true },
+    integration_modes: {
+      service_source: "planning_center",
+      midi_source: "real",
+      timer_output: "propresenter",
+    },
+    timezone: "America/Los_Angeles",
+    log_level: "INFO",
+    server_port: 8765,
+    lan_access: false,
+    planning_center: {
+      app_id: "app-id",
+      service_type_id: "weekend",
+      plan_title_preference: null,
+      preferred_service_time: null,
+      upcoming_lookahead_days: 7,
+      request_timeout_seconds: 10,
+    },
+    midi: {
+      enabled: true,
+      input_name: "Playback",
+      channel: 1,
+      note: 112,
+      mappings: midi.mappings,
+      debounce_ms: 250,
+    },
+    lights: {
+      enabled: false,
+      output_name: null,
+      channel: 1,
+      pulse_ms: 100,
+      cue_maps: {},
+    },
+    propresenter: {
+      enabled: true,
+      host: "127.0.0.1",
+      port: 1025,
+      timer_name: "Song Countdown",
+      look_id: null,
+      request_timeout_seconds: 3,
+      reconnect_initial_seconds: 1,
+      reconnect_max_seconds: 30,
+      health_check_interval_seconds: 10,
+    },
+  },
+  planning_center_secret_saved: true,
+  warning: null,
+  restart_required: false,
+};
+
+const propresenter: ProPresenterStatusResponse = {
+  enabled: true,
+  host: "127.0.0.1",
+  port: 1025,
+  timer_name: "Song Countdown",
+  look_id: null,
+  request_timeout_seconds: 3,
+  connection_status: "connected",
+  detail: "ProPresenter API connected.",
+  timers: [],
+  selected_timer_id: "timer-1",
+  timer_found: true,
+  looks: [],
+  current_look_id: null,
+  look_found: true,
+  last_checked_at: "2026-07-13T16:00:00Z",
 };
 
 function applicationState(
@@ -134,6 +213,7 @@ function renderDashboard(
     pendingPlanId = null,
     selectPlan = vi.fn(),
     state = applicationState(serviceLoad),
+    settings = productionSettings,
     updater,
   }: {
     actionMessage?: string | null;
@@ -141,6 +221,7 @@ function renderDashboard(
     pendingPlanId?: string | null;
     selectPlan?: (planId: string) => void;
     state?: ApplicationState;
+    settings?: SettingsResponse | null;
     updater?: UpdaterController;
   } = {},
 ) {
@@ -159,9 +240,11 @@ function renderDashboard(
       pendingMidiCue={null}
       pendingMidiOperation={null}
       pendingPlanId={pendingPlanId}
+      propresenter={propresenter}
       refreshMidi={vi.fn()}
       selectMidi={vi.fn()}
       selectPlan={selectPlan}
+      settings={settings}
       simulateMidi={vi.fn()}
       state={state}
       updater={updater}
@@ -364,7 +447,7 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^MIDI \/ Playback connected/ }));
     expect(screen.getByRole("heading", { name: "MIDI playback input" })).toBeInTheDocument();
-    expect(screen.getByText("No input selected")).toBeInTheDocument();
+    expect(screen.getAllByText("Connected to Playback").length).toBeGreaterThan(0);
     expect(screen.queryByText("Demo integration running")).not.toBeInTheDocument();
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
     expect(screen.getByText("All systems ready")).toBeInTheDocument();
@@ -375,7 +458,7 @@ describe("Dashboard Planning Center plan states", () => {
     renderDashboard(loadedServiceState);
 
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
-    expect(screen.getByText("No input selected")).toBeInTheDocument();
+    expect(screen.getByText("Connected to Playback")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^MIDI \/ Playback connected/ }));
 
@@ -399,7 +482,7 @@ describe("Dashboard Planning Center plan states", () => {
     });
 
     expect(screen.getByText("Planning Center disconnected")).toBeInTheDocument();
-    expect(screen.getByText("Service plan not loaded")).toBeInTheDocument();
+    expect(screen.getByText("Planning Center plan not loaded")).toBeInTheDocument();
     expect(screen.getByText("Song durations invalid")).toBeInTheDocument();
     expect(screen.getByText("MIDI input disconnected")).toBeInTheDocument();
     expect(screen.getByText("ProPresenter disconnected")).toBeInTheDocument();
@@ -438,7 +521,7 @@ describe("Dashboard Planning Center plan states", () => {
 
     expect(screen.getByText("Upcoming Sunday Service")).toBeInTheDocument();
     expect(screen.getByText("Weekend Services \u00B7 2026-07-19 \u00B7 09:00")).toBeInTheDocument();
-    expect(screen.getByText("Service plan loaded")).toBeInTheDocument();
+    expect(screen.getByText("Planning Center plan loaded")).toBeInTheDocument();
     expect(screen.getByText("Service plan")).toBeInTheDocument();
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
     expect(screen.getByText("All systems ready")).toBeInTheDocument();

@@ -1,0 +1,275 @@
+import type {
+  ApplicationState,
+  ConnectionStatus,
+  LightsStatusResponse,
+  MidiInputsResponse,
+  ProPresenterStatusResponse,
+  SettingsResponse,
+} from "../../types";
+
+export type ConnectionCardView = {
+  status: ConnectionStatus;
+  detail: string;
+  configured: boolean;
+  mode: "real" | "simulated" | "demo" | "disabled";
+};
+
+export type ReadinessCheck = {
+  id: string;
+  label: string;
+  passed: boolean;
+  required: boolean;
+  severity: "info" | "warning" | "blocking";
+  detail?: string;
+};
+
+type DashboardIntegrationViews = {
+  planningCenter: ConnectionCardView;
+  midi: ConnectionCardView;
+  propresenter: ConnectionCardView;
+  lights: ConnectionCardView;
+};
+
+const statusDetail = (status: ConnectionStatus, detail: string | null | undefined) => {
+  if (detail) return detail;
+  if (status === "connecting") return "Connecting";
+  if (status === "error") return "Connection failed";
+  if (status === "connected") return "Connected";
+  return "Disconnected";
+};
+
+export function buildConnectionCardViews({
+  state,
+  settings,
+  midi,
+  propresenter,
+  lights,
+}: {
+  state: ApplicationState;
+  settings: SettingsResponse | null;
+  midi: MidiInputsResponse | null;
+  propresenter: ProPresenterStatusResponse | null;
+  lights: LightsStatusResponse | null;
+}): DashboardIntegrationViews {
+  const modes = settings?.settings.integration_modes;
+  const serviceIsDemo = modes?.service_source === "demo" || (!modes && Boolean(state.plugins.demo));
+  const midiIsSimulated = modes?.midi_source === "simulated" || (!modes && Boolean(state.plugins.demo));
+  const timerIsSimulated = modes?.timer_output === "simulated" || (!modes && Boolean(state.plugins.demo));
+
+  const planningConfigured = Boolean(
+    settings?.settings.planning_center.app_id
+      && settings.planning_center_secret_saved
+      && settings.settings.planning_center.service_type_id,
+  );
+  const midiEnabled = settings?.settings.midi.enabled ?? midi?.enabled ?? false;
+  const selectedMidi = midi?.selected_input_name ?? settings?.settings.midi.input_name ?? null;
+  const connectedMidi = midi?.inputs.find((input) => input.connected);
+  const propresenterEnabled = settings?.settings.propresenter.enabled ?? propresenter?.enabled ?? false;
+  const lightsEnabled = settings?.settings.lights.enabled ?? lights?.enabled ?? false;
+  const lightOutput = lights?.output_name ?? settings?.settings.lights.output_name ?? null;
+
+  return {
+    planningCenter: serviceIsDemo
+      ? {
+          status: "disconnected",
+          detail: "Demo plan loaded — configure Planning Center",
+          configured: false,
+          mode: "demo",
+        }
+      : {
+          status: planningConfigured ? state.planning_center_status : "disconnected",
+          detail: planningConfigured
+            ? statusDetail(
+                state.planning_center_status,
+                state.planning_center_status === "connected"
+                  ? state.last_successful_plan_reload_at
+                    ? `Last plan sync ${new Intl.DateTimeFormat(undefined, {
+                        hour: "numeric",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      }).format(new Date(state.last_successful_plan_reload_at))}`
+                    : "Planning Center API connected"
+                  : undefined,
+              )
+            : "Configure Planning Center credentials",
+          configured: planningConfigured,
+          mode: planningConfigured ? "real" : "disabled",
+        },
+    midi: midiIsSimulated
+      ? {
+          status: "disconnected",
+          detail: midiEnabled
+            ? "MIDI simulation active — select a real input to connect"
+            : "MIDI Playback disabled",
+          configured: false,
+          mode: "simulated",
+        }
+      : !midiEnabled
+        ? {
+            status: "disconnected",
+            detail: "MIDI Playback disabled",
+            configured: false,
+            mode: "disabled",
+          }
+        : {
+            status: connectedMidi
+              ? state.midi_status
+              : state.midi_status === "error" && selectedMidi
+                ? "error"
+                : "disconnected",
+            detail: connectedMidi
+              ? `Connected to ${connectedMidi.name}`
+              : selectedMidi
+                ? `Waiting for ${selectedMidi}`
+                : midi && midi.inputs.length === 0
+                  ? "No MIDI inputs found"
+                  : "No MIDI input selected",
+            configured: Boolean(selectedMidi),
+            mode: "real",
+          },
+    propresenter: timerIsSimulated
+      ? {
+          status: "disconnected",
+          detail: propresenterEnabled
+            ? "Simulated timer active — configure ProPresenter to connect"
+            : "ProPresenter disabled",
+          configured: false,
+          mode: "simulated",
+        }
+      : !propresenterEnabled
+        ? {
+            status: "disconnected",
+            detail: "ProPresenter disabled",
+            configured: false,
+            mode: "disabled",
+          }
+        : {
+            status: state.propresenter_status,
+            detail: statusDetail(
+              state.propresenter_status,
+              propresenter?.detail ?? (propresenter?.timer_found ? "Timer ready" : "Timer not selected"),
+            ),
+            configured: true,
+            mode: "real",
+          },
+    lights: !lightsEnabled
+      ? {
+          status: "disconnected",
+          detail: "Configure a lighting MIDI output",
+          configured: false,
+          mode: "disabled",
+        }
+      : {
+          status: state.lights_status,
+          detail: statusDetail(
+            state.lights_status,
+            lights?.detail ?? (lightOutput ? `Waiting for ${lightOutput}` : "No lighting output selected"),
+          ),
+          configured: Boolean(lightOutput),
+          mode: "real",
+        },
+  };
+}
+
+export function buildReadinessChecks({
+  state,
+  settings,
+  propresenter,
+  live,
+  views,
+}: {
+  state: ApplicationState;
+  settings: SettingsResponse | null;
+  propresenter: ProPresenterStatusResponse | null;
+  live: boolean;
+  views: DashboardIntegrationViews;
+}): ReadinessCheck[] {
+  const plan = state.plan;
+  const productionPlan = settings?.settings.integration_modes.service_source === "planning_center";
+  const servicePlanReady = Boolean(
+    productionPlan
+      && plan
+      && plan.date === state.service_load.target_date
+      && state.service_load.status === "loaded"
+      && !state.service_load.is_stale,
+  );
+  const durationReady = Boolean(servicePlanReady && plan?.songs.length)
+    && plan!.songs.every((song) => Boolean(song.duration_seconds));
+  const checks: ReadinessCheck[] = [
+    {
+      id: "planning-center",
+      label: views.planningCenter.status === "connected"
+        ? "Planning Center connected"
+        : "Planning Center disconnected",
+      passed: views.planningCenter.status === "connected",
+      required: true,
+      severity: "blocking",
+      detail: views.planningCenter.detail,
+    },
+    {
+      id: "service-plan",
+      label: servicePlanReady ? "Planning Center plan loaded" : "Planning Center plan not loaded",
+      passed: servicePlanReady,
+      required: true,
+      severity: "blocking",
+      detail: productionPlan ? undefined : "Demo service plan is available for testing.",
+    },
+    {
+      id: "durations",
+      label: durationReady ? "Song durations valid" : "Song durations invalid",
+      passed: durationReady,
+      required: true,
+      severity: "blocking",
+    },
+    {
+      id: "midi",
+      label: views.midi.status === "connected" ? "MIDI input connected" : "MIDI input disconnected",
+      passed: views.midi.status === "connected",
+      required: true,
+      severity: "blocking",
+      detail: views.midi.detail,
+    },
+    {
+      id: "propresenter",
+      label: views.propresenter.status === "connected"
+        ? "ProPresenter connected"
+        : "ProPresenter disconnected",
+      passed: views.propresenter.status === "connected",
+      required: true,
+      severity: "blocking",
+      detail: views.propresenter.detail,
+    },
+  ];
+  if (views.propresenter.mode === "real" && views.propresenter.configured) {
+    checks.push({
+      id: "propresenter-timer",
+      label: propresenter?.timer_found ? "ProPresenter timer found" : "ProPresenter timer not found",
+      passed: Boolean(propresenter?.timer_found),
+      required: true,
+      severity: "blocking",
+    });
+  }
+  if (settings?.settings.lights.enabled) {
+    checks.push({
+      id: "lights",
+      label: views.lights.status === "connected"
+        ? "Lights output connected"
+        : "Lights output disconnected",
+      passed: views.lights.status === "connected",
+      required: true,
+      severity: "blocking",
+      detail: views.lights.detail,
+    });
+  }
+  checks.push({
+    id: "backend",
+    label: live ? "StagePilot backend connected" : "StagePilot backend disconnected",
+    passed: live,
+    required: true,
+    severity: "blocking",
+  });
+  return checks;
+}
+
+export const readinessPassed = (checks: ReadinessCheck[]) =>
+  checks.filter((check) => check.required).every((check) => check.passed);

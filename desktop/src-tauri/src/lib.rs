@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     env, fs,
     fs::OpenOptions,
     io::{Read, Write},
@@ -23,8 +24,10 @@ use tauri_plugin_window_state::{StateFlags, WindowExt};
 const DEFAULT_PORT: u16 = 8765;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_INTERVAL: Duration = Duration::from_millis(250);
+const RECENT_BACKEND_LINES: usize = 32;
+const BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum BackendState {
     Starting,
@@ -34,12 +37,32 @@ enum BackendState {
     Stopped,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BackendFailureKind {
+    PortOccupied,
+    SidecarMissing,
+    SidecarExited,
+    MacosCodeSigning,
+    Timeout,
+}
+
+fn timeout_may_replace(state: &BackendState) -> bool {
+    matches!(state, BackendState::Starting)
+}
+
+fn managed_exit_should_fail(state: &BackendState) -> bool {
+    matches!(state, BackendState::Starting | BackendState::Ready)
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct BackendSupervisorStatus {
     state: BackendState,
     message: String,
     port: u16,
     managed: bool,
+    failure_kind: Option<BackendFailureKind>,
+    log_path: Option<String>,
 }
 
 #[derive(Clone)]
@@ -57,6 +80,8 @@ impl BackendSupervisor {
                 message: format!("Starting the StagePilot backend on port {port}."),
                 port,
                 managed: true,
+                failure_kind: None,
+                log_path: None,
             })),
             child: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
@@ -81,9 +106,51 @@ impl BackendSupervisor {
         status.state = state;
         status.message = message.into();
         status.managed = managed;
+        status.failure_kind = None;
         let snapshot = status.clone();
         drop(status);
         let _ = app.emit("stagepilot://backend-status", snapshot);
+    }
+
+    fn fail(
+        &self,
+        app: &tauri::AppHandle,
+        kind: BackendFailureKind,
+        message: impl Into<String>,
+        managed: bool,
+        log_path: Option<String>,
+    ) {
+        let mut status = self.status.lock().expect("backend status lock poisoned");
+        status.state = BackendState::Failed;
+        status.message = message.into();
+        status.managed = managed;
+        status.failure_kind = Some(kind);
+        status.log_path = log_path;
+        let snapshot = status.clone();
+        drop(status);
+        let _ = app.emit("stagepilot://backend-status", snapshot);
+    }
+
+    fn fail_if_starting(
+        &self,
+        app: &tauri::AppHandle,
+        kind: BackendFailureKind,
+        message: impl Into<String>,
+        log_path: Option<String>,
+    ) -> bool {
+        let mut status = self.status.lock().expect("backend status lock poisoned");
+        if !timeout_may_replace(&status.state) {
+            return false;
+        }
+        status.state = BackendState::Failed;
+        status.message = message.into();
+        status.managed = true;
+        status.failure_kind = Some(kind);
+        status.log_path = log_path;
+        let snapshot = status.clone();
+        drop(status);
+        let _ = app.emit("stagepilot://backend-status", snapshot);
+        true
     }
 
     fn stop(&self, app: &tauri::AppHandle) {
@@ -308,7 +375,58 @@ fn probe_port(port: u16) -> PortProbe {
     }
 }
 
-fn wait_for_backend(app: tauri::AppHandle, supervisor: BackendSupervisor, port: u16) {
+fn rotate_backend_log(path: &std::path::Path) {
+    if fs::metadata(path).is_ok_and(|metadata| metadata.len() >= BACKEND_LOG_MAX_BYTES) {
+        let previous = path.with_extension("log.1");
+        let _ = fs::remove_file(&previous);
+        let _ = fs::rename(path, previous);
+    }
+}
+
+fn recent_backend_text(lines: &VecDeque<String>) -> String {
+    lines.iter().cloned().collect::<Vec<_>>().join("\n")
+}
+
+fn backend_exit_failure(
+    code: Option<i32>,
+    recent_output: &str,
+    log_path: Option<&str>,
+) -> (BackendFailureKind, String) {
+    let signing_rejection = [
+        "Failed to load Python shared library",
+        "mapped file has no Team ID",
+        "not valid for use in process",
+    ]
+    .iter()
+    .any(|needle| recent_output.contains(needle));
+    let log_hint = log_path
+        .map(|path| format!(" See the backend log at {path}."))
+        .unwrap_or_default();
+    if signing_rejection {
+        return (
+            BackendFailureKind::MacosCodeSigning,
+            format!(
+                "The packaged StagePilot backend was blocked by macOS code-signing policy. \
+                 This application build is invalid.{log_hint}"
+            ),
+        );
+    }
+    (
+        BackendFailureKind::SidecarExited,
+        format!(
+            "The packaged StagePilot backend exited before it became ready (exit code {}).{}",
+            code.map_or_else(|| "unknown".to_string(), |value| value.to_string()),
+            log_hint
+        ),
+    )
+}
+
+fn wait_for_backend(
+    app: tauri::AppHandle,
+    supervisor: BackendSupervisor,
+    port: u16,
+    log_path: Option<String>,
+) {
     std::thread::spawn(move || {
         let deadline = Instant::now() + STARTUP_TIMEOUT;
         while Instant::now() < deadline {
@@ -327,11 +445,11 @@ fn wait_for_backend(app: tauri::AppHandle, supervisor: BackendSupervisor, port: 
                 }
             }
         }
-        supervisor.update(
+        supervisor.fail_if_starting(
             &app,
-            BackendState::Failed,
+            BackendFailureKind::Timeout,
             format!("The StagePilot backend did not become ready on port {port}."),
-            true,
+            log_path,
         );
     });
 }
@@ -349,11 +467,12 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
             return Ok(());
         }
         PortProbe::Occupied => {
-            supervisor.update(
+            supervisor.fail(
                 app,
-                BackendState::Failed,
+                BackendFailureKind::PortOccupied,
                 format!("Port {port} is already in use by another application."),
                 false,
+                None,
             );
             return Ok(());
         }
@@ -371,13 +490,13 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
     let command = app
         .shell()
         .sidecar("stagepilot-backend")
-        .map_err(|error| format!("Unable to locate the packaged backend: {error}"))?
+        .map_err(|error| format!("Unable to locate the packaged backend sidecar: {error}"))?
         .env("STAGEPILOT_HOST", bind_host)
         .env("STAGEPILOT_PORT", port.to_string())
         .env("STAGEPILOT_SETTINGS_PATH", settings_path());
     let (mut events, child) = command
         .spawn()
-        .map_err(|error| format!("Unable to start the packaged backend: {error}"))?;
+        .map_err(|error| format!("Unable to start the packaged backend sidecar: {error}"))?;
     *supervisor
         .child_pid
         .lock()
@@ -387,22 +506,40 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
         .lock()
         .expect("backend child lock poisoned") = Some(child);
 
-    let backend_log = app.path().app_log_dir().ok().and_then(|directory| {
-        fs::create_dir_all(&directory).ok()?;
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(directory.join("stagepilot-backend.log"))
-            .ok()
+    let backend_log_path = app
+        .path()
+        .app_log_dir()
+        .ok()
+        .map(|directory| directory.join("stagepilot-backend.log"));
+    let backend_log_path_text = backend_log_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned());
+    let backend_log = backend_log_path.as_ref().and_then(|path| {
+        let directory = path.parent()?;
+        fs::create_dir_all(directory).ok()?;
+        rotate_backend_log(path);
+        OpenOptions::new().create(true).append(true).open(path).ok()
     });
     let backend_log = Arc::new(Mutex::new(backend_log));
+    let recent_output = Arc::new(Mutex::new(VecDeque::<String>::new()));
 
     let event_app = app.clone();
     let event_supervisor = supervisor.clone();
+    let event_log_path = backend_log_path_text.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
             match event {
                 CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                    let text = String::from_utf8_lossy(&line).trim().to_string();
+                    if !text.is_empty() {
+                        let mut recent = recent_output
+                            .lock()
+                            .expect("backend recent-output lock poisoned");
+                        recent.push_back(text);
+                        while recent.len() > RECENT_BACKEND_LINES {
+                            recent.pop_front();
+                        }
+                    }
                     if let Some(file) = backend_log
                         .lock()
                         .expect("backend log lock poisoned")
@@ -416,15 +553,20 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
                     }
                 }
                 CommandEvent::Terminated(payload) => {
-                    if !matches!(event_supervisor.snapshot().state, BackendState::Stopped) {
-                        event_supervisor.update(
+                    if managed_exit_should_fail(&event_supervisor.snapshot().state) {
+                        let recent = recent_backend_text(
+                            &recent_output
+                                .lock()
+                                .expect("backend recent-output lock poisoned"),
+                        );
+                        let (kind, message) =
+                            backend_exit_failure(payload.code, &recent, event_log_path.as_deref());
+                        event_supervisor.fail(
                             &event_app,
-                            BackendState::Failed,
-                            format!(
-                                "The StagePilot backend exited unexpectedly (code {:?}).",
-                                payload.code
-                            ),
+                            kind,
+                            message,
                             true,
+                            event_log_path.clone(),
                         );
                     }
                     break;
@@ -433,7 +575,7 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
             }
         }
     });
-    wait_for_backend(app.clone(), supervisor, port);
+    wait_for_backend(app.clone(), supervisor, port, backend_log_path_text);
     Ok(())
 }
 
@@ -570,7 +712,12 @@ pub fn run() {
             restore_main_window(app.handle(), true).map_err(std::io::Error::other)?;
             install_tray(app).map_err(std::io::Error::other)?;
             if let Err(message) = start_backend(app.handle(), supervisor.clone()) {
-                supervisor.update(app.handle(), BackendState::Failed, message, true);
+                let kind = if message.contains("locate the packaged backend sidecar") {
+                    BackendFailureKind::SidecarMissing
+                } else {
+                    BackendFailureKind::SidecarExited
+                };
+                supervisor.fail(app.handle(), kind, message, true, None);
             }
             Ok(())
         })
@@ -616,6 +763,10 @@ mod tests {
         assert_eq!(config["app"]["windows"][0]["label"], "main");
         assert_eq!(config["bundle"]["createUpdaterArtifacts"], true);
         assert_eq!(config["bundle"]["macOS"]["signingIdentity"], "-");
+        let macos: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.macos.conf.json")).unwrap();
+        assert_eq!(macos["bundle"]["macOS"]["hardenedRuntime"], false);
+        assert_eq!(macos["bundle"]["macOS"]["minimumSystemVersion"], "12.0");
         assert_eq!(
             config["plugins"]["updater"]["endpoints"][0],
             "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json"
@@ -623,6 +774,44 @@ mod tests {
         assert!(config["plugins"]["updater"]["pubkey"]
             .as_str()
             .is_some_and(|value| !value.is_empty()));
+    }
+
+    #[test]
+    fn timeout_only_replaces_a_starting_state() {
+        assert!(timeout_may_replace(&BackendState::Starting));
+        assert!(!timeout_may_replace(&BackendState::Failed));
+        assert!(!timeout_may_replace(&BackendState::Ready));
+        assert!(!timeout_may_replace(&BackendState::Stopped));
+    }
+
+    #[test]
+    fn managed_exit_is_reported_before_or_after_readiness() {
+        assert!(managed_exit_should_fail(&BackendState::Starting));
+        assert!(managed_exit_should_fail(&BackendState::Ready));
+        assert!(!managed_exit_should_fail(&BackendState::Failed));
+        assert!(!managed_exit_should_fail(&BackendState::Stopped));
+        assert!(!managed_exit_should_fail(&BackendState::External));
+    }
+
+    #[test]
+    fn macos_library_validation_failure_is_actionable() {
+        let (kind, message) = backend_exit_failure(
+            Some(255),
+            "Failed to load Python shared library: mapped file has no Team ID and is not valid for use in process",
+            Some("/tmp/stagepilot-backend.log"),
+        );
+        assert_eq!(kind, BackendFailureKind::MacosCodeSigning);
+        assert!(message.contains("blocked by macOS code-signing policy"));
+        assert!(message.contains("/tmp/stagepilot-backend.log"));
+    }
+
+    #[test]
+    fn ordinary_early_exit_includes_code_and_log() {
+        let (kind, message) =
+            backend_exit_failure(Some(7), "ordinary error", Some("/tmp/backend.log"));
+        assert_eq!(kind, BackendFailureKind::SidecarExited);
+        assert!(message.contains("exit code 7"));
+        assert!(message.contains("/tmp/backend.log"));
     }
 
     #[test]

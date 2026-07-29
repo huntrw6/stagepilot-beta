@@ -268,6 +268,15 @@ name. Simulation can exercise the cue path while an enabled plugin is
 disconnected, but it does not mark the MIDI input as connected or make its
 health ready.
 
+The same rule applies throughout the dashboard: **Connected** means StagePilot
+has verified the real external integration during the current backend runtime.
+Demo plans, simulated MIDI actions, and simulated countdowns remain useful for
+testing, but their Planning Center, MIDI, and ProPresenter cards stay
+**Disconnected**. Missing or disabled configuration is also disconnected rather
+than an error. A demo plan is labeled separately and does not satisfy production
+service-plan readiness; ProPresenter API connectivity and discovery of the
+configured timer are separate readiness checks.
+
 The production dashboard also polls `GET /api/v1/midi/messages` for a bounded
 live note monitor. It displays the selected input, note-on or note-off type,
 one-based channel, note name and number, velocity, and whether StagePilot

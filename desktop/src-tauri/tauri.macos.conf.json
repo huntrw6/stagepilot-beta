@@ -5,6 +5,8 @@
     "targets": ["app", "dmg"],
     "externalBin": ["binaries/stagepilot-backend"],
     "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": false,
       "minimumSystemVersion": "12.0"
     }
   }

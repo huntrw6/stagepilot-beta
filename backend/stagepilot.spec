@@ -43,4 +43,6 @@ executable = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    codesign_identity=None,
+    entitlements_file=None,
 )

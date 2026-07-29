@@ -401,6 +401,10 @@ class StateService:
     async def _handle_connection_changed(self, event: StagePilotEvent) -> None:
         if not isinstance(event.payload, ConnectionPayload):
             return
+        # Simulation can exercise domain behavior, but it is never evidence of
+        # a verified external connection.
+        if event.source == "demo":
+            return
         payload = event.payload
 
         def mutation(state: ApplicationState) -> None:

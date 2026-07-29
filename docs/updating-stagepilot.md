@@ -34,3 +34,9 @@ remove/replace the bad `latest.json`. Fix the defect and publish a **newer
 version number**; never reuse a published version. If in-app recovery is not
 possible, install a newer release manually. macOS may require Privacy &
 Security approval again for that browser-downloaded replacement.
+
+Tauri updater signatures are not Apple code signatures. Their contents are
+embedded in `latest.json` and allow installed StagePilot copies to authenticate
+the downloaded updater payload. Removing Hardened Runtime from StagePilot's
+ad-hoc macOS application signature does not weaken or disable updater
+verification. See [macOS ad-hoc signing](macos-adhoc-signing.md).

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,9 @@ def rust_host_target() -> str:
 
 
 def main() -> None:
+    if sys.platform == "darwin":
+        os.environ.setdefault("MACOSX_DEPLOYMENT_TARGET", "12.0")
+
     uv = shutil.which("uv")
     if uv is None:
         raise SystemExit("uv is required to build the StagePilot backend sidecar.")

@@ -17,7 +17,18 @@ Download the installer for your computer from the [StagePilot v1.1.32 release](h
 
 On **Windows**, run the installer and open StagePilot from the Start menu.
 
-On **macOS**, open the DMG and drag StagePilot to Applications. On Mac, StagePilot is not currently code-signed or notarized, so the operating system may ask you to confirm that you trust the application. If the application can't be opened on your computer try opening **System Settings**, **Privacy & Security**, scrolling to the bottom of the menu it should give you an option to **Open Anyway** where it says *"StagePilot was blocked to protect your Mac."* You also may need to adjust the setting *Allow applications from* under Security to **App Store & Known Developers**. Then it should give you the option to *Move to Trash* or **Open Anyway** to open the app.
+On **macOS**, open the DMG and drag StagePilot to Applications. StagePilot is
+ad-hoc signed rather than Apple Developer ID signed or notarized, so macOS may
+ask you to confirm that you trust the application. If it cannot be opened,
+right-click StagePilot and select **Open**, or open **System Settings → Privacy
+& Security** and select **Open Anyway** for StagePilot. Do not disable
+Gatekeeper globally.
+
+StagePilot's macOS package is ad-hoc signed and does not require a paid Apple
+Developer account. The release pipeline verifies that the final Intel and Apple
+Silicon application, DMG, and automatic-update archive can each start the
+packaged backend. Technical details are in
+[macOS ad-hoc signing](docs/macos-adhoc-signing.md).
 
 Only install downloads from the **official StagePilot GitHub release page**.
 

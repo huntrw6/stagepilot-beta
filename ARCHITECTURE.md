@@ -125,6 +125,16 @@ loaded, not-found, ambiguous, and error outcomes so API connectivity is not
 mistaken for plan readiness. Its target date is the actual service date when a
 current or upcoming plan is found.
 
+Connection state describes verified external connectivity, not internal
+capability. `connected` is published only after a real Planning Center request,
+MIDI port open, ProPresenter API probe, or lighting-output open succeeds.
+Disabled, unconfigured, demo, and simulated integrations remain
+`disconnected`. The demo plugin may load and control its sample plan and
+simulated timer, but it never publishes connection events for Planning Center,
+MIDI, or ProPresenter. Dashboard readiness derives production checks from the
+saved integration modes, real connection state, plan source/freshness, and
+timer availability; a demo plan cannot satisfy Planning Center readiness.
+
 Planning Center discovery treats the configured local date as a search anchor.
 Plans with service times on that date always take precedence. Only when none
 match does discovery consider later service times, up to the configured

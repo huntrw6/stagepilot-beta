@@ -108,6 +108,7 @@ export function useStagePilot() {
   >(null);
 
   const reconnectAttempts = useRef(0);
+  const liveConnectionEstablished = useRef(false);
   const previousMidiStatus = useRef<ConnectionStatus | null>(null);
   const previousProPresenterStatus = useRef<ConnectionStatus | null>(null);
 
@@ -206,6 +207,7 @@ export function useStagePilot() {
       socket = new WebSocket(websocketUrl);
       socket.onopen = () => {
         reconnectAttempts.current = 0;
+        liveConnectionEstablished.current = true;
         setLive(true);
         setError(null);
         void refresh();
@@ -222,7 +224,11 @@ export function useStagePilot() {
       socket.onclose = () => {
         if (!active) return;
         setLive(false);
-        setError("Live connection interrupted; reconnecting.");
+        setError(
+          liveConnectionEstablished.current
+            ? "Live connection interrupted; reconnecting."
+            : "Waiting for the local backend.",
+        );
         const delay = Math.min(
           1000 * 2 ** reconnectAttempts.current,
           MAX_RECONNECT_DELAY,

@@ -7,6 +7,35 @@ export type BackendSupervisorStatus = {
   message: string;
   port: number;
   managed: boolean;
+  failure_kind?:
+    | "port_occupied"
+    | "sidecar_missing"
+    | "sidecar_exited"
+    | "macos_code_signing"
+    | "timeout"
+    | null;
+  log_path?: string | null;
+};
+
+export const backendStartupTitle = (status: BackendSupervisorStatus | null): string => {
+  if (!status) return "Connecting to the local backend";
+  if (status.state === "ready" || status.state === "external") return "Backend connected";
+  if (status.state === "starting") return "Starting the local backend";
+  if (status.state === "stopped") return "Backend stopped";
+  switch (status.failure_kind) {
+    case "port_occupied":
+      return "Backend port is occupied";
+    case "sidecar_missing":
+      return "Packaged backend is missing";
+    case "sidecar_exited":
+      return "Packaged backend exited";
+    case "macos_code_signing":
+      return "macOS blocked the packaged backend";
+    case "timeout":
+      return "Backend startup timed out";
+    default:
+      return "Backend startup failed";
+  }
 };
 
 export const desktopBackendStatus = async (): Promise<BackendSupervisorStatus | null> => {

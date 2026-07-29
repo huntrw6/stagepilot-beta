@@ -16,6 +16,9 @@ test("Tauri updater configuration preserves stable identity and trusted endpoint
   assert.equal(config.app.windows[0].label, "main");
   assert.equal(config.bundle.createUpdaterArtifacts, true);
   assert.equal(config.bundle.macOS.signingIdentity, "-");
+  assert.equal(macOSConfig.bundle.macOS.signingIdentity, "-");
+  assert.equal(macOSConfig.bundle.macOS.hardenedRuntime, false);
+  assert.equal(macOSConfig.bundle.macOS.minimumSystemVersion, "12.0");
   assert.deepEqual(macOSConfig.bundle.targets, ["app", "dmg"]);
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
@@ -38,6 +41,18 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.match(workflow, /secrets\.TAURI_SIGNING_PRIVATE_KEY_PASSWORD/);
   assert.match(workflow, /generate_updater_manifest\.mjs/);
   assert.match(workflow, /validate_updater_manifest\.mjs/);
+  assert.match(workflow, /MACOSX_DEPLOYMENT_TARGET: "12\.0"/);
+  assert.match(workflow, /verify_macos_release_bundle\.sh --app/);
+  assert.match(workflow, /verify_macos_release_bundle\.sh --dmg/);
+  assert.match(workflow, /verify_macos_release_bundle\.sh --archive/);
+  assert.ok(
+    workflow.indexOf("verify_macos_release_bundle.sh --archive") <
+      workflow.indexOf("Collect macOS release assets"),
+  );
+  assert.doesNotMatch(workflow, /APPLE_(?:CERTIFICATE|SIGNING_IDENTITY|ID|PASSWORD)/);
+  assert.doesNotMatch(workflow, /notarytool|notariz/);
+  assert.match(workflow, /Copy-Item \$installer\.FullName/);
+  assert.match(workflow, /Copy-Item "\$\(\$installer\.FullName\)\.sig"/);
   assert.match(
     workflow,
     /find release-assets .* ! -name '\*\.sig'/,
@@ -49,6 +64,26 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.ok(
     workflow.indexOf("release-assets/latest.json --clobber") < workflow.indexOf("--draft=false --latest"),
   );
+});
+
+test("macOS final-artifact verifier rejects hardened sidecars and starts packaged backends", () => {
+  const verifier = read("scripts/verify_macos_release_bundle.sh");
+  assert.match(verifier, /codesign --verify --deep --strict/);
+  assert.match(verifier, /flags=\.\*runtime/);
+  assert.match(verifier, /TeamIdentifier/);
+  assert.match(verifier, /vtool -show-build/);
+  assert.match(verifier, /api\/v1\/health/);
+  assert.match(verifier, /api\/v1\/state/);
+  assert.match(verifier, /hdiutil attach/);
+  assert.match(verifier, /tar -xzf/);
+});
+
+test("PyInstaller uses ordinary ad-hoc signing without a custom identity or entitlements", () => {
+  const specification = read("backend/stagepilot.spec");
+  assert.match(specification, /codesign_identity=None/);
+  assert.match(specification, /entitlements_file=None/);
+  assert.doesNotMatch(specification, /Developer ID Application/);
+  assert.doesNotMatch(specification, /disable-library-validation/);
 });
 
 test("manifest generator requires artifacts and signatures for every platform", () => {

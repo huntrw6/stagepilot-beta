@@ -202,7 +202,12 @@ def test_demo_mode_never_constructs_the_real_planning_center_client() -> None:
         state = client.get("/api/v1/state")
 
     assert state.status_code == 200
-    assert state.json()["plan"]["title"] == "Sunday Worship — Demo"
+    body = state.json()
+    assert body["plan"]["title"] == "Sunday Worship — Demo"
+    assert body["planning_center_status"] == ConnectionStatus.DISCONNECTED
+    assert body["midi_status"] == ConnectionStatus.DISCONNECTED
+    assert body["propresenter_status"] == ConnectionStatus.DISCONNECTED
+    assert body["lights_status"] == ConnectionStatus.DISCONNECTED
     assert factory.calls == []
     assert planning_center_client.closed is False
 

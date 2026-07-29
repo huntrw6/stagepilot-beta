@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from stagepilot.core.events import (
-    ConnectionPayload,
     EventType,
     ServiceLoadPayload,
     ServicePayload,
@@ -13,7 +10,7 @@ from stagepilot.core.events import (
     TimerPayload,
     new_event,
 )
-from stagepilot.models.state import ConnectionStatus, ServiceLoadStatus, ServicePlan, Song
+from stagepilot.models.state import ServiceLoadStatus, ServicePlan, Song
 
 
 def service_loaded(plan: ServicePlan) -> StagePilotEvent:
@@ -32,20 +29,6 @@ def service_load_ready(plan: ServicePlan) -> StagePilotEvent:
             status=ServiceLoadStatus.LOADED,
             target_date=plan.date,
             message="Demo service loaded.",
-        ),
-    )
-
-
-def connection_ready(
-    integration: Literal["planning_center", "midi", "propresenter"],
-) -> StagePilotEvent:
-    return new_event(
-        EventType.CONNECTION_CHANGED,
-        source="demo",
-        payload=ConnectionPayload(
-            integration=integration,
-            status=ConnectionStatus.CONNECTED,
-            detail="Simulated by demo mode",
         ),
     )
 

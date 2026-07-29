@@ -9,6 +9,7 @@ import pytest_asyncio
 from stagepilot.core.event_bus import EventBus
 from stagepilot.core.events import (
     ActionName,
+    ConnectionPayload,
     EventType,
     ServiceLoadPayload,
     ServicePayload,
@@ -17,7 +18,13 @@ from stagepilot.core.events import (
     new_event,
 )
 from stagepilot.core.state import StateStore
-from stagepilot.models.state import ServiceLoadStatus, ServicePlan, Song, TimerStatus
+from stagepilot.models.state import (
+    ConnectionStatus,
+    ServiceLoadStatus,
+    ServicePlan,
+    Song,
+    TimerStatus,
+)
 from stagepilot.services.state_service import StateService
 
 
@@ -69,6 +76,31 @@ async def load(bus: EventBus, plan: ServicePlan) -> None:
             payload=ServicePayload(plan=plan),
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_demo_events_cannot_impersonate_real_integration_connections(
+    service: tuple[EventBus, StateStore, StateService],
+) -> None:
+    bus, store, _state_service = service
+
+    for integration in ("planning_center", "midi", "propresenter"):
+        await bus.publish(
+            new_event(
+                EventType.CONNECTION_CHANGED,
+                source="demo",
+                payload=ConnectionPayload(
+                    integration=integration,
+                    status=ConnectionStatus.CONNECTED,
+                    detail="simulated",
+                ),
+            )
+        )
+
+    snapshot = await store.snapshot()
+    assert snapshot.planning_center_status is ConnectionStatus.DISCONNECTED
+    assert snapshot.midi_status is ConnectionStatus.DISCONNECTED
+    assert snapshot.propresenter_status is ConnectionStatus.DISCONNECTED
 
 
 @pytest.mark.asyncio

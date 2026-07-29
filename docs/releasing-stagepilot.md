@@ -6,6 +6,10 @@ historical filename is retained to avoid creating a competing pipeline. It
 publishes `latest.json` only after every referenced updater artifact and
 signature is available.
 
+The macOS community release is ad-hoc signed without Hardened Runtime; it does
+not require Apple Developer ID or notarization. See
+[macOS ad-hoc signing](macos-adhoc-signing.md).
+
 ## One-time updater key setup
 
 Generate the long-term key outside the repository. This prompts for a password:
@@ -67,8 +71,11 @@ either secret is absent. The private key is never passed to frontend code.
 
 6. Watch **Release StagePilot**. It validates configuration and tests, builds
    native `darwin-aarch64`, `darwin-x86_64`, and `windows-x86_64` artifacts,
-   keeps the release draft, uploads archives and `.sig` files, generates and
-   validates `latest.json`, uploads it last, then publishes the release.
+   verifies the final `.app`, DMG, and updater archive by starting their packaged
+   backends, keeps the release draft, generates and validates `latest.json`,
+   uploads user-facing installers and updater payloads, uploads `latest.json`
+   last, then publishes the release. Standalone `.sig` files remain internal
+   build inputs because their contents are embedded in `latest.json`.
 
 Never substitute a checksum for a Tauri signature. The macOS updater payload is
 `.app.tar.gz`, not the `.dmg`.

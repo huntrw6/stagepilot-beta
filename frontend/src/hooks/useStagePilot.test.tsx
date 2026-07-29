@@ -264,6 +264,26 @@ afterEach(() => {
 });
 
 describe("useStagePilot", () => {
+  it("treats an initial WebSocket close as expected backend startup", async () => {
+    const { result } = renderHook(() => useStagePilot());
+    const socket = MockWebSocket.instances[0];
+
+    act(() => socket!.onclose?.());
+
+    expect(result.current.error).toBe("Waiting for the local backend.");
+    expect(result.current.error).not.toContain("interrupted");
+  });
+
+  it("reports an interruption only after a live connection was established", async () => {
+    const { result } = renderHook(() => useStagePilot());
+    const socket = MockWebSocket.instances[0];
+
+    act(() => socket!.onopen?.());
+    act(() => socket!.onclose?.());
+
+    expect(result.current.error).toBe("Live connection interrupted; reconnecting.");
+  });
+
   it("loads settings only after the packaged backend health probe succeeds", async () => {
     const startupHealth = deferred<HealthResponse>();
     mockedGetHealth.mockReturnValueOnce(startupHealth.promise);

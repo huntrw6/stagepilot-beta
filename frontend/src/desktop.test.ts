@@ -7,7 +7,31 @@ const tauri = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => tauri);
 
-import { hideDesktopWindow } from "./desktop";
+import { backendStartupTitle, hideDesktopWindow } from "./desktop";
+
+describe("backend startup labels", () => {
+  it("distinguishes actionable packaged-backend failures", () => {
+    expect(
+      backendStartupTitle({
+        state: "failed",
+        message: "blocked",
+        port: 8765,
+        managed: true,
+        failure_kind: "macos_code_signing",
+        log_path: "/tmp/backend.log",
+      }),
+    ).toBe("macOS blocked the packaged backend");
+    expect(
+      backendStartupTitle({
+        state: "failed",
+        message: "occupied",
+        port: 8765,
+        managed: false,
+        failure_kind: "port_occupied",
+      }),
+    ).toBe("Backend port is occupied");
+  });
+});
 
 describe("desktop window controls", () => {
   beforeEach(() => {

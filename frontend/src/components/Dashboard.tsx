@@ -32,6 +32,11 @@ import type {
 import type { UpdaterController } from "../hooks/useUpdater";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { DashboardGrid } from "./dashboard/DashboardGrid";
+import {
+  buildConnectionCardViews,
+  buildReadinessChecks,
+  readinessPassed,
+} from "./dashboard/dashboardReadiness";
 import { LightsSetupPanel } from "./LightsSetupPanel";
 import { MidiSetupPanel } from "./MidiSetupPanel";
 import { PlanningCenterSetupPanel } from "./PlanningCenterSetupPanel";
@@ -78,10 +83,10 @@ const formatPlanCurrentAsOf = (value: string | null | undefined) => {
   return `Current as of ${time} ${date}`;
 };
 
-const connectionIcon = (source: string, name: string) => (
+const connectionIcon = (source: string, name: string, compact = false) => (
   <img
     alt=""
-    className="h-9 w-9 max-w-none scale-[1.35] object-cover"
+    className={`h-9 w-9 max-w-none object-cover ${compact ? "scale-110" : "scale-[1.35]"}`}
     data-status-icon={name}
     src={source}
   />
@@ -167,17 +172,6 @@ function ReferenceItemRow({ item }: { item: SkippedServiceItem }) {
     </li>
   );
 }
-
-const connectionDetail = (
-  status: ConnectionStatus,
-  activity: string | null,
-  detail: string | null,
-) => {
-  if (status === "connected") {
-    return activity ? `Last plan sync ${formatTime(activity)}` : detail ?? "Connected";
-  }
-  return detail ?? "Waiting for integration";
-};
 
 export function Dashboard({
   state,
@@ -348,38 +342,23 @@ export function Dashboard({
     }, NOTIFICATION_DURATION_MS);
     return () => window.clearTimeout(timeout);
   }, [notification]);
-  const durationReady = Boolean(plan?.songs.length) && plan!.songs.every((song) => Boolean(song.duration_seconds));
-  const servicePlanReady = Boolean(plan)
-    && plan?.date === serviceLoad.target_date
-    && serviceLoad.status === "loaded"
-    && !serviceLoad.is_stale;
-  const checks: ReadonlyArray<readonly [string, string, boolean]> = [
-    ["Planning Center connected", "Planning Center disconnected", state.planning_center_status === "connected"],
-    ["Service plan loaded", "Service plan not loaded", servicePlanReady],
-    ["Song durations valid", "Song durations invalid", durationReady],
-    ["MIDI input connected", "MIDI input disconnected", state.midi_status === "connected"],
-    ["ProPresenter connected", "ProPresenter disconnected", state.propresenter_status === "connected"],
-    ...(state.plugins.propresenter
-      ? [["ProPresenter timer found", "ProPresenter timer not found", Boolean(propresenter?.timer_found)]] as const
-      : []),
-    ...(settings?.settings.lights.enabled
-      ? [["Lights output connected", "Lights output disconnected", state.lights_status === "connected"]] as const
-      : []),
-  ];
-  const ready = checks.every(([, , passed]) => passed) && live;
+  const connectionViews = buildConnectionCardViews({
+    state,
+    settings,
+    midi,
+    propresenter,
+    lights,
+  });
+  const checks = buildReadinessChecks({
+    state,
+    settings,
+    propresenter,
+    live,
+    views: connectionViews,
+  });
+  const ready = readinessPassed(checks);
   const activity = [...state.recent_events].reverse().slice(0, 10);
-  const connectedMidiInput = midi?.inputs.find((input) => input.connected);
-  const midiDetail = state.last_action
-    ? `Last action: ${state.last_action.replaceAll("_", " ")}`
-    : !midi
-        ? "Loading MIDI configuration"
-        : !midi.enabled
-          ? "MIDI Playback disabled"
-          : connectedMidiInput
-            ? `Connected to ${connectedMidiInput.name}`
-            : midi.selected_input_name
-              ? `Waiting for ${midi.selected_input_name}`
-              : "No input selected";
+  const midiDetail = connectionViews.midi.detail;
   const timerDuration = state.timer.duration_seconds ?? state.current_song?.duration_seconds ?? 0;
   const elapsedMilliseconds = state.timer.status === "running" && state.timer.started_at
     ? Math.max(0, clockNow - Date.parse(state.timer.started_at))
@@ -495,10 +474,10 @@ export function Dashboard({
         <StatusCard
           active={activeConnection === "planning-center"}
           controls="planning-center-configuration"
-          detail={connectionDetail(state.planning_center_status, state.last_successful_plan_reload_at, serviceLoad.message)}
+          detail={connectionViews.planningCenter.detail}
           icon={connectionIcon(planningCenterIcon, "planning-center")}
           onClick={() => toggleConnection("planning-center")}
-          status={state.planning_center_status}
+          status={connectionViews.planningCenter.status}
           title="Planning Center"
         />
         <StatusCard
@@ -507,32 +486,32 @@ export function Dashboard({
           detail={midiDetail}
           icon={connectionIcon(multitracksIcon, "multitracks")}
           onClick={() => toggleConnection("midi")}
-          status={state.midi_status}
+          status={connectionViews.midi.status}
           title="MIDI / Playback"
         />
         <StatusCard
           active={activeConnection === "propresenter"}
           controls="propresenter-configuration"
-          detail={state.timer.status === "running" ? "Song Countdown running" : `Timer ${state.timer.status}`}
-          icon={connectionIcon(propresenterIcon, "propresenter")}
+          detail={connectionViews.propresenter.detail}
+          icon={connectionIcon(propresenterIcon, "propresenter", true)}
           onClick={() => toggleConnection("propresenter")}
-          status={state.propresenter_status}
+          status={connectionViews.propresenter.status}
           title="ProPresenter"
         />
         <StatusCard
           active={activeConnection === "lights"}
           controls="lights-configuration"
-          detail={lights?.detail ?? "Configure a lighting MIDI output"}
-          icon={connectionIcon(lightsIcon, "lights")}
+          detail={connectionViews.lights.detail}
+          icon={connectionIcon(lightsIcon, "lights", true)}
           onClick={() => toggleConnection("lights")}
-          status={state.lights_status}
+          status={connectionViews.lights.status}
           title="Lights"
         />
         <StatusCard
           active={activeConnection === "backend"}
           controls="backend-configuration"
           detail={health ? `v${health.version} · state revision ${state.revision}` : "Connecting to local API"}
-          icon={connectionIcon(stagepilotIcon, "stagepilot")}
+          icon={connectionIcon(stagepilotIcon, "stagepilot", true)}
           onClick={() => toggleConnection("backend")}
           status={backendStatus}
           title="StagePilot backend"
@@ -694,7 +673,7 @@ export function Dashboard({
         <section className="h-full min-h-0 overflow-auto rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
           <div className="flex items-center justify-between"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Readiness check</p><span className={ready ? "text-emerald-300" : "text-amber-300"}>{ready ? "All systems ready" : "Attention required"}</span></div>
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {checks.map(([successLabel, errorLabel, passed]) => <li key={successLabel} className="flex items-center gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-sm"><span className={`grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black ${passed ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{passed ? "✓" : "!"}</span><span className={passed ? "text-slate-300" : "text-rose-200"}>{passed ? successLabel : errorLabel}</span></li>)}
+            {checks.map((check) => <li key={check.id} className="flex items-center gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-sm"><span className={`grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black ${check.passed ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{check.passed ? "✓" : "!"}</span><span className={check.passed ? "text-slate-300" : "text-rose-200"}>{check.label}</span></li>)}
           </ul>
         </section>
           ),

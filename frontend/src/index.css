@@ -100,7 +100,7 @@ body {
     inset 0 -3px 0 rgb(3 105 161 / 75%),
     4px 0 0 #f8fafc,
     8px 0 0 #0ea5e9;
-  transition: width 300ms steps(8, end);
+  transition: width 140ms linear;
 }
 
 .loading-progress-scan {
@@ -143,6 +143,47 @@ body {
 .setup-panel .text-slate-600,
 .now-playing-panel .text-slate-600 {
   color: rgb(100 116 139);
+}
+
+.loading-progress-track--delayed {
+  box-shadow:
+    5px 5px 0 #020617,
+    0 0 0 1px #f59e0b,
+    0 0 20px rgb(245 158 11 / 22%);
+}
+
+.loading-progress-track--failed {
+  outline-color: #fecdd3;
+  box-shadow:
+    5px 5px 0 #020617,
+    0 0 0 1px #fb7185,
+    0 0 20px rgb(244 63 94 / 24%);
+}
+
+.loading-progress-track--failed .loading-progress-fill {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #9f1239 0,
+      #9f1239 10px,
+      #e11d48 10px,
+      #e11d48 14px,
+      #fb7185 14px,
+      #fb7185 16px,
+      #4c0519 16px,
+      #4c0519 20px
+    );
+  box-shadow:
+    inset 0 3px 0 rgb(255 255 255 / 25%),
+    inset 0 -3px 0 rgb(76 5 25 / 80%),
+    4px 0 0 #fff1f2,
+    8px 0 0 #e11d48;
+}
+
+.loading-progress-track--failed .loading-progress-scan,
+.loading-progress-track--complete .loading-progress-scan {
+  animation: none;
+  opacity: 0;
 }
 
 .stagepilot-dashboard-grid {

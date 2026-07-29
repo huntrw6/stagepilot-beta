@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [1.1.35] - 2026-07-29
+
+### Fixed
+
+- Fixed the packaged backend startup failure on Intel macOS by explicitly
+  disabling Hardened Runtime library validation for the ad-hoc release flavor.
+- Added final `.app`, DMG, and updater-archive backend launch verification for
+  both Intel and Apple Silicon release jobs.
+- Preserved specific packaged-backend exit diagnostics so a later generic
+  startup timeout cannot hide a macOS signing rejection.
+- Replaced the startup bar's fixed 58% backend target with smooth,
+  milestone-bounded progress that continues through long healthy starts,
+  freezes on confirmed failure, and resumes without moving backward on retry.
+- Prevented demo plans and simulated MIDI or timer behavior from reporting
+  Planning Center, MIDI, or ProPresenter as connected, and made production
+  readiness distinguish real plans, real connections, and timer discovery.
+
+### Changed
+
+- Made the macOS 12.0 deployment target explicit throughout release builds and
+  added final Mach-O deployment-target checks.
+- Added bounded backend-log rotation and actionable startup recovery controls.
+
 ## [1.1.32] - 2026-07-29
 
 - Added production-desktop-only GitHub Release update checks.

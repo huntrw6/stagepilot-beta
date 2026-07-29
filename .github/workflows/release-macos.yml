@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing version tag to build and publish
         required: true
-        default: v1.1.32
+        default: v1.1.35
   push:
     tags:
       - "v*"
@@ -67,6 +67,8 @@ jobs:
             suffix: x64
             command: build
     runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
@@ -110,6 +112,22 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm --prefix desktop run ${{ matrix.command }}
+      - name: Verify final macOS application, DMG, and updater archive
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "darwin-aarch64" ]]; then
+            EXPECTED_ARCH="arm64"
+          else
+            EXPECTED_ARCH="x86_64"
+          fi
+          APP="$(find desktop/src-tauri/target/release/bundle/macos -maxdepth 1 -type d -name '*.app' -print -quit)"
+          DMG="$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          ARCHIVE="$(find desktop/src-tauri/target/release/bundle/macos -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
+          test -s "$ARCHIVE.sig"
+          bash scripts/verify_macos_release_bundle.sh --app "$APP" --arch "$EXPECTED_ARCH"
+          bash scripts/verify_macos_release_bundle.sh --dmg "$DMG" --arch "$EXPECTED_ARCH"
+          bash scripts/verify_macos_release_bundle.sh --archive "$ARCHIVE" --arch "$EXPECTED_ARCH"
       - name: Collect macOS release assets
         if: runner.os == 'macOS'
         shell: bash
@@ -167,7 +185,7 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --draft --latest=false
           else
-            gh release create "$RELEASE_TAG" --draft --title "StagePilot ${RELEASE_TAG#v}" --notes-file release-assets/release-notes.md
+            gh release create "$RELEASE_TAG" --draft --title "StagePilot $RELEASE_TAG" --notes-file release-assets/release-notes.md
           fi
           # Signatures must remain in the staging directory while latest.json is
           # generated and validated, but latest.json embeds their contents. Do

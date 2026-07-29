@@ -1,0 +1,67 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const desktop = vi.hoisted(() => ({
+  restartDesktopBackend: vi.fn().mockResolvedValue(true),
+  status: {
+    state: "failed" as const,
+    message:
+      "The packaged StagePilot backend was blocked by macOS code-signing policy. This application build is invalid.",
+    port: 8765,
+    managed: true,
+    failure_kind: "macos_code_signing" as const,
+    log_path: "/tmp/stagepilot-backend.log",
+  },
+}));
+
+vi.mock("./desktop", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./desktop")>();
+  return {
+    ...original,
+    desktopBackendStatus: vi.fn(async () => desktop.status),
+    listenForDesktopBackend: vi.fn(async () => null),
+    restartDesktopBackend: desktop.restartDesktopBackend,
+  };
+});
+vi.mock("./hooks/useStagePilot", () => ({
+  useStagePilot: () => ({
+    state: null,
+    error: "Live connection interrupted; reconnecting.",
+    settings: null,
+    activateConfiguredServices: vi.fn(),
+  }),
+}));
+vi.mock("./hooks/useUpdater", () => ({ useUpdater: () => ({}) }));
+vi.mock("./components/DesktopTitleBar", () => ({ DesktopTitleBar: () => null }));
+vi.mock("./components/Dashboard", () => ({ Dashboard: () => null }));
+
+import App from "./App";
+
+describe("packaged backend startup recovery", () => {
+  beforeEach(() => {
+    desktop.restartDesktopBackend.mockClear();
+  });
+
+  it("shows the specific signing failure instead of a reconnect loop", async () => {
+    render(<App />);
+
+    expect(await screen.findByText("macOS blocked the packaged backend")).toBeInTheDocument();
+    expect(screen.getByText(/This application build is invalid/)).toBeInTheDocument();
+    expect(screen.queryByText("Live connection interrupted; reconnecting.")).not.toBeInTheDocument();
+    const progress = screen.getByRole("progressbar", { name: "StagePilot startup progress" });
+    expect(progress).toHaveClass("loading-progress-track--failed");
+    expect(progress).toHaveAttribute("aria-valuenow", "1");
+    expect(progress).toHaveAttribute(
+      "aria-valuetext",
+      "Startup stopped because the local backend reported an error.",
+    );
+    expect(screen.getByRole("button", { name: "Copy Log Path" })).toBeInTheDocument();
+  });
+
+  it("offers a bounded supervisor retry action", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Retry Backend" }));
+    await waitFor(() => expect(desktop.restartDesktopBackend).toHaveBeenCalledOnce());
+  });
+});
