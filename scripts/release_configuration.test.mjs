@@ -72,6 +72,8 @@ test("macOS final-artifact verifier rejects hardened sidecars and starts package
   assert.match(verifier, /flags=\.\*runtime/);
   assert.match(verifier, /TeamIdentifier/);
   assert.match(verifier, /vtool -show-build/);
+  assert.match(verifier, /LC_VERSION_MIN_MACOSX/);
+  assert.match(verifier, /otool -l/);
   assert.match(verifier, /api\/v1\/health/);
   assert.match(verifier, /api\/v1\/state/);
   assert.match(verifier, /hdiutil attach/);

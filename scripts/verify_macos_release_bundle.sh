@@ -91,6 +91,22 @@ verify_minos() {
   local label="$2"
   local minos
   minos="$(xcrun vtool -show-build "$binary" 2>/dev/null | awk '/minos / {print $2}' | sort -Vu | tail -1)"
+  if [[ -z "$minos" ]]; then
+    # PyInstaller's macOS bootloader can use the older
+    # LC_VERSION_MIN_MACOSX command rather than LC_BUILD_VERSION.
+    minos="$(
+      otool -l "$binary" 2>/dev/null |
+        awk '
+          $1 == "cmd" { version_command = ($2 == "LC_VERSION_MIN_MACOSX") }
+          version_command && $1 == "version" {
+            print $2
+            version_command = 0
+          }
+        ' |
+        sort -Vu |
+        tail -1
+    )"
+  fi
   [[ -n "$minos" ]] || { echo "Could not determine deployment target for $label." >&2; exit 1; }
   python3 - "$minos" "$label" <<'PY'
 import sys
