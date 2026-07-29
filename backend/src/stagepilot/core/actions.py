@@ -24,3 +24,11 @@ class ActionDispatcher(Protocol):
         action: ActionName,
         source: str = "api",
     ) -> ActionOutcome: ...
+
+    async def dispatch_song_position(
+        self,
+        position: int,
+        source: str = "api",
+    ) -> ActionOutcome:
+        """Start the exact one-based service-plan song requested by an input."""
+        ...

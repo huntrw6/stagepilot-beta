@@ -1,5 +1,18 @@
 # StagePilot architecture
 
+## Desktop updater
+
+The production Tauri shell owns update transport and signature verification
+through official updater, process, and window-state plugins. The React
+`UpdaterAdapter` is a narrow boundary over those APIs. `useUpdater` schedules
+non-blocking checks and owns the state machine; header and modal components only
+present normalized state.
+
+The endpoint is restricted to the repository's HTTPS `latest.json`. The
+window-state plugin restores the hidden `main` window before the existing
+startup lifecycle unminimizes, shows, and focuses it. A version-bound local
+marker differentiates an update relaunch from ordinary startup.
+
 ## Goals and constraints
 
 StagePilot coordinates systems used in live production, where a single failed
@@ -161,6 +174,15 @@ Logs and exported diagnostics redact sensitive values. See
 React renders backend state and sends user intent through typed HTTP commands.
 It does not implement service navigation or timer sequencing. Its WebSocket
 client owns connection and resynchronization behavior.
+
+Dashboard geometry is isolated under `frontend/src/components/dashboard`.
+GridStack core manages only grid shells, collision reflow, resizing, responsive
+columns, and compaction; React retains ownership of all widget content. Layout
+state is versioned, validated, and persisted locally after stable operations,
+not timer or WebSocket updates. Desktop and tablet geometry remain independent,
+while mobile uses a deterministic one-column order. The legacy order-only key
+is migrated once and retained for rollback. See
+[docs/dashboard-layout.md](docs/dashboard-layout.md).
 
 Tauri v2 supplies a native window and, later, operating-system packaging. The
 current shell loads Vite during development and `frontend/dist` in production.

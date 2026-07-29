@@ -2,13 +2,18 @@
 
 StagePilot brings the moving parts of a live production into one dependable dashboard. It loads service plans from Planning Center, listens for MIDI cues from MultiTracks Playback, keeps a ProPresenter countdown in sync, and sends scheduled MIDI cues to a lighting controller such as Lightkey.
 
-## Download StagePilot 1.1.5
+Production desktop builds check the signed
+[GitHub updater feed](docs/updating-stagepilot.md) after startup. The header
+stays unchanged when StagePilot is current; an **Update** button appears beside
+the logo only when a newer signed release is available.
 
-Download the installer for your computer from the [StagePilot 1.1.5 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.5):
+## Download StagePilot 1.1.32
 
-- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.5/StagePilot_1.1.5_x64-setup.exe)
-- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.5/StagePilot_1.1.5_x64.dmg)
-- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.5/StagePilot_1.1.5_aarch64.dmg)
+Download the installer for your computer from the [StagePilot v1.1.32 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.32):
+
+- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.32/StagePilot_1.1.32_x64-setup.exe)
+- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.32/StagePilot_1.1.32_x64.dmg)
+- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.32/StagePilot_1.1.32_aarch64.dmg)
 
 On **Windows**, run the installer and open StagePilot from the Start menu.
 
@@ -66,11 +71,25 @@ Before a service:
 4. Confirm ProPresenter shows the selected timer as a Countdown Timer with the correct duration.
 5. Keep StagePilot open during the service to monitor timing, connections, lighting cues, and events.
 
-Service headers and reference items remain visible in Planning Center order, while song rows drive the timer workflow. The Service Plan, Now Playing, Manual Controls, Readiness Check, and Recent Event Stream widgets can be dragged or moved with their arrow controls. The chosen layout is restored on future launches.
+Service headers and reference items remain visible in Planning Center order, while song rows drive the timer workflow. Select **Edit layout** to drag or resize the Service Plan, Now Playing, Manual Controls, Readiness Check, and Recent Event Stream widgets. StagePilot compacts accidental gaps, supports explicit spacers, provides keyboard ordering controls, and keeps separate desktop, tablet, and mobile layouts between launches. See [Dashboard layout](docs/dashboard-layout.md).
 
 ## MIDI controls
 
-The default Playback cue uses MIDI channel 1 and note 112 (`E7`). Velocities select the action:
+The default Playback cue uses MIDI channel 1 and note 112 (`E7`). For each song,
+create a note-on cue at the exact beginning and set its velocity to the song's
+one-based position in the loaded service plan:
+
+| Velocity | Song target |
+| ---: | --- |
+| 1 | First song |
+| 2 | Second song |
+| 3–99 | Corresponding service-plan song |
+
+StagePilot starts the exact matching song, so a missed or extra Playback cue
+cannot silently advance the dashboard to a different song. The MIDI
+Configuration panel displays the current plan's complete song-to-velocity map.
+
+Velocities 100–127 are reserved for the existing action cues:
 
 | Velocity | Action |
 | ---: | --- |
@@ -81,7 +100,9 @@ The default Playback cue uses MIDI channel 1 and note 112 (`E7`). Velocities sel
 | 104 | Reload plan |
 | 105 | Stop timer |
 
-The note, channel, and velocities can be changed in MIDI Configuration. **Reset Position** remains available from Manual Controls and returns both StagePilot and the configured ProPresenter timer to `0:00`.
+The note, channel, and action velocities can be changed in MIDI Configuration.
+Manual Controls are unchanged. **Reset Position** remains available there and
+returns both StagePilot and the configured ProPresenter timer to `0:00`.
 
 ## Planning Center access
 

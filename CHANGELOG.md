@@ -1,10 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+## [1.1.32] - 2026-07-29
+
+- Added production-desktop-only GitHub Release update checks.
+- Added explicit update confirmation, signed download/install progress,
+  automatic relaunch, and post-update status beside the existing logo.
+- Added window size, position, maximized, and fullscreen restoration without
+  restoring a minimized window.
+- Added coordinated updater archives, signatures, and `latest.json` automation
+  for Windows x64, Intel macOS, and Apple Silicon macOS.
+- Replaced fixed dashboard snap slots with a responsive GridStack layout that
+  supports explicit edit mode, two-dimensional dragging, constrained resizing,
+  automatic compaction, intentional spacers, keyboard ordering, responsive
+  desktop/tablet/mobile layouts, and v1 layout migration.
+
 All notable changes to StagePilot will be documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 intends to use [Semantic Versioning](https://semver.org/) once releases begin.
-
-## [Unreleased]
 
 ## [1.0.0] - 2026-07-19
 

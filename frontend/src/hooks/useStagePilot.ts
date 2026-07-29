@@ -689,6 +689,50 @@ export function useStagePilot() {
     }
   }, []);
 
+  const activateConfiguredServices = useCallback(async () => {
+    if (!settings) return;
+    const saved = settings.settings;
+
+    await refreshMidi();
+
+    if (
+      saved.integration_modes.timer_output === "propresenter"
+      && saved.propresenter.enabled
+    ) {
+      await saveProPresenter({
+        host: saved.propresenter.host,
+        port: saved.propresenter.port,
+        timer_name: saved.propresenter.timer_name,
+        look_id: saved.propresenter.look_id ?? null,
+        request_timeout_seconds: saved.propresenter.request_timeout_seconds,
+      });
+    }
+
+    if (saved.lights.enabled && saved.lights.output_name) {
+      await saveLights({
+        enabled: true,
+        output_name: saved.lights.output_name,
+        channel: saved.lights.channel,
+        pulse_ms: saved.lights.pulse_ms,
+      });
+    }
+
+    if (
+      saved.integration_modes.service_source === "planning_center"
+      && settings.planning_center_secret_saved
+      && saved.planning_center.app_id
+      && saved.planning_center.service_type_id
+    ) {
+      await savePlanningCenter(saved.planning_center, saved.timezone);
+    }
+  }, [
+    refreshMidi,
+    saveLights,
+    savePlanningCenter,
+    saveProPresenter,
+    settings,
+  ]);
+
   return {
     state,
     health,
@@ -738,5 +782,6 @@ export function useStagePilot() {
     sendLightingTest,
     saveLightingCues,
     clearAllLightingCues,
+    activateConfiguredServices,
   };
 }

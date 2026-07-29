@@ -18,6 +18,7 @@ use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
 };
+use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 const DEFAULT_PORT: u16 = 8765;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -231,7 +232,10 @@ fn configured_port() -> u16 {
         .unwrap_or(DEFAULT_PORT)
 }
 
-fn restore_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+fn restore_main_window(
+    app: &tauri::AppHandle,
+    restore_persisted_state: bool,
+) -> Result<WebviewWindow, String> {
     let window = if let Some(window) = app.get_webview_window("main") {
         window
     } else {
@@ -247,6 +251,11 @@ fn restore_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> 
             .build()
             .map_err(|error| format!("Could not create the StagePilot window: {error}"))?
     };
+    if restore_persisted_state {
+        window
+            .restore_state(StateFlags::all())
+            .map_err(|error| format!("Could not restore saved StagePilot window state: {error}"))?;
+    }
     window
         .unminimize()
         .map_err(|error| format!("Could not restore the StagePilot window: {error}"))?;
@@ -351,11 +360,14 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
         PortProbe::Available => {}
     }
 
-    let bind_host = fs::read_to_string(settings_path())
+    let lan_access_enabled = fs::read_to_string(settings_path())
         .ok()
-        .is_some_and(|settings| lan_access_from_settings(&settings))
-        .then_some("0.0.0.0")
-        .unwrap_or("127.0.0.1");
+        .is_some_and(|settings| lan_access_from_settings(&settings));
+    let bind_host = if lan_access_enabled {
+        "0.0.0.0"
+    } else {
+        "127.0.0.1"
+    };
     let command = app
         .shell()
         .sidecar("stagepilot-backend")
@@ -515,7 +527,7 @@ fn install_tray(app: &tauri::App) -> Result<(), String> {
         .tooltip("StagePilot")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-stagepilot" => {
-                let _ = restore_main_window(app);
+                let _ = restore_main_window(app, false);
             }
             "quit-stagepilot" => app.exit(0),
             _ => {}
@@ -527,7 +539,7 @@ fn install_tray(app: &tauri::App) -> Result<(), String> {
                 ..
             } = event
             {
-                let _ = restore_main_window(tray.app_handle());
+                let _ = restore_main_window(tray.app_handle(), false);
             }
         });
     if let Some(icon) = app.default_window_icon() {
@@ -545,6 +557,9 @@ pub fn run() {
     let shutdown_supervisor = supervisor.clone();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(supervisor.clone())
         .invoke_handler(tauri::generate_handler![
             backend_supervisor_status,
@@ -552,7 +567,7 @@ pub fn run() {
             hide_application_window
         ])
         .setup(move |app| {
-            restore_main_window(app.handle()).map_err(std::io::Error::other)?;
+            restore_main_window(app.handle(), true).map_err(std::io::Error::other)?;
             install_tray(app).map_err(std::io::Error::other)?;
             if let Err(message) = start_backend(app.handle(), supervisor.clone()) {
                 supervisor.update(app.handle(), BackendState::Failed, message, true);
@@ -566,7 +581,7 @@ pub fn run() {
         RunEvent::Exit | RunEvent::ExitRequested { .. } => shutdown_supervisor.stop(handle),
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
-            let _ = restore_main_window(handle);
+            let _ = restore_main_window(handle, false);
         }
         _ => {}
     });
@@ -590,6 +605,37 @@ mod tests {
         assert!(!lan_access_from_settings(r#"{"lan_access": false}"#));
         assert!(!lan_access_from_settings(r#"{"server_port": 8765}"#));
         assert!(!lan_access_from_settings("not-json"));
+    }
+
+    #[test]
+    fn updater_configuration_preserves_stable_desktop_identity() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(config["productName"], "StagePilot");
+        assert_eq!(config["identifier"], "org.stagepilot.desktop");
+        assert_eq!(config["app"]["windows"][0]["label"], "main");
+        assert_eq!(config["bundle"]["createUpdaterArtifacts"], true);
+        assert_eq!(config["bundle"]["macOS"]["signingIdentity"], "-");
+        assert_eq!(
+            config["plugins"]["updater"]["endpoints"][0],
+            "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json"
+        );
+        assert!(config["plugins"]["updater"]["pubkey"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
+    }
+
+    #[test]
+    fn desktop_capability_has_only_required_update_permissions() {
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let permissions = capability["permissions"].as_array().unwrap();
+        let has = |permission: &str| permissions.iter().any(|value| value == permission);
+        assert!(has("updater:default"));
+        assert!(has("process:allow-restart"));
+        assert!(has("window-state:default"));
+        assert!(!has("shell:allow-execute"));
+        assert!(!has("fs:default"));
     }
 
     #[test]

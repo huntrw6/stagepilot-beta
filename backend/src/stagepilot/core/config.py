@@ -61,6 +61,11 @@ class MidiVelocityMappings(BaseModel):
     @model_validator(mode="after")
     def mapped_velocities_are_unique(self) -> MidiVelocityMappings:
         velocities = [velocity for _cue, velocity in self.configured()]
+        if any(velocity < 100 for velocity in velocities):
+            raise ValueError(
+                "MIDI action velocities must be between 100 and 127; "
+                "velocities 1 through 99 identify service-plan songs."
+            )
         if len(velocities) != len(set(velocities)):
             raise ValueError("Every configured MIDI action must use a distinct velocity.")
         return self
@@ -232,7 +237,7 @@ class PlanningCenterSettings(BaseModel):
     upcoming_lookahead_days: int = Field(default=30, ge=0, le=365)
     request_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     user_agent: str = Field(
-        default="StagePilot/1.1.5 (https://github.com/huntrw6/stagepilot)",
+        default="StagePilot/1.1.32 (https://github.com/huntrw6/stagepilot)",
         min_length=1,
         max_length=256,
     )
@@ -279,7 +284,7 @@ class Settings(BaseModel):
     """Validated runtime settings; integration secrets remain server-side only."""
 
     app_name: str = "StagePilot"
-    version: str = "1.1.5"
+    version: str = "1.1.32"
     bind_host: str = "127.0.0.1"
     bind_port: int = Field(default=8765, ge=1, le=65535)
     log_level: str = "INFO"

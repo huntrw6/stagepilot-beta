@@ -88,6 +88,7 @@ function renderPanel({
   onSimulate = vi.fn(),
   onSaveSettings = vi.fn(),
   messages = [],
+  songs = [],
 }: {
   value?: MidiInputsResponse;
   onRefresh?: () => void;
@@ -95,6 +96,7 @@ function renderPanel({
   onSimulate?: (cue: "start_next" | "restart_current" | "previous" | "next" | "reload_plan" | "stop_timer") => void;
   onSaveSettings?: (value: SettingsResponse["settings"]["midi"]) => void;
   messages?: MidiMonitorMessage[];
+  songs?: Parameters<typeof MidiSetupPanel>[0]["songs"];
 } = {}) {
   render(
     <MidiSetupPanel
@@ -109,11 +111,39 @@ function renderPanel({
       pendingCue={null}
       pendingOperation={null}
       settings={settings}
+      songs={songs}
     />,
   );
 }
 
 describe("MidiSetupPanel", () => {
+  it("shows the loaded service plan song-to-velocity map", () => {
+    renderPanel({
+      songs: [
+        {
+          id: "song-a",
+          title: "Alpha",
+          duration_seconds: 240,
+          order: 1,
+          is_generic: false,
+          source_song_id: null,
+        },
+        {
+          id: "song-b",
+          title: "Beta",
+          duration_seconds: 220,
+          order: 2,
+          is_generic: false,
+          source_song_id: null,
+        },
+      ],
+    });
+
+    expect(screen.getByText("Playback song velocities")).toBeInTheDocument();
+    expect(screen.getByText("Alpha").previousElementSibling).toHaveTextContent("1");
+    expect(screen.getByText("Beta").previousElementSibling).toHaveTextContent("2");
+  });
+
   it("shows persistent configuration and connects an available input", async () => {
     const onRefresh = vi.fn();
     const onSelect = vi.fn();

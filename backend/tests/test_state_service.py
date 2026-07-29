@@ -114,6 +114,50 @@ async def test_restart_current_song_does_not_advance(
 
 
 @pytest.mark.asyncio
+async def test_song_position_dispatch_starts_the_exact_requested_song(
+    service: tuple[EventBus, StateStore, StateService],
+) -> None:
+    bus, store, state_service = service
+    await load(
+        bus,
+        make_plan(
+            song("a", "Alpha", 1),
+            song("b", "Beta", 2),
+            song("c", "Gamma", 3),
+        ),
+    )
+    started: list[StagePilotEvent] = []
+    await bus.subscribe(EventType.SONG_STARTED, started.append)
+
+    outcome = await state_service.dispatch_song_position(3, source="midi_playback")
+    state = await store.snapshot()
+
+    assert outcome.accepted is True
+    assert outcome.message == 'Started song 3, "Gamma".'
+    assert state.current_song_index == 2
+    assert state.current_song and state.current_song.title == "Gamma"
+    assert state.next_song is None
+    assert len(started) == 1
+    assert started[0].source == "midi_playback"
+
+
+@pytest.mark.asyncio
+async def test_song_position_dispatch_rejects_a_velocity_outside_the_loaded_plan(
+    service: tuple[EventBus, StateStore, StateService],
+) -> None:
+    bus, store, state_service = service
+    await load(bus, make_plan(song("a", "Alpha", 1), song("b", "Beta", 2)))
+
+    outcome = await state_service.dispatch_song_position(3, source="midi_playback")
+    state = await store.snapshot()
+
+    assert outcome.accepted is False
+    assert outcome.message == "Song velocity 3 does not match a loaded song (1-2)."
+    assert state.current_song is None
+    assert state.current_song_index is None
+
+
+@pytest.mark.asyncio
 async def test_previous_selects_song_without_starting_it(
     service: tuple[EventBus, StateStore, StateService],
 ) -> None:

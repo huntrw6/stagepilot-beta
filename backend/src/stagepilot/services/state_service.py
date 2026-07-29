@@ -99,6 +99,15 @@ class StateService:
             return ActionOutcome(False, "The action handler failed; see recent errors.")
         return ActionOutcome(False, "No service is available to handle this action.")
 
+    async def dispatch_song_position(
+        self,
+        position: int,
+        source: str = "api",
+    ) -> ActionOutcome:
+        """Start an exact one-based song position without changing manual-control semantics."""
+        async with self._action_lock:
+            return await self._start_song_position(position, source=source)
+
     async def _handle_action(self, event: StagePilotEvent) -> None:
         if not isinstance(event.payload, ActionPayload):
             return
@@ -139,6 +148,36 @@ class StateService:
             )
         )
         return ActionOutcome(True, f'Started "{song.title}".')
+
+    async def _start_song_position(self, position: int, *, source: str) -> ActionOutcome:
+        state = await self._state_store.snapshot()
+        songs = state.plan.songs if state.plan else []
+        if not songs:
+            return ActionOutcome(False, "No songs are loaded.")
+        if position < 1 or position > len(songs):
+            return ActionOutcome(
+                False,
+                f"Song velocity {position} does not match a loaded song (1-{len(songs)}).",
+            )
+
+        target = position - 1
+        song = songs[target]
+        await self._select_song(target, ActionName.START_NEXT)
+        if not song.duration_seconds:
+            self._pending_start_index = target
+            message = f'Cannot start "{song.title}": scheduled duration is missing or zero.'
+            await self._set_timer_error(message)
+            return ActionOutcome(False, message)
+
+        self._pending_start_index = target + 1
+        await self._event_bus.publish(
+            new_event(
+                EventType.SONG_STARTED,
+                source=source,
+                payload=SongPayload(song=song, index=target),
+            )
+        )
+        return ActionOutcome(True, f'Started song {position}, "{song.title}".')
 
     async def _restart_current(self) -> ActionOutcome:
         state = await self._state_store.snapshot()

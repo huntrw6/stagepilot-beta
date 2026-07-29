@@ -146,8 +146,11 @@ jobs:
       - name: Run desktop lifecycle tests
         run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
 
+      - name: Validate updater and release configuration
+        run: npm --prefix desktop run release:test
+
       - name: Build packaged application and installer
-        run: npm --prefix desktop run build
+        run: npm --prefix desktop run build:ci
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4

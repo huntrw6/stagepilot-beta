@@ -162,7 +162,7 @@ describe("LightsSetupPanel", () => {
 
     expect(screen.getByDisplayValue("01:05")).toBeInTheDocument();
     expect(screen.getByDisplayValue("First chorus")).toBeInTheDocument();
-    expect(screen.getAllByRole("option", { name: "C4 (MIDI 72)" })).toHaveLength(2);
+    expect(screen.getAllByRole("option", { name: "C4" })).toHaveLength(2);
 
     const label = screen.getByLabelText("Lighting cue label");
     await user.clear(label);
@@ -175,6 +175,40 @@ describe("LightsSetupPanel", () => {
       [expect.objectContaining({ at_seconds: 65, note: 72, velocity: 110, label: "Chorus wash" })],
     );
     expect(screen.queryByRole("button", { name: "Save song lighting cues" })).not.toBeInTheDocument();
+  });
+
+  it("toggles every note selector between music notation and numeric display", async () => {
+    const user = userEvent.setup();
+    const onSaveCues = vi.fn();
+    render(
+      <LightsSetupPanel
+        error={null}
+        lights={lights}
+        message={null}
+        onRefresh={vi.fn()}
+        onSaveCues={onSaveCues}
+        onSaveSettings={vi.fn()}
+        onTest={vi.fn()}
+        pendingOperation={null}
+        settings={settings}
+        state={state}
+      />,
+    );
+
+    const displaySwitch = screen.getByRole("switch", {
+      name: "MIDI note display: music notation",
+    });
+    expect(displaySwitch).not.toBeChecked();
+    expect(screen.getAllByRole("option", { name: "C4" })).toHaveLength(2);
+
+    await user.click(displaySwitch);
+
+    expect(
+      screen.getByRole("switch", { name: "MIDI note display: numeric value" }),
+    ).toBeChecked();
+    expect(screen.getAllByRole("option", { name: "72" })).toHaveLength(2);
+    expect(screen.getByLabelText("Lighting cue note")).toHaveValue("72");
+    expect(onSaveCues).not.toHaveBeenCalled();
   });
 
   it("automatically saves added and individually removed cues", async () => {

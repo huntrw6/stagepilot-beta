@@ -1,8 +1,24 @@
 # StagePilot roadmap
 
+## In-app updates
+
+The Tauri 2 updater flow, signed artifact pipeline, window restoration, and
+confirmation/progress UI are implemented. Production activation requires the
+long-term updater public key, both GitHub signing secrets, and the documented
+Intel/Apple Silicon bootstrap-to-two-update validation.
+
 This roadmap describes intended scope, not a promise of dates. A milestone is
 complete only when its behavior is implemented, documented, and verified; a
 scaffold or mock alone does not prove a production integration.
+
+## Customizable dashboard
+
+- GridStack-based 12-column desktop and 6-column tablet layouts
+- Stable one-column mobile ordering
+- Explicit edit mode with dedicated drag and resize handles
+- Automatic compaction and intentional spacer items
+- Validated local persistence and v1 order migration
+- Keyboard ordering controls and reset confirmation
 
 ## v0.1 — Foundation
 
