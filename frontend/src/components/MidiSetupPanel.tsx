@@ -6,6 +6,7 @@ import type {
   MidiMonitorMessage,
   MidiSettingsInput,
   SettingsResponse,
+  Song,
 } from "../types";
 import { SetupPanelHeader } from "./SetupPanelHeader";
 
@@ -50,6 +51,7 @@ export function MidiSetupPanel({
   settingsError = null,
   settingsMessage = null,
   onSaveSettings,
+  songs = [],
 }: {
   midi: MidiInputsResponse | null;
   messages: MidiMonitorMessage[];
@@ -66,6 +68,7 @@ export function MidiSetupPanel({
   settingsError?: string | null;
   settingsMessage?: string | null;
   onSaveSettings: (settings: MidiSettingsInput) => void;
+  songs?: Song[];
 }) {
   const [candidateId, setCandidateId] = useState("");
   const [channel, setChannel] = useState("1");
@@ -108,7 +111,7 @@ export function MidiSetupPanel({
     if (!Number.isInteger(parsedChannel) || parsedChannel < 1 || parsedChannel > 16) return null;
     if (!Number.isInteger(parsedNote) || parsedNote < 0 || parsedNote > 127) return null;
     if (!Number.isInteger(parsedDebounce) || parsedDebounce < 0 || parsedDebounce > 2000) return null;
-    if (Object.values(parsedVelocities).some((value) => !Number.isInteger(value) || value < 1 || value > 127)) return null;
+    if (Object.values(parsedVelocities).some((value) => !Number.isInteger(value) || value < 100 || value > 127)) return null;
     if (new Set(Object.values(parsedVelocities)).size !== cues.length) return null;
     return {
       ...settings.settings.midi,
@@ -143,6 +146,35 @@ export function MidiSetupPanel({
       />
 
       <div className="mt-4 rounded-lg border border-fuchsia-400/15 bg-fuchsia-400/[0.05] p-3">
+        <div className="mb-4 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.07] p-3">
+          <p className="text-sm font-semibold text-emerald-200">Playback song velocities</p>
+          <p className="mt-1 text-xs text-slate-300">
+            Use the fixed note above and set each song-start cue's velocity to its
+            one-based position in this service plan. Velocities 1–99 start that exact
+            song; 100–127 remain reserved for action cues.
+          </p>
+          {songs.length > 0 ? (
+            <>
+              <ol className="mt-3 grid gap-1.5 sm:grid-cols-2">
+                {songs.slice(0, 99).map((song, index) => (
+                  <li className="flex items-center gap-2 text-xs text-slate-200" key={`${song.id}-${index}`}>
+                    <span className="inline-flex min-w-8 justify-center rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono font-bold text-emerald-200">
+                      {index + 1}
+                    </span>
+                    <span className="truncate">{song.title}</span>
+                  </li>
+                ))}
+              </ol>
+              {songs.length > 99 && (
+                <p className="mt-3 text-xs text-rose-200">
+                  This plan has more than 99 songs. Positions after 99 cannot be addressed by MIDI velocity.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-2 text-xs text-amber-200">Load a service plan to see its song-to-velocity map.</p>
+          )}
+        </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="text-sm text-slate-300">
             <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">MIDI channel</span>
@@ -177,6 +209,8 @@ export function MidiSetupPanel({
                 className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
                 disabled={pendingSettingsSave}
                 inputMode="numeric"
+                min={100}
+                max={127}
                 onChange={(event) => setVelocities((current) => ({ ...current, [cue]: event.target.value }))}
                 value={velocities[cue]}
               />
@@ -192,7 +226,7 @@ export function MidiSetupPanel({
           >
             {pendingSettingsSave ? "Saving…" : "Save MIDI settings"}
           </button>
-          <p className="text-xs text-slate-500">Saving enables real MIDI input. Values must be unique and within the displayed MIDI ranges.</p>
+          <p className="text-xs text-slate-400">Saving enables real MIDI input. Action velocities must be unique and between 100 and 127.</p>
         </div>
       </div>
 

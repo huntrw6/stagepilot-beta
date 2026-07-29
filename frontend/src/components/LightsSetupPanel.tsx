@@ -17,10 +17,14 @@ import { SetupPanelHeader } from "./SetupPanelHeader";
 const midiNoteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 const midiNoteName = (note: number) =>
   `${midiNoteNames[note % midiNoteNames.length]}${Math.floor(note / 12) - 2}`;
-const midiNoteOptions = Array.from({ length: 128 }, (_, note) => ({
-  note,
-  label: `${midiNoteName(note)} (MIDI ${note})`,
-}));
+
+type NoteDisplayMode = "music" | "numeric";
+
+const midiNoteOptions = (mode: NoteDisplayMode) =>
+  Array.from({ length: 128 }, (_, note) => ({
+    note,
+    label: mode === "music" ? midiNoteName(note) : String(note),
+  }));
 
 const formatElapsed = (seconds: number) =>
   `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
@@ -77,6 +81,11 @@ export function LightsSetupPanel({
   const [testVelocity, setTestVelocity] = useState("127");
   const [selectedSongKey, setSelectedSongKey] = useState(preferredSongKey);
   const [cues, setCues] = useState<LightingCue[]>([]);
+  const [noteDisplayMode, setNoteDisplayMode] = useState<NoteDisplayMode>("music");
+  const displayedNoteOptions = useMemo(
+    () => midiNoteOptions(noteDisplayMode),
+    [noteDisplayMode],
+  );
 
   useEffect(() => {
     const source = settings?.settings.lights ?? lights;
@@ -206,10 +215,29 @@ export function LightsSetupPanel({
       </div>
 
       <div className="mt-6 border-t border-white/7 pt-5">
-        <h3 className="font-semibold text-slate-100">Test MIDI pulse</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold text-slate-100">Test MIDI pulse</h3>
+          <div className="flex items-center gap-2" aria-label="MIDI note display">
+            <span aria-hidden="true" className={noteDisplayMode === "music" ? "text-sky-200" : "text-slate-500"}>♪</span>
+            <button
+              aria-checked={noteDisplayMode === "numeric"}
+              aria-label={`MIDI note display: ${noteDisplayMode === "music" ? "music notation" : "numeric value"}`}
+              className="relative h-7 w-12 cursor-pointer rounded-full border border-sky-300/30 bg-slate-900 transition-colors duration-200 hover:border-sky-300/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onClick={() => setNoteDisplayMode((current) => current === "music" ? "numeric" : "music")}
+              role="switch"
+              type="button"
+            >
+              <span
+                aria-hidden="true"
+                className={`absolute top-1 h-4 w-4 rounded-full bg-sky-300 shadow-sm shadow-sky-300/30 transition-transform duration-200 ${noteDisplayMode === "numeric" ? "translate-x-6" : "translate-x-1"}`}
+              />
+            </button>
+            <span aria-hidden="true" className={noteDisplayMode === "numeric" ? "text-sky-200" : "text-slate-500"}>#</span>
+          </div>
+        </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]">
           <select aria-label="Test lighting note" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100" onChange={(event) => setTestNote(event.target.value)} value={testNote}>
-            {midiNoteOptions.map((option) => <option key={option.note} value={option.note}>{option.label}</option>)}
+            {displayedNoteOptions.map((option) => <option key={option.note} value={option.note}>{option.label}</option>)}
           </select>
           <input aria-label="Test lighting velocity" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100" max={127} min={1} onChange={(event) => setTestVelocity(event.target.value)} type="number" value={testVelocity} />
           <button className="rounded-lg border border-sky-300/30 bg-sky-300/10 px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-300/20 disabled:opacity-40" disabled={lights?.connection_status !== "connected" || pendingOperation !== null} onClick={() => onTest(Number(testNote), Number(testVelocity))} type="button">{pendingOperation === "test" ? "Sending…" : "Send test cue"}</button>
@@ -234,7 +262,7 @@ export function LightsSetupPanel({
             <div className="grid gap-2 rounded-lg border border-white/7 bg-white/[0.025] p-3 md:grid-cols-[7rem_minmax(11rem,1fr)_7rem_minmax(9rem,1fr)_auto_auto]" key={cue.id}>
               <input aria-label="Cue elapsed time" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 font-mono text-slate-100 disabled:opacity-50" defaultValue={formatElapsed(cue.at_seconds)} disabled={pendingOperation !== null} onBlur={(event) => { const parsed = parseElapsed(event.target.value); if (parsed !== null && (selectedSong?.duration_seconds == null || parsed <= selectedSong.duration_seconds)) updateCue(cue.id, { at_seconds: parsed }, true); else event.target.value = formatElapsed(cue.at_seconds); }} placeholder="00:00" />
               <select aria-label="Lighting cue note" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 disabled:opacity-50" disabled={pendingOperation !== null} onChange={(event) => updateCue(cue.id, { note: Number(event.target.value) }, true)} value={cue.note}>
-                {midiNoteOptions.map((option) => <option key={option.note} value={option.note}>{option.label}</option>)}
+                {displayedNoteOptions.map((option) => <option key={option.note} value={option.note}>{option.label}</option>)}
               </select>
               <input aria-label="Lighting cue velocity" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 disabled:opacity-50" disabled={pendingOperation !== null} max={127} min={1} onBlur={() => cue.velocity >= 1 && cue.velocity <= 127 && persistCues(cues)} onChange={(event) => updateCue(cue.id, { velocity: Number(event.target.value) })} type="number" value={cue.velocity} />
               <input aria-label="Lighting cue label" className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-slate-100 disabled:opacity-50" disabled={pendingOperation !== null} maxLength={120} onBlur={() => persistCues(cues)} onChange={(event) => updateCue(cue.id, { label: event.target.value })} placeholder="Verse, chorus, blackout…" value={cue.label} />

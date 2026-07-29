@@ -170,7 +170,14 @@ remains available as a higher-priority development override.
 | `STAGEPILOT_MIDI_STOP_TIMER_VELOCITY` | `105` | Stops the active timer. |
 | `STAGEPILOT_MIDI_DEBOUNCE_MS` | `250` | Duplicate note-on suppression window, from 0 through 2000 milliseconds. |
 
-Mapped velocities must be distinct integers from 1 through 127. A qualifying
+Playback song-start cues use velocities `1` through `99` as one-based service
+plan positions: velocity `1` starts the first loaded song, velocity `2` starts
+the second, and so on. StagePilot rejects a position that does not exist in the
+loaded plan. Velocities `100` through `127` are reserved for the configurable
+action mappings above. Manual dashboard controls continue to dispatch their
+actions directly and are unaffected by this MIDI protocol.
+
+Mapped action velocities must be distinct integers from 100 through 127. A qualifying
 note-on must use the configured note and channel and have a mapped velocity;
 note-off, including note-on with velocity zero, releases the held-note latch.
 

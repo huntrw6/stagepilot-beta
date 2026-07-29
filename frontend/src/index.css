@@ -44,7 +44,7 @@ body {
 
 /* The desktop titlebar provides this headroom in Tauri; the browser does not. */
 #root > .stagepilot-dashboard:first-child {
-  padding-top: 2rem;
+  padding-top: 4rem;
 }
 
 .font-brand {
@@ -143,6 +143,51 @@ body {
 .setup-panel .text-slate-600,
 .now-playing-panel .text-slate-600 {
   color: rgb(100 116 139);
+}
+
+.stagepilot-dashboard-grid {
+  min-height: 12rem;
+}
+
+.stagepilot-dashboard-grid > .grid-stack-item > .grid-stack-item-content {
+  inset: 5px;
+  overflow: visible;
+}
+
+.stagepilot-dashboard-grid .ui-resizable-handle {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.dashboard-layout-editing .ui-resizable-handle {
+  opacity: 1;
+}
+
+.dashboard-layout-editing .ui-resizable-se {
+  right: 7px;
+  bottom: 7px;
+  width: 16px;
+  height: 16px;
+  border-right: 3px solid rgb(125 211 252 / 0.85);
+  border-bottom: 3px solid rgb(125 211 252 / 0.85);
+}
+
+.stagepilot-dashboard-grid > .grid-stack-placeholder > .placeholder-content {
+  border: 1px dashed rgb(125 211 252 / 0.65);
+  border-radius: 0.75rem;
+  background: rgb(14 165 233 / 0.12);
+}
+
+.dashboard-grid-item-interacting {
+  z-index: 20;
+  opacity: 0.78;
+  filter: drop-shadow(0 20px 25px rgb(0 0 0 / 0.45));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagepilot-dashboard-grid > .grid-stack-item {
+    transition: none !important;
+  }
 }
 
 button:focus-visible {

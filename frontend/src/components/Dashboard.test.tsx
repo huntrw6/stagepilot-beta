@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ApplicationState,
@@ -8,6 +8,7 @@ import type {
   ServiceLoadState,
   ServicePlan,
 } from "../types";
+import type { UpdaterController } from "../hooks/useUpdater";
 import { Dashboard } from "./Dashboard";
 
 const loadedPlan: ServicePlan = {
@@ -133,12 +134,14 @@ function renderDashboard(
     pendingPlanId = null,
     selectPlan = vi.fn(),
     state = applicationState(serviceLoad),
+    updater,
   }: {
     actionMessage?: string | null;
     error?: string | null;
     pendingPlanId?: string | null;
     selectPlan?: (planId: string) => void;
     state?: ApplicationState;
+    updater?: UpdaterController;
   } = {},
 ) {
   return render(
@@ -161,11 +164,67 @@ function renderDashboard(
       selectPlan={selectPlan}
       simulateMidi={vi.fn()}
       state={state}
+      updater={updater}
     />,
   );
 }
 
+beforeEach(() => {
+  window.localStorage.removeItem("stagepilot.dashboard-layout.v2");
+  window.localStorage.removeItem("stagepilot.dashboard-layout.invalid");
+});
+
 describe("Dashboard Planning Center plan states", () => {
+  it("places the update control beside the StagePilot brand only when available", () => {
+    const updater: UpdaterController = {
+      status: "available",
+      currentVersion: "1.1.5",
+      availableVersion: "1.2.0",
+      releaseNotes: null,
+      releaseDate: null,
+      progress: null,
+      error: null,
+      errorDialogOpen: false,
+      successMessage: null,
+      checkForUpdate: vi.fn(),
+      openConfirmation: vi.fn(),
+      cancelConfirmation: vi.fn(),
+      install: vi.fn(),
+      retry: vi.fn(),
+      closeError: vi.fn(),
+    };
+    renderDashboard(loadedServiceState, { updater });
+
+    const brand = screen.getByRole("heading", { name: "StagePilot" }).parentElement;
+    const button = screen.getByRole("button", {
+      name: "Update StagePilot to version 1.2.0",
+    });
+    expect(brand).toContainElement(button);
+  });
+
+  it("does not reserve header space for a current updater state", () => {
+    const updater: UpdaterController = {
+      status: "current",
+      currentVersion: "1.1.5",
+      availableVersion: null,
+      releaseNotes: null,
+      releaseDate: null,
+      progress: null,
+      error: null,
+      errorDialogOpen: false,
+      successMessage: null,
+      checkForUpdate: vi.fn(),
+      openConfirmation: vi.fn(),
+      cancelConfirmation: vi.fn(),
+      install: vi.fn(),
+      retry: vi.fn(),
+      closeError: vi.fn(),
+    };
+    renderDashboard(loadedServiceState, { updater });
+
+    expect(screen.queryByRole("button", { name: /Update StagePilot/ })).not.toBeInTheDocument();
+  });
+
   it("renders action notifications in the reserved header slot", () => {
     renderDashboard(loadedServiceState, {
       actionMessage: "Service position and timer reset.",
@@ -432,53 +491,78 @@ describe("Dashboard Planning Center plan states", () => {
 });
 
 describe("Dashboard widget layout", () => {
-  it("moves dashboard widgets with arrows and saves the manual-controls position", async () => {
-    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
+  it("locks layout controls by default and persists keyboard movement in edit mode", async () => {
+    window.localStorage.removeItem("stagepilot.dashboard-layout.v2");
     const user = userEvent.setup();
     renderDashboard(loadedServiceState);
 
-    const servicePlan = screen.getByTestId("dashboard-widget-service-plan");
-    const nowPlaying = screen.getByTestId("dashboard-widget-now-playing");
-    expect(servicePlan).toHaveStyle({ order: "0" });
-    expect(nowPlaying).toHaveStyle({ order: "1" });
+    expect(screen.queryByRole("button", { name: "Move Service Plan later" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: "Dashboard layout tools" })).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "Edit layout" }));
+    expect(screen.getByRole("toolbar", { name: "Dashboard layout tools" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Move Service Plan later" }));
 
-    expect(servicePlan).toHaveStyle({ order: "1" });
-    expect(nowPlaying).toHaveStyle({ order: "0" });
-    expect(JSON.parse(window.localStorage.getItem("stagepilot.dashboard-widget-order.v1")!)).toEqual([
-      "now-playing",
-      "service-plan",
-      "manual-controls",
-      "readiness",
-      "events",
-    ]);
+    await waitFor(() => {
+      const saved = JSON.parse(window.localStorage.getItem("stagepilot.dashboard-layout.v2")!);
+      expect(saved.version).toBe(2);
+      expect(saved.desktop).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "service-plan" }),
+        expect.objectContaining({ id: "now-playing" }),
+      ]));
+    });
     expect(screen.getByRole("button", { name: "Drag Manual Controls to a new dashboard position" })).toBeInTheDocument();
-    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("button", { name: "Drag Manual Controls to a new dashboard position" })).not.toBeInTheDocument();
   });
 
-  it("snaps a widget to the hovered position when a pointer drag is released", () => {
-    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
+  it("adds intentional spacers and confirms before resetting them", async () => {
+    window.localStorage.removeItem("stagepilot.dashboard-layout.v2");
+    const user = userEvent.setup();
     renderDashboard(loadedServiceState);
 
-    const servicePlan = screen.getByTestId("dashboard-widget-service-plan");
-    const events = screen.getByTestId("dashboard-widget-events");
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Drag Service Plan to a new dashboard position" }),
-    );
-    fireEvent.pointerEnter(events);
-    fireEvent.pointerUp(window);
+    await user.click(screen.getByRole("button", { name: "Edit layout" }));
+    await user.click(screen.getByRole("button", { name: "Add spacer" }));
+    expect(screen.getByText("Intentional spacer")).toBeInTheDocument();
 
-    expect(servicePlan).toHaveStyle({ order: "4" });
-    expect(events).toHaveStyle({ order: "3" });
-    expect(JSON.parse(window.localStorage.getItem("stagepilot.dashboard-widget-order.v1")!)).toEqual([
-      "now-playing",
-      "manual-controls",
-      "readiness",
-      "events",
-      "service-plan",
-    ]);
-    window.localStorage.removeItem("stagepilot.dashboard-widget-order.v1");
+    const customized = JSON.parse(window.localStorage.getItem("stagepilot.dashboard-layout.v2")!);
+    expect(customized.desktop.some((item: { kind: string }) => item.kind === "spacer")).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Reset layout" }));
+    const dialog = screen.getByRole("dialog", { name: "Reset dashboard layout?" });
+    expect(dialog).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Reset layout" }));
+
+    const reset = JSON.parse(window.localStorage.getItem("stagepilot.dashboard-layout.v2")!);
+    expect(reset.desktop.some((item: { kind: string }) => item.kind === "spacer")).toBe(false);
+  });
+
+  it("switches responsive modes without replacing the saved desktop geometry", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+    try {
+      renderDashboard(loadedServiceState);
+      const dashboard = screen.getByRole("region", { name: "Customizable dashboard" });
+      const grid = dashboard.querySelector(".stagepilot-dashboard-grid");
+      expect(grid).toHaveAttribute("data-layout-mode", "desktop");
+      const desktopBefore = JSON.parse(
+        window.localStorage.getItem("stagepilot.dashboard-layout.v2")!,
+      ).desktop;
+
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 500 });
+      act(() => window.dispatchEvent(new Event("resize")));
+      await waitFor(() => expect(grid).toHaveAttribute("data-layout-mode", "mobile"));
+
+      expect(JSON.parse(
+        window.localStorage.getItem("stagepilot.dashboard-layout.v2")!,
+      ).desktop).toEqual(desktopBefore);
+
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+      act(() => window.dispatchEvent(new Event("resize")));
+      await waitFor(() => expect(grid).toHaveAttribute("data-layout-mode", "desktop"));
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
   });
 });
 
@@ -522,6 +606,22 @@ describe("Dashboard connection configuration panels", () => {
 
     expect(midiConnection).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
+  });
+
+  it("keeps all connection cards in one row and hides their icons at narrow widths", () => {
+    renderDashboard(loadedServiceState, {
+      state: applicationState(loadedServiceState, { plugins: {} }),
+    });
+
+    const connections = screen.getByRole("region", { name: "Connections" });
+    expect(connections).toHaveClass("grid-cols-5");
+    expect(connections).not.toHaveClass("sm:grid-cols-2");
+
+    for (const icon of ["planning-center", "multitracks", "propresenter", "lights", "stagepilot"]) {
+      const image = document.querySelector(`[data-status-icon="${icon}"]`);
+      expect(image).toBeInTheDocument();
+      expect(image?.parentElement).toHaveClass("hidden", "xl:grid");
+    }
   });
 
   it("provides close buttons for all five connection panels", async () => {

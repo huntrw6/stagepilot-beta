@@ -221,12 +221,12 @@ def test_environment_loads_every_midi_setting(monkeypatch: pytest.MonkeyPatch) -
         "STAGEPILOT_MIDI_INPUT_NAME": "  Playback MIDI  ",
         "STAGEPILOT_MIDI_CHANNEL": "16",
         "STAGEPILOT_MIDI_NOTE": "72",
-        "STAGEPILOT_MIDI_START_NEXT_VELOCITY": "10",
-        "STAGEPILOT_MIDI_RESTART_CURRENT_VELOCITY": "11",
-        "STAGEPILOT_MIDI_PREVIOUS_VELOCITY": "12",
-        "STAGEPILOT_MIDI_NEXT_VELOCITY": "13",
-        "STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY": "14",
-        "STAGEPILOT_MIDI_STOP_TIMER_VELOCITY": "15",
+        "STAGEPILOT_MIDI_START_NEXT_VELOCITY": "110",
+        "STAGEPILOT_MIDI_RESTART_CURRENT_VELOCITY": "111",
+        "STAGEPILOT_MIDI_PREVIOUS_VELOCITY": "112",
+        "STAGEPILOT_MIDI_NEXT_VELOCITY": "113",
+        "STAGEPILOT_MIDI_RELOAD_PLAN_VELOCITY": "114",
+        "STAGEPILOT_MIDI_STOP_TIMER_VELOCITY": "115",
         "STAGEPILOT_MIDI_DEBOUNCE_MS": "0",
     }
     for name, value in environment.items():
@@ -243,12 +243,12 @@ def test_environment_loads_every_midi_setting(monkeypatch: pytest.MonkeyPatch) -
     assert midi.note == 72
     assert midi.debounce_ms == 0
     assert dict(midi.mappings.configured()) == {
-        MidiCueName.START_NEXT: 10,
-        MidiCueName.RESTART_CURRENT: 11,
-        MidiCueName.PREVIOUS: 12,
-        MidiCueName.NEXT: 13,
-        MidiCueName.RELOAD_PLAN: 14,
-        MidiCueName.STOP_TIMER: 15,
+        MidiCueName.START_NEXT: 110,
+        MidiCueName.RESTART_CURRENT: 111,
+        MidiCueName.PREVIOUS: 112,
+        MidiCueName.NEXT: 113,
+        MidiCueName.RELOAD_PLAN: 114,
+        MidiCueName.STOP_TIMER: 115,
     }
 
 

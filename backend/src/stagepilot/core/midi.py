@@ -14,6 +14,11 @@ if TYPE_CHECKING:
     from stagepilot.core.config import MidiSettings
 
 
+MIN_SONG_POSITION_VELOCITY = 1
+MAX_SONG_POSITION_VELOCITY = 99
+MIN_ACTION_VELOCITY = 100
+
+
 class MidiCueName(StrEnum):
     START_NEXT = "start_next"
     RESTART_CURRENT = "restart_current"

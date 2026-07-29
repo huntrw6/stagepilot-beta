@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Dashboard } from "./components/Dashboard";
 import { DesktopTitleBar } from "./components/DesktopTitleBar";
@@ -8,13 +8,22 @@ import {
   type BackendSupervisorStatus,
 } from "./desktop";
 import { useStagePilot } from "./hooks/useStagePilot";
+import { useUpdater } from "./hooks/useUpdater";
 import { loadingProgressTarget } from "./loadingProgress";
 
 export default function App() {
   const stagePilot = useStagePilot();
+  const {
+    activateConfiguredServices,
+    settings: stagePilotSettings,
+  } = stagePilot;
   const [backendSupervisor, setBackendSupervisor] = useState<BackendSupervisorStatus | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(1);
   const [dashboardVisible, setDashboardVisible] = useState(false);
+  const startupServicesActivated = useRef(false);
+  const updater = useUpdater({
+    ready: dashboardVisible && Boolean(stagePilot.state),
+  });
 
   useEffect(() => {
     let active = true;
@@ -58,6 +67,15 @@ export default function App() {
     };
   }, [dashboardVisible, stagePilot.state]);
 
+  useEffect(() => {
+    if (!dashboardVisible || !stagePilotSettings || startupServicesActivated.current) return;
+    const activate = window.setTimeout(() => {
+      startupServicesActivated.current = true;
+      void activateConfiguredServices();
+    }, 1_000);
+    return () => window.clearTimeout(activate);
+  }, [activateConfiguredServices, dashboardVisible, stagePilotSettings]);
+
   if (!stagePilot.state || !dashboardVisible) {
     return (
       <>
@@ -96,7 +114,7 @@ export default function App() {
   return (
     <>
       <DesktopTitleBar />
-      <Dashboard {...stagePilot} state={stagePilot.state} />
+      <Dashboard {...stagePilot} state={stagePilot.state} updater={updater} />
     </>
   );
 }

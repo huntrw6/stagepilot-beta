@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getHealth,
+  getLightsStatus,
   getMidiInputs,
   getMidiMessages,
   getPlanningCenterServiceTypes,
@@ -12,6 +13,7 @@ import {
   performAction,
   rememberServerPort,
   refreshMidiInputs,
+  updateLightsSettings,
   selectMidiInput,
   selectPlanningCenterPlan,
   simulateMidiCue,
@@ -31,6 +33,7 @@ import { useStagePilot } from "./useStagePilot";
 
 vi.mock("../api", () => ({
   getHealth: vi.fn(),
+  getLightsStatus: vi.fn(),
   getMidiInputs: vi.fn(),
   getMidiMessages: vi.fn(),
   getPlanningCenterServiceTypes: vi.fn(),
@@ -40,11 +43,13 @@ vi.mock("../api", () => ({
   performAction: vi.fn(),
   rememberServerPort: vi.fn(),
   refreshMidiInputs: vi.fn(),
+  refreshLightingOutputs: vi.fn(),
   selectMidiInput: vi.fn(),
   selectPlanningCenterPlan: vi.fn(),
   simulateMidiCue: vi.fn(),
   testPlanningCenter: vi.fn(),
   updatePlanningCenterSettings: vi.fn(),
+  updateLightsSettings: vi.fn(),
   updateSettings: vi.fn(),
   getProPresenterStatus: vi.fn(),
   testProPresenter: vi.fn(),
@@ -204,6 +209,7 @@ function deferred<T>() {
 }
 
 const mockedGetHealth = vi.mocked(getHealth);
+const mockedGetLightsStatus = vi.mocked(getLightsStatus);
 const mockedGetMidiInputs = vi.mocked(getMidiInputs);
 const mockedGetMidiMessages = vi.mocked(getMidiMessages);
 const mockedGetPlanningCenterServiceTypes = vi.mocked(getPlanningCenterServiceTypes);
@@ -218,6 +224,7 @@ const mockedSelectPlanningCenterPlan = vi.mocked(selectPlanningCenterPlan);
 const mockedSimulateMidiCue = vi.mocked(simulateMidiCue);
 const mockedTestPlanningCenter = vi.mocked(testPlanningCenter);
 const mockedUpdatePlanningCenterSettings = vi.mocked(updatePlanningCenterSettings);
+const mockedUpdateLightsSettings = vi.mocked(updateLightsSettings);
 const mockedUpdateProPresenterSettings = vi.mocked(updateProPresenterSettings);
 const mockedUpdateSettings = vi.mocked(updateSettings);
 
@@ -226,6 +233,17 @@ beforeEach(() => {
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
   mockedGetHealth.mockResolvedValue(health);
+  mockedGetLightsStatus.mockResolvedValue({
+    enabled: false,
+    output_name: null,
+    channel: 1,
+    pulse_ms: 100,
+    connection_status: "disconnected",
+    detail: null,
+    outputs: [],
+    last_cue: null,
+    last_cue_at: null,
+  });
   mockedGetMidiInputs.mockResolvedValue(midi);
   mockedGetMidiMessages.mockResolvedValue({ messages: [] });
   mockedGetSettings.mockResolvedValue(settings);
@@ -572,5 +590,103 @@ describe("useStagePilot", () => {
       "private-secret",
     );
     expect(result.current.settings).toEqual(finalSettings);
+  });
+
+  it("reactivates every configured integration after dashboard startup", async () => {
+    const configured: SettingsResponse = {
+      ...settings,
+      planning_center_secret_saved: true,
+      settings: {
+        ...settings.settings,
+        integration_modes: {
+          service_source: "planning_center",
+          midi_source: "real",
+          timer_output: "propresenter",
+        },
+        planning_center: {
+          ...settings.settings.planning_center,
+          app_id: "planning-app",
+          service_type_id: "sunday",
+        },
+        midi: {
+          ...settings.settings.midi,
+          enabled: true,
+          input_name: "Playback Controller",
+        },
+        propresenter: {
+          ...settings.settings.propresenter,
+          enabled: true,
+          look_id: "worship",
+        },
+        lights: {
+          ...settings.settings.lights,
+          enabled: true,
+          output_name: "StagePilot Lights",
+        },
+      },
+    };
+    mockedGetSettings.mockResolvedValue(configured);
+    mockedRefreshMidiInputs.mockResolvedValue(midi);
+    mockedUpdateSettings.mockResolvedValue(configured);
+    mockedUpdatePlanningCenterSettings.mockResolvedValue(configured);
+    mockedUpdateProPresenterSettings.mockResolvedValue({
+      accepted: true,
+      message: "ProPresenter connected.",
+      propresenter: {
+        enabled: true,
+        host: configured.settings.propresenter.host,
+        port: configured.settings.propresenter.port,
+        timer_name: configured.settings.propresenter.timer_name,
+        look_id: "worship",
+        request_timeout_seconds: configured.settings.propresenter.request_timeout_seconds,
+        connection_status: "connected",
+        detail: null,
+        timers: [],
+        selected_timer_id: null,
+        timer_found: false,
+        looks: [],
+        current_look_id: "worship",
+        look_found: true,
+        last_checked_at: null,
+      },
+    });
+    mockedUpdateLightsSettings.mockResolvedValue({
+      accepted: true,
+      message: "Lighting output connected.",
+      lights: {
+        enabled: true,
+        output_name: "StagePilot Lights",
+        channel: 1,
+        pulse_ms: 100,
+        connection_status: "connected",
+        detail: null,
+        outputs: [],
+        last_cue: null,
+        last_cue_at: null,
+      },
+    });
+
+    const { result } = renderHook(() => useStagePilot());
+    await waitFor(() => expect(result.current.settings).toEqual(configured));
+
+    await act(async () => result.current.activateConfiguredServices());
+
+    expect(mockedRefreshMidiInputs).toHaveBeenCalledOnce();
+    expect(mockedUpdateProPresenterSettings).toHaveBeenCalledWith({
+      host: "127.0.0.1",
+      port: 1025,
+      timer_name: "Song Countdown",
+      look_id: "worship",
+      request_timeout_seconds: 3,
+    });
+    expect(mockedUpdateLightsSettings).toHaveBeenCalledWith({
+      enabled: true,
+      output_name: "StagePilot Lights",
+      channel: 1,
+      pulse_ms: 100,
+    });
+    expect(mockedUpdatePlanningCenterSettings).toHaveBeenCalledWith(
+      configured.settings.planning_center,
+    );
   });
 });

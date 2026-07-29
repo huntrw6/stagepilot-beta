@@ -27,6 +27,8 @@ from stagepilot.core.events import (
 )
 from stagepilot.core.logging import get_logger
 from stagepilot.core.midi import (
+    MAX_SONG_POSITION_VELOCITY,
+    MIN_SONG_POSITION_VELOCITY,
     MidiController,
     MidiCueName,
     MidiInputInfo,
@@ -566,25 +568,38 @@ class MidiPlaybackPlugin(Plugin, MidiController):
             )
             return outcome
 
-        cue = self._settings.mappings.cue_for(message.velocity)
+        song_position = (
+            message.velocity
+            if MIN_SONG_POSITION_VELOCITY <= message.velocity <= MAX_SONG_POSITION_VELOCITY
+            else None
+        )
+        cue = (
+            None if song_position is not None else self._settings.mappings.cue_for(message.velocity)
+        )
         if cue is None:
-            outcome = ActionOutcome(
-                False,
-                (f"Ignored: velocity {message.velocity} is not mapped to a StagePilot cue."),
-            )
-            self._record_message(
-                queued,
-                MidiMessageDisposition.UNMAPPED,
-                outcome.message,
-            )
-            return outcome
+            if song_position is not None:
+                action = ActionName.START_NEXT
+            else:
+                outcome = ActionOutcome(
+                    False,
+                    (f"Ignored: velocity {message.velocity} is not mapped to a StagePilot cue."),
+                )
+                self._record_message(
+                    queued,
+                    MidiMessageDisposition.UNMAPPED,
+                    outcome.message,
+                )
+                return outcome
+        else:
+            action = cue.action
 
         self._logger.info(
             "midi_cue_recognized",
             channel=message.channel,
             note=message.note,
             velocity=message.velocity,
-            action=cue.value,
+            action=action.value,
+            song_position=song_position,
             simulated=queued.simulated,
         )
         await self.event_bus.publish(
@@ -595,7 +610,8 @@ class MidiPlaybackPlugin(Plugin, MidiController):
                     channel=message.channel,
                     note=message.note,
                     velocity=message.velocity,
-                    action=cue.action,
+                    action=action,
+                    song_position=song_position,
                     connection_id=queued.connection_id,
                     simulated=queued.simulated,
                 ),
@@ -620,16 +636,20 @@ class MidiPlaybackPlugin(Plugin, MidiController):
                 queued,
                 MidiMessageDisposition.DUPLICATE,
                 outcome.message,
-                action=cue.action,
+                action=action,
             )
             return outcome
 
         self._held_notes.add(trigger_key)
         self._last_triggered_at[trigger_key] = now
-        outcome = await self._action_dispatcher.dispatch(
-            cue.action,
-            source="midi.simulation" if queued.simulated else self.name,
-        )
+        source = "midi.simulation" if queued.simulated else self.name
+        if song_position is not None:
+            outcome = await self._action_dispatcher.dispatch_song_position(
+                song_position,
+                source=source,
+            )
+        else:
+            outcome = await self._action_dispatcher.dispatch(action, source=source)
         self._record_message(
             queued,
             (
@@ -638,7 +658,7 @@ class MidiPlaybackPlugin(Plugin, MidiController):
                 else MidiMessageDisposition.ACTION_REJECTED
             ),
             outcome.message,
-            action=cue.action,
+            action=action,
         )
         self._last_activity_at = datetime.now(UTC)
         return outcome

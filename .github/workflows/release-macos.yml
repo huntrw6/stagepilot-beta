@@ -1,12 +1,12 @@
-name: Release macOS
+name: Release StagePilot
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: GitHub release tag that receives the disk images
+        description: Existing version tag to build and publish
         required: true
-        default: v1.1.5
+        default: v1.1.32
   push:
     tags:
       - "v*"
@@ -14,63 +14,160 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+
 jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Require updater signing secrets
+        env:
+          PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$PRIVATE_KEY" || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is not configured."; exit 1; }
+          test -n "$PRIVATE_KEY_PASSWORD" || { echo "::error::TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not configured."; exit 1; }
+      - name: Validate versions, stable identity, endpoint, and public key
+        env:
+          STAGEPILOT_TRACKED_FILES: ${{ join(github.event.commits.*.added, '\n') }}
+        run: node scripts/validate_versions.mjs "$RELEASE_TAG"
+      - name: Reject tracked private keys
+        run: |
+          if git ls-files | grep -E '\.(key|pem)$'; then
+            echo "::error::Private key-like files must never be tracked."
+            exit 1
+          fi
+
   build:
-    name: macOS — ${{ matrix.name }}
+    name: Build — ${{ matrix.name }}
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Apple Silicon
+          - name: macOS Apple Silicon
             runner: macos-15
-            artifact: stagepilot-macos-apple-silicon
-          - name: Intel
+            platform: darwin-aarch64
+            suffix: aarch64
+            command: build:mac
+          - name: macOS Intel
             runner: macos-15-intel
-            artifact: stagepilot-macos-intel
+            platform: darwin-x86_64
+            suffix: x64
+            command: build:mac
+          - name: Windows x64
+            runner: windows-latest
+            platform: windows-x86_64
+            suffix: x64
+            command: build
     runs-on: ${{ matrix.runner }}
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.11.28"
           python-version: "3.12"
           working-directory: backend
-
-      - name: Install Node
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
             desktop/package-lock.json
-
-      - name: Install frontend and desktop dependencies
+      - name: Install dependencies
+        shell: bash
         run: |
           npm ci --prefix frontend
           npm ci --prefix desktop
-
-      - name: Select stable Rust
-        run: |
           rustup update stable
           rustup default stable
-
-      - name: Build macOS application and disk image
-        run: npm --prefix desktop run build:mac
-
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+      - name: Validate application
+        shell: bash
+        run: |
+          uv run --project backend ruff format --check backend/src backend/tests
+          uv run --project backend ruff check backend/src backend/tests
+          uv run --project backend python -m mypy --config-file backend/pyproject.toml backend/src backend/tests
+          uv run --project backend python -m pytest -c backend/pyproject.toml backend/tests
+          npm --prefix frontend run lint
+          npm --prefix frontend run typecheck
+          npm --prefix frontend test -- --run
+          npm --prefix frontend run build
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
+          cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path desktop/src-tauri/Cargo.toml
+          npm --prefix desktop run release:test
+      - name: Build signed updater artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm --prefix desktop run ${{ matrix.command }}
+      - name: Collect macOS release assets
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          mkdir -p release-assets
+          cp desktop/src-tauri/target/release/bundle/dmg/*.dmg "release-assets/StagePilot_${VERSION}_${{ matrix.suffix }}.dmg"
+          cp desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz "release-assets/StagePilot_${VERSION}_${{ matrix.suffix }}.app.tar.gz"
+          cp desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig "release-assets/StagePilot_${VERSION}_${{ matrix.suffix }}.app.tar.gz.sig"
+      - name: Collect Windows release assets
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart("v")
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          $installer = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $installer) { throw "NSIS updater installer was not generated." }
+          Copy-Item $installer.FullName "release-assets/StagePilot_${version}_x64-setup.exe"
+          Copy-Item "$($installer.FullName).sig" "release-assets/StagePilot_${version}_x64-setup.exe.sig"
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          name: stagepilot-${{ matrix.platform }}
+          path: release-assets/*
           if-no-files-found: error
 
-      - name: Attach disk image to GitHub release
+  publish:
+    name: Publish release and updater manifest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: stagepilot-*
+          path: release-assets
+          merge-multiple: true
+      - name: Prepare release notes
+        run: |
+          {
+            echo "StagePilot ${RELEASE_TAG#v}"
+            echo
+            git log -1 --pretty=%B
+          } > release-assets/release-notes.md
+      - name: Generate and validate latest.json
+        run: |
+          node scripts/generate_updater_manifest.mjs release-assets "$RELEASE_TAG" "$GITHUB_REPOSITORY"
+          node scripts/validate_updater_manifest.mjs release-assets/latest.json release-assets
+      - name: Create draft release and upload artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-        run: gh release upload "$RELEASE_TAG" desktop/src-tauri/target/release/bundle/dmg/*.dmg --clobber
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --draft --latest=false
+          else
+            gh release create "$RELEASE_TAG" --draft --title "StagePilot ${RELEASE_TAG#v}" --notes-file release-assets/release-notes.md
+          fi
+          find release-assets -maxdepth 1 -type f ! -name latest.json ! -name release-notes.md -print0 |
+            xargs -0 gh release upload "$RELEASE_TAG" --clobber
+          gh release upload "$RELEASE_TAG" release-assets/latest.json --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -94,6 +94,7 @@ class MidiNotePayload(BaseModel):
     note: int = Field(ge=0, le=127)
     velocity: int = Field(ge=1, le=127)
     action: ActionName
+    song_position: int | None = Field(default=None, ge=1, le=99)
     connection_id: UUID | None = None
     simulated: bool = False
 

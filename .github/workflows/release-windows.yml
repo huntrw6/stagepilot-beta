@@ -6,10 +6,9 @@ on:
       release_tag:
         description: GitHub release tag that receives the Windows installer
         required: true
-        default: v1.1.5
-  push:
-    tags:
-      - "v*"
+        default: v1.1.32
+# Windows tag releases are built by release-macos.yml so latest.json is
+# published only after every platform artifact and signature is available.
 
 permissions:
   contents: write
@@ -50,6 +49,9 @@ jobs:
           rustup default stable
 
       - name: Build Windows application and installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm --prefix desktop run build
 
       - name: Upload workflow artifact

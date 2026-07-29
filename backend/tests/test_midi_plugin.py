@@ -104,6 +104,7 @@ class DispatchCall:
 class RecordingDispatcher:
     def __init__(self) -> None:
         self.calls: list[DispatchCall] = []
+        self.song_positions: list[tuple[int, str]] = []
 
     async def dispatch(
         self,
@@ -112,6 +113,14 @@ class RecordingDispatcher:
     ) -> ActionOutcome:
         self.calls.append(DispatchCall(action, source))
         return ActionOutcome(True, f"Accepted {action.value}.")
+
+    async def dispatch_song_position(
+        self,
+        position: int,
+        source: str = "api",
+    ) -> ActionOutcome:
+        self.song_positions.append((position, source))
+        return ActionOutcome(True, f"Accepted song {position}.")
 
 
 class MutableClock:
@@ -286,6 +295,31 @@ async def test_dispatches_all_six_configured_notes_in_fifo_order() -> None:
         ]
         assert all(event.simulated is False for event in note_events(harness))
         assert all(event.connection_id is not None for event in note_events(harness))
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_velocities_one_through_99_dispatch_exact_song_positions() -> None:
+    harness = await plugin_harness()
+    try:
+        await harness.plugin.start()
+        await wait_until(lambda: len(harness.backend.ports) == 1)
+        port = harness.backend.ports[0]
+
+        port.emit(note=112, velocity=1)
+        port.emit(note=112, velocity=7)
+        port.emit(note=112, velocity=99)
+
+        await wait_until(lambda: len(harness.dispatcher.song_positions) == 3)
+
+        assert harness.dispatcher.song_positions == [
+            (1, "midi_playback"),
+            (7, "midi_playback"),
+            (99, "midi_playback"),
+        ]
+        assert harness.dispatcher.calls == []
+        assert [event.song_position for event in note_events(harness)] == [1, 7, 99]
     finally:
         await harness.close()
 
