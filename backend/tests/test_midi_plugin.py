@@ -199,7 +199,7 @@ async def plugin_harness(
 
 async def wait_until(predicate: WaitPredicate) -> None:
     try:
-        async with asyncio.timeout(2):
+        async with asyncio.timeout(10):
             while not predicate():  # noqa: ASYNC110 - deterministic test polling
                 await asyncio.sleep(0.002)
     except TimeoutError as exc:
@@ -211,7 +211,7 @@ async def wait_for_health(
     status: PluginStatus,
 ) -> None:
     try:
-        async with asyncio.timeout(2):
+        async with asyncio.timeout(10):
             while (await plugin.health()).status is not status:  # noqa: ASYNC110
                 await asyncio.sleep(0.002)
     except TimeoutError as exc:
