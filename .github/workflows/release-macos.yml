@@ -84,6 +84,7 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
+          uv sync --project backend --extra dev --locked
           npm ci --prefix frontend
           npm ci --prefix desktop
           rustup update stable
