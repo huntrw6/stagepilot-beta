@@ -10,11 +10,13 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 test("Tauri updater configuration preserves stable identity and trusted endpoint", () => {
   const config = JSON.parse(read("desktop/src-tauri/tauri.conf.json"));
+  const macOSConfig = JSON.parse(read("desktop/src-tauri/tauri.macos.conf.json"));
   assert.equal(config.productName, "StagePilot");
   assert.equal(config.identifier, "org.stagepilot.desktop");
   assert.equal(config.app.windows[0].label, "main");
   assert.equal(config.bundle.createUpdaterArtifacts, true);
   assert.equal(config.bundle.macOS.signingIdentity, "-");
+  assert.deepEqual(macOSConfig.bundle.targets, ["app", "dmg"]);
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
   ]);
