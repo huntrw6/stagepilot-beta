@@ -38,6 +38,11 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.match(workflow, /secrets\.TAURI_SIGNING_PRIVATE_KEY_PASSWORD/);
   assert.match(workflow, /generate_updater_manifest\.mjs/);
   assert.match(workflow, /validate_updater_manifest\.mjs/);
+  assert.match(
+    workflow,
+    /find release-assets .* ! -name '\*\.sig'/,
+    "standalone updater signatures must not be published as user-facing release assets",
+  );
   assert.ok(
     workflow.indexOf('! -name latest.json') < workflow.indexOf("release-assets/latest.json --clobber"),
   );

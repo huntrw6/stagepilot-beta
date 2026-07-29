@@ -169,7 +169,10 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --draft --title "StagePilot ${RELEASE_TAG#v}" --notes-file release-assets/release-notes.md
           fi
-          find release-assets -maxdepth 1 -type f ! -name latest.json ! -name release-notes.md -print0 |
+          # Signatures must remain in the staging directory while latest.json is
+          # generated and validated, but latest.json embeds their contents. Do
+          # not publish standalone .sig files as user-facing release downloads.
+          find release-assets -maxdepth 1 -type f ! -name latest.json ! -name release-notes.md ! -name '*.sig' -print0 |
             xargs -0 gh release upload "$RELEASE_TAG" --clobber
           gh release upload "$RELEASE_TAG" release-assets/latest.json --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest
