@@ -20,6 +20,7 @@ def test_browser_api_requires_default_pin_and_uses_session_cookie() -> None:
     with client() as browser:
         status = browser.get("/api/v1/dashboard-auth/status")
         assert status.json() == {"required": True, "authenticated": False}
+        assert browser.get("/api/v1/health").status_code == 200
         assert browser.get("/api/v1/state").status_code == 401
         assert (
             browser.post(

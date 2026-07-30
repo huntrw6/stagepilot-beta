@@ -17,6 +17,7 @@ DESKTOP_ORIGINS = {
 PUBLIC_PATHS = {
     "/api/v1/dashboard-auth/status",
     "/api/v1/dashboard-auth/login",
+    "/api/v1/health",
 }
 
 
