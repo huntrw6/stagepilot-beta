@@ -147,7 +147,15 @@ for _ in {1..120}; do
       cat "$TEMP_ROOT/health.json" >&2
       exit 1
     }
-    curl --fail --silent --show-error "http://127.0.0.1:$PORT/api/v1/state" >/dev/null
+    COOKIE_JAR="$TEMP_ROOT/dashboard-cookie.txt"
+    curl --fail --silent --show-error \
+      --cookie-jar "$COOKIE_JAR" \
+      --header "Content-Type: application/json" \
+      --data '{"pin":"1234"}' \
+      "http://127.0.0.1:$PORT/api/v1/dashboard-auth/login" >/dev/null
+    curl --fail --silent --show-error \
+      --cookie "$COOKIE_JAR" \
+      "http://127.0.0.1:$PORT/api/v1/state" >/dev/null
     echo "Packaged backend health check passed."
     exit 0
   fi
