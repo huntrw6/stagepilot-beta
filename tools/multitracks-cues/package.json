@@ -27,7 +27,7 @@
     "local-install": "npm run build && npm link"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "ajv": "8.20.0",
     "commander": "14.0.2",
     "cross-keychain": "1.1.0",

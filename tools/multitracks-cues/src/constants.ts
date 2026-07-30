@@ -13,7 +13,6 @@ export const REQUIRED_READ_TOOLS = [
 ] as const;
 
 export const ALLOWED_WRITE_TOOLS = [
-  "libraryMidiBankCreate",
   "libraryMidiEventCreate",
   "cloudArrangementMidiEventCreate",
 ] as const;
@@ -55,3 +54,5 @@ export const DEFAULT_CUE = {
   position: { kind: "song-start" as const },
   bankName: "StagePilot",
 };
+
+export const SETLIST_ORDINAL_TEST_PROFILE = "setlist-ordinal-test" as const;

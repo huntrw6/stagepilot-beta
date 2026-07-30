@@ -1,5 +1,6 @@
 import { EXIT } from "../constants.js";
 import { SchemaError } from "../errors.js";
+import type { ResolvedCue } from "../cues/models.js";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -42,6 +43,12 @@ function minimumValue(schema: JsonSchema): number | undefined {
   return undefined;
 }
 
+function maximumValue(schema: JsonSchema): number | undefined {
+  if (typeof schema.const === "number") return schema.const;
+  if (typeof schema.maximum === "number") return schema.maximum;
+  return undefined;
+}
+
 export class SchemaAdapter {
   arguments(schema: JsonSchema, values: Record<string, unknown>): Record<string, unknown> {
     const result = this.mapArguments(schema, values);
@@ -69,12 +76,16 @@ export class SchemaAdapter {
       arrangementId?: string;
       bankId?: string;
       busId: string;
-      channel: number;
-      note: number;
-      velocity: number;
+      cue: ResolvedCue;
     },
   ): Record<string, unknown> {
-    const result = this.mapArguments(schema, values);
+    const { cue, ...identity } = values;
+    const result = this.mapArguments(schema, {
+      ...identity,
+      channel: cue.channel,
+      note: cue.note,
+      velocity: cue.velocity,
+    });
     const properties = objectProperties(schema);
     const typeKey = pick(schema, "eventType");
     if (typeKey) {
@@ -86,7 +97,7 @@ export class SchemaAdapter {
         throw new SchemaError("The event schema does not advertise a Note On event type.", EXIT.SCHEMA);
       }
     }
-    this.addStartPosition(schema, result);
+    this.addResolvedPosition(schema, result, cue.position);
     const durationKey = pick(schema, "duration");
     if (durationKey && required(schema).includes(durationKey)) {
       const durationSchema = properties[durationKey] ?? {};
@@ -102,35 +113,49 @@ export class SchemaAdapter {
     return result;
   }
 
-  private addStartPosition(schema: JsonSchema, result: Record<string, unknown>): void {
+  resolveOneBeatPosition(schema: JsonSchema): Record<string, number> {
+    const properties = objectProperties(schema);
+    const positionKey = ["position", "songPosition", "song_position"].find((key) => key in properties);
+    const positionSchema = positionKey ? properties[positionKey] ?? {} : schema;
+    const fields = positionKey ? objectProperties(positionSchema) : properties;
+    const supported = Object.entries(fields).filter(([key]) => /^(measure|bar|beat|tick)$/i.test(key));
+    const beatEntry = supported.find(([key]) => /^beat$/i.test(key));
+    if (!beatEntry) {
+      throw new SchemaError("The advertised event schema does not prove a musical beat coordinate.", EXIT.SCHEMA);
+    }
+    const position: Record<string, number> = {};
+    for (const [key, fieldSchema] of supported) {
+      const start = minimumValue(fieldSchema);
+      if (start === undefined) {
+        throw new SchemaError(`Cannot prove the song-start value for '${key}'.`, EXIT.SCHEMA);
+      }
+      position[key] = /^beat$/i.test(key) ? start + 1 : start;
+      const maximum = maximumValue(fieldSchema);
+      if (maximum !== undefined && position[key]! > maximum) {
+        throw new SchemaError(`One beat after song start exceeds the advertised maximum for '${key}'.`, EXIT.SCHEMA);
+      }
+    }
+    const missingNested = positionKey ? required(positionSchema).filter((key) => !(key in position)) : [];
+    if (missingNested.length) {
+      throw new SchemaError(
+        `Cannot safely represent required position fields: ${missingNested.join(", ")}.`,
+        EXIT.SCHEMA,
+      );
+    }
+    return position;
+  }
+
+  private addResolvedPosition(
+    schema: JsonSchema,
+    result: Record<string, unknown>,
+    position: Record<string, number>,
+  ): void {
     const properties = objectProperties(schema);
     const positionKey = ["position", "songPosition", "song_position"].find((key) => key in properties);
     if (positionKey) {
-      const positionSchema = properties[positionKey] ?? {};
-      const position: Record<string, number> = {};
-      for (const [key, valueSchema] of Object.entries(objectProperties(positionSchema))) {
-        if (/measure|bar|beat|tick|millisecond|time/i.test(key)) {
-          const value = minimumValue(valueSchema);
-          if (value === undefined) {
-            throw new SchemaError(`Cannot prove the song-start value for position field '${key}'.`, EXIT.SCHEMA);
-          }
-          position[key] = value;
-        }
-      }
-      if (Object.keys(position).length === 0) {
-        throw new SchemaError("The advertised position object has no supported song-start fields.", EXIT.SCHEMA);
-      }
       result[positionKey] = position;
       return;
     }
-    const positionFields = Object.entries(properties).filter(([key]) => /^(measure|bar|beat|tick|milliseconds|time)$/i.test(key));
-    if (positionFields.length === 0) {
-      throw new SchemaError("The advertised event schema does not expose a provable song-start position.", EXIT.SCHEMA);
-    }
-    for (const [key, valueSchema] of positionFields) {
-      const value = minimumValue(valueSchema);
-      if (value === undefined) throw new SchemaError(`Cannot prove the song-start value for '${key}'.`, EXIT.SCHEMA);
-      result[key] = value;
-    }
+    Object.assign(result, position);
   }
 }

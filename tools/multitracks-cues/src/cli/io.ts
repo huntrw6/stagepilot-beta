@@ -16,11 +16,12 @@ export function print(value: unknown, options: OutputOptions = {}): void {
 export function renderPlan(plan: CuePlan): string {
   const lines = [
     `${plan.mode.toUpperCase()} — ${plan.setlist.name} (${plan.setlist.id})`,
-    `Bus ${plan.configuration.busId}; channel ${plan.configuration.channel}; note ${plan.configuration.note}; velocity ${plan.configuration.velocity}`,
+    `Profile ${plan.configuration.cueProfile}; bus ${plan.configuration.busId}; channel ${plan.configuration.channel}; note ${plan.configuration.note}`,
     "",
   ];
   for (const item of plan.items) {
-    lines.push(`${String(item.setlistPosition).padStart(2)}  ${item.operations.join(" + ").padEnd(34)}  ${item.songTitle}`);
+    lines.push(`${String(item.setlistPosition).padStart(2)}  ordinal ${String(item.songOrdinal ?? "-").padStart(3)}  velocity ${String(item.velocity ?? "-").padStart(3)}  ${item.operations.join(" + ").padEnd(24)}  ${item.songTitle}`);
+    if (item.resolvedPosition) lines.push(`    position ${JSON.stringify(item.resolvedPosition)}`);
     lines.push(`    ${item.reason}`);
   }
   return lines.join("\n");
@@ -66,6 +67,7 @@ export async function askSecret(question: string): Promise<string> {
   });
 }
 
-export async function confirmApply(setlistId: string): Promise<boolean> {
-  return (await ask(`Type APPLY ${setlistId} to perform the listed remote writes: `)) === `APPLY ${setlistId}`;
+export async function confirmApply(setlistId: string, songPosition?: number): Promise<boolean> {
+  const phrase = songPosition ? `APPLY ${setlistId} ${songPosition}` : `APPLY ALL ${setlistId}`;
+  return (await ask(`Type ${phrase} to perform the listed remote writes: `)) === phrase;
 }

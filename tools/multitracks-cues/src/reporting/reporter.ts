@@ -35,8 +35,8 @@ export class Reporter {
     const safe = redact(report) as ReportEnvelope;
     const text = this.renderText(safe);
     const csv = [
-      ["position", "song", "target", "operations", "reason", "verification"].map(csvCell).join(","),
-      ...safe.plan.map((item) => [item.setlistPosition, item.songTitle, item.targetType, item.operations.join("+"), item.reason, item.verificationStrategy].map(csvCell).join(",")),
+      ["setlist_position", "song_ordinal", "velocity", "song", "target", "bank_id", "bus_id", "resolved_position", "operations", "reason", "verification"].map(csvCell).join(","),
+      ...safe.plan.map((item) => [item.setlistPosition, item.songOrdinal, item.velocity, item.songTitle, item.targetType, item.bankId, item.busId, JSON.stringify(item.resolvedPosition), item.operations.join("+"), item.reason, item.verificationStrategy].map(csvCell).join(",")),
     ].join("\n");
     await Promise.all([
       writeFile(`${base}.txt`, `${text}\n`, "utf8"),
@@ -55,12 +55,13 @@ export class Reporter {
       `Server: ${report.serverOrigin}`,
       `Organization: ${report.organization?.name ?? "not confirmed"}`,
       `Setlist: ${report.setlist.name} (${report.setlist.id})`,
-      `Cue: channel ${report.configuration.channel}, note ${report.configuration.note}, velocity ${report.configuration.velocity}`,
+      `Cue profile: ${report.configuration.cueProfile}; channel ${report.configuration.channel}, note ${report.configuration.note}; velocity = qualifying song ordinal`,
       `Bus: ${report.configuration.busId}${report.configuration.busType ? ` (${report.configuration.busType})` : ""}`,
       "",
     ];
     for (const item of report.plan) {
-      lines.push(`${item.setlistPosition}. ${item.songTitle} — ${item.operations.join(" + ")} — ${item.reason}`);
+      lines.push(`Position ${item.setlistPosition}; ordinal ${item.songOrdinal ?? "-"}; velocity ${item.velocity ?? "-"}; ${item.songTitle} — ${item.operations.join(" + ")} — ${item.reason}`);
+      if (item.resolvedPosition) lines.push(`  Resolved position: ${JSON.stringify(item.resolvedPosition)}`);
     }
     lines.push("", `Final status: ${report.finalStatus}`);
     return lines.join("\n");

@@ -16,7 +16,7 @@ describe("configuration", () => {
     const file = path.join(directory, "config.json");
     const store = new ConfigurationStore(file);
     await store.save({ ...defaultConfiguration, midiBus: { id: "aux-1", type: "Aux" } });
-    expect(await store.load()).toMatchObject({ midiBus: { id: "aux-1" }, note: 112, velocity: 100 });
+    expect(await store.load()).toMatchObject({ midiBus: { id: "aux-1" }, note: 112 });
     expect(await readFile(file, "utf8")).not.toMatch(/access_token|refresh_token|clientSecret/i);
   });
 

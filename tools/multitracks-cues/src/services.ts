@@ -6,6 +6,7 @@ import type { Configuration } from "./config/schema.js";
 import { ConfigurationStore } from "./config/store.js";
 import { CueApplier } from "./cues/applier.js";
 import { CuePlanner } from "./cues/planner.js";
+import type { CueProfile } from "./cues/models.js";
 import { verifyCuePlan as verifyWithPlanner } from "./cues/verifier.js";
 import { SafeMcpClient } from "./mcp/client.js";
 import { SdkToolTransport } from "./mcp/sdk-transport.js";
@@ -77,16 +78,16 @@ export async function listMidiBuses(services: ConnectedServices): Promise<Awaite
   return services.gateway.listMidiBuses();
 }
 
-export async function inspectSetlist(services: ConnectedServices, configuration: Configuration, setlistId: string, positions?: number[]): Promise<Awaited<ReturnType<CuePlanner["buildCuePlan"]>>> {
-  return services.planner.buildCuePlan(configuration, setlistId, positions);
+export async function inspectSetlist(services: ConnectedServices, configuration: Configuration, setlistId: string, cueProfile: CueProfile, positions?: number[]): Promise<Awaited<ReturnType<CuePlanner["buildCuePlan"]>>> {
+  return services.planner.buildCuePlan(configuration, setlistId, cueProfile, positions);
 }
 
 export const buildCuePlan = inspectSetlist;
 
-export async function applyCuePlan(services: ConnectedServices, configuration: Configuration, setlistId: string, reportDirectory: string, positions?: number[]): Promise<Awaited<ReturnType<CueApplier["applyCuePlan"]>>> {
-  return services.applier.applyCuePlan(configuration, setlistId, reportDirectory, positions);
+export async function applyCuePlan(services: ConnectedServices, configuration: Configuration, setlistId: string, reportDirectory: string, cueProfile: CueProfile, positions?: number[]): Promise<Awaited<ReturnType<CueApplier["applyCuePlan"]>>> {
+  return services.applier.applyCuePlan(configuration, setlistId, reportDirectory, cueProfile, positions);
 }
 
-export async function verifyCuePlan(services: ConnectedServices, configuration: Configuration, setlistId: string, positions?: number[]): Promise<Awaited<ReturnType<typeof verifyWithPlanner>>> {
-  return verifyWithPlanner(services.planner, configuration, setlistId, positions);
+export async function verifyCuePlan(services: ConnectedServices, configuration: Configuration, setlistId: string, cueProfile: CueProfile, positions?: number[]): Promise<Awaited<ReturnType<typeof verifyWithPlanner>>> {
+  return verifyWithPlanner(services.planner, configuration, setlistId, cueProfile, positions);
 }

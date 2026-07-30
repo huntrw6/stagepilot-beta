@@ -1,10 +1,11 @@
-import { EXIT } from "../constants.js";
+import { EXIT, SETLIST_ORDINAL_TEST_PROFILE } from "../constants.js";
 import type { Configuration } from "../config/schema.js";
 import { AmbiguityError } from "../errors.js";
 import type { MultiTracksGateway } from "../multitracks/gateway.js";
 import type { MidiBank, MidiBus, MidiEvent, SetlistItem } from "../multitracks/models.js";
 import { compareEvent, expectedEvent } from "./compare.js";
-import type { CuePlan, CuePlanItem } from "./models.js";
+import type { CuePlan, CuePlanItem, CueProfile, ResolvedCue } from "./models.js";
+import { assignSongOrdinals } from "./ordinal.js";
 
 interface RemoteEventScope {
   bank?: MidiBank;
@@ -23,42 +24,70 @@ function validateBus(configuration: Configuration, buses: MidiBus[]): MidiBus {
   return matches[0]!;
 }
 
+export function resolveDefaultBank(banks: MidiBank[]): MidiBank | undefined {
+  const explicit = banks.filter((bank) => bank.isDefault === true);
+  if (explicit.length === 1) return explicit[0];
+  if (explicit.length > 1) return undefined;
+  const named = banks.filter((bank) =>
+    ["default midi bank", "default"].includes(bank.name.trim().replace(/\s+/g, " ").toLowerCase()),
+  );
+  return named.length === 1 ? named[0] : undefined;
+}
+
 export class CuePlanner {
   constructor(private readonly gateway: MultiTracksGateway) {}
 
-  async buildCuePlan(configuration: Configuration, setlistId: string, positions?: number[]): Promise<CuePlan> {
-    const [setlist, buses] = await Promise.all([
-      this.gateway.getSetlist(setlistId),
-      this.gateway.listMidiBuses(),
-    ]);
+  async buildCuePlan(configuration: Configuration, setlistId: string, cueProfile: CueProfile, positions?: number[]): Promise<CuePlan> {
+    if (cueProfile !== SETLIST_ORDINAL_TEST_PROFILE) {
+      throw new AmbiguityError("An explicit supported cue profile is required.", EXIT.INVALID);
+    }
+    const [setlist, buses] = await Promise.all([this.gateway.getSetlist(setlistId), this.gateway.listMidiBuses()]);
     const selectedBus = validateBus(configuration, buses);
+    const assignments = assignSongOrdinals(setlist.items);
+    const libraryCounts = new Map<string, number>();
+    const cloudCounts = new Map<string, number>();
+    for (const { item, songOrdinal } of assignments) {
+      if (songOrdinal && item.targetType === "library" && item.libraryEntryId) {
+        libraryCounts.set(item.libraryEntryId, (libraryCounts.get(item.libraryEntryId) ?? 0) + 1);
+      }
+      if (songOrdinal && item.targetType === "cloud" && item.arrangementId) {
+        cloudCounts.set(item.arrangementId, (cloudCounts.get(item.arrangementId) ?? 0) + 1);
+      }
+    }
     const selectedPositions = positions ? new Set(positions) : undefined;
-    const seenLibraryTargets = new Set<string>();
     const items: CuePlanItem[] = [];
-    for (const item of setlist.items) {
+    for (const assignment of assignments) {
+      const { item, songOrdinal } = assignment;
       if (selectedPositions && !selectedPositions.has(item.position)) continue;
-      if (item.targetType === "non-song") {
-        items.push(this.base(item, selectedBus, ["SKIP_NON_SONG"], "This setlist item is explicitly not a song."));
+      if (!songOrdinal) {
+        items.push(this.base(item, selectedBus, undefined, undefined,
+          item.targetType === "non-song" ? ["SKIP_NON_SONG"] : ["SKIP_AMBIGUOUS"],
+          item.targetType === "non-song" ? "This setlist item is explicitly not a song." : item.ambiguity ?? "Target type is ambiguous."));
         continue;
       }
-      if (item.targetType === "ambiguous") {
-        items.push(this.base(item, selectedBus, ["SKIP_AMBIGUOUS"], item.ambiguity ?? "Target type is ambiguous."));
+      const targetType: "library" | "cloud" = item.targetType === "library" ? "library" : "cloud";
+      const cue = this.gateway.resolveCue(targetType, songOrdinal);
+      if (
+        item.targetType === "library"
+        && item.libraryEntryId
+        && (libraryCounts.get(item.libraryEntryId) ?? 0) > 1
+      ) {
+        items.push(this.base(item, selectedBus, songOrdinal, cue, ["SKIP_AMBIGUOUS"],
+          "This reusable Library target occurs more than once with different ordinal velocities; one shared event cannot represent each occurrence."));
         continue;
       }
-      if (item.targetType === "library") {
-        if (!item.libraryEntryId) {
-          items.push(this.base(item, selectedBus, ["SKIP_AMBIGUOUS"], "Library target has no stable library entry ID."));
-          continue;
-        }
-        if (seenLibraryTargets.has(item.libraryEntryId)) {
-          items.push(this.base(item, selectedBus, ["SKIP_ALREADY_PRESENT"], "Repeated occurrence uses the same reusable Library MIDI target already covered by this plan."));
-          continue;
-        }
-        seenLibraryTargets.add(item.libraryEntryId);
-        items.push(await this.inspectLibrary(configuration, item, selectedBus, buses));
-      } else {
-        items.push(await this.inspectCloud(configuration, item, selectedBus, buses));
+      if (
+        item.targetType === "cloud"
+        && item.arrangementId
+        && (cloudCounts.get(item.arrangementId) ?? 0) > 1
+      ) {
+        items.push(this.base(item, selectedBus, songOrdinal, cue, ["SKIP_AMBIGUOUS"],
+          "This Cloud Arrangement identity is reused for multiple occurrences with different ordinal velocities; occurrence-specific writable targets are not proven."));
+        continue;
       }
+      items.push(item.targetType === "library"
+        ? await this.inspectLibrary(item, selectedBus, buses, cue)
+        : await this.inspectCloud(item, selectedBus, buses, cue));
     }
     return {
       generatedAt: new Date().toISOString(),
@@ -66,89 +95,73 @@ export class CuePlanner {
       setlist,
       items,
       configuration: {
-        bankName: configuration.bankName,
-        channel: configuration.channel,
-        note: configuration.note,
-        velocity: configuration.velocity,
+        cueProfile: SETLIST_ORDINAL_TEST_PROFILE,
+        channel: 1,
+        note: 112,
         busId: selectedBus.id,
         busType: selectedBus.type,
       },
     };
   }
 
-  private async inspectLibrary(configuration: Configuration, item: SetlistItem, selectedBus: MidiBus, buses: MidiBus[]): Promise<CuePlanItem> {
-    const libraryId = item.libraryEntryId!;
-    const banks = await this.gateway.listLibraryBanks(libraryId);
-    const selectedBanks = banks.filter((bank) => bank.name === configuration.bankName);
-    if (selectedBanks.length > 1) {
-      return this.base(item, selectedBus, ["SKIP_AMBIGUOUS"], `Multiple MIDI banks are named '${configuration.bankName}'.`, banks);
+  private async inspectLibrary(item: SetlistItem, selectedBus: MidiBus, buses: MidiBus[], cue: ResolvedCue): Promise<CuePlanItem> {
+    if (!item.libraryEntryId) return this.base(item, selectedBus, cue.songOrdinal, cue, ["SKIP_AMBIGUOUS"], "Library target has no stable library entry ID.");
+    const banks = await this.gateway.listLibraryBanks(item.libraryEntryId);
+    const bank = resolveDefaultBank(banks);
+    if (!bank) {
+      return this.base(item, selectedBus, cue.songOrdinal, cue, ["SKIP_AMBIGUOUS"],
+        "The existing Default MIDI Bank is missing or ambiguous; no bank will be created.", banks);
     }
     const scopes: RemoteEventScope[] = [];
-    for (const bank of banks) {
+    for (const candidateBank of banks) {
       for (const bus of buses) {
-        scopes.push({ bank, bus, events: await this.gateway.listLibraryEvents(libraryId, bank.id, bus.id) });
+        scopes.push({ bank: candidateBank, bus, events: await this.gateway.listLibraryEvents(item.libraryEntryId, candidateBank.id, bus.id) });
       }
     }
-    const bank = selectedBanks[0];
-    if (!bank) {
-      const outside = this.findOutsideConflict(configuration, item, selectedBus, scopes);
-      if (outside) return this.base(item, selectedBus, ["SKIP_CONFLICT"], outside, banks);
-      return {
-        ...this.base(item, selectedBus, ["CREATE_BANK", "CREATE_LIBRARY_EVENT"], "The StagePilot bank and cue are missing.", banks),
-        libraryId,
-        targetId: libraryId,
-        proposedBankName: configuration.bankName,
-      };
-    }
     const expected = expectedEvent(
-      this.gateway.expectedEventArguments(configuration, "library", { libraryEntryId: libraryId, bankId: bank.id }),
+      this.gateway.expectedEventArguments("library", { libraryEntryId: item.libraryEntryId, bankId: bank.id }, selectedBus.id, cue),
       selectedBus.id,
     );
-    const selectedScope = scopes.find((scope) => scope.bank?.id === bank.id && scope.bus.id === selectedBus.id)!;
-    const matches = selectedScope.events.filter((event) => compareEvent(event, expected, selectedBus.id) === "exact");
-    const conflict = selectedScope.events.find((event) => ["conflict", "other-position", "malformed"].includes(compareEvent(event, expected, selectedBus.id)));
-    const outside = scopes.find((scope) => (scope.bank?.id !== bank.id || scope.bus.id !== selectedBus.id) && scope.events.some((event) => compareEvent(event, { ...expected, busId: scope.bus.id }, scope.bus.id) === "exact"));
-    if (matches.length > 1) return this.item(item, selectedBus, bank, selectedScope.events, ["SKIP_CONFLICT"], "Multiple exact StagePilot cues already exist.", matches[0]?.id);
-    if (matches.length === 1) return this.item(item, selectedBus, bank, selectedScope.events, ["SKIP_ALREADY_PRESENT"], "The exact StagePilot cue already exists.", matches[0]?.id);
-    if (conflict) return this.item(item, selectedBus, bank, selectedScope.events, ["SKIP_CONFLICT"], "A malformed, different-velocity, or different-start cue requires review.");
-    if (outside) return this.item(item, selectedBus, bank, selectedScope.events, ["SKIP_CONFLICT"], "An exact cue exists in another bank or on another bus; Playback behavior requires review.");
-    return this.item(item, selectedBus, bank, selectedScope.events, ["CREATE_LIBRARY_EVENT"], "The StagePilot bank exists and the exact cue is missing.");
+    const selected = scopes.find((scope) => scope.bank?.id === bank.id && scope.bus.id === selectedBus.id)!;
+    const matches = selected.events.filter((event) => compareEvent(event, expected, selectedBus.id) === "exact");
+    const conflict = selected.events.some((event) => ["conflict", "other-position", "malformed"].includes(compareEvent(event, expected, selectedBus.id)));
+    const outside = scopes.some((scope) =>
+      (scope.bank?.id !== bank.id || scope.bus.id !== selectedBus.id)
+      && scope.events.some((event) =>
+        event.malformed
+        || compareEvent(event, { ...expected, busId: scope.bus.id }, scope.bus.id) === "exact"));
+    if (matches.length > 1) return this.libraryItem(item, selectedBus, bank, selected.events, cue, ["SKIP_CONFLICT"], "Multiple exact ordinal cues already exist.", matches[0]?.id);
+    if (matches.length === 1) return this.libraryItem(item, selectedBus, bank, selected.events, cue, ["SKIP_ALREADY_PRESENT"], "The exact ordinal cue already exists.", matches[0]?.id);
+    if (conflict || outside) return this.libraryItem(item, selectedBus, bank, selected.events, cue, ["SKIP_CONFLICT"], outside ? "An exact cue exists in another bank or on another bus." : "An existing E7 cue conflicts in velocity, position, or shape.");
+    return this.libraryItem(item, selectedBus, bank, selected.events, cue, ["CREATE_LIBRARY_EVENT"], "Create the ordinal cue in the existing Default MIDI Bank.");
   }
 
-  private async inspectCloud(configuration: Configuration, item: SetlistItem, selectedBus: MidiBus, buses: MidiBus[]): Promise<CuePlanItem> {
-    if (!item.arrangementId) return this.base(item, selectedBus, ["SKIP_AMBIGUOUS"], "Cloud target has no writable arrangement ID.");
+  private async inspectCloud(item: SetlistItem, selectedBus: MidiBus, buses: MidiBus[], cue: ResolvedCue): Promise<CuePlanItem> {
+    if (!item.arrangementId) return this.base(item, selectedBus, cue.songOrdinal, cue, ["SKIP_AMBIGUOUS"], "Cloud target has no writable arrangement ID.");
     const scopes: RemoteEventScope[] = [];
     for (const bus of buses) scopes.push({ bus, events: await this.gateway.listCloudEvents(item.arrangementId, bus.id) });
     const expected = expectedEvent(
-      this.gateway.expectedEventArguments(configuration, "cloud", { arrangementId: item.arrangementId }),
+      this.gateway.expectedEventArguments("cloud", { arrangementId: item.arrangementId }, selectedBus.id, cue),
       selectedBus.id,
     );
     const selected = scopes.find((scope) => scope.bus.id === selectedBus.id)!;
     const matches = selected.events.filter((event) => compareEvent(event, expected, selectedBus.id) === "exact");
-    const conflict = selected.events.find((event) => ["conflict", "other-position", "malformed"].includes(compareEvent(event, expected, selectedBus.id)));
-    const outside = scopes.find((scope) => scope.bus.id !== selectedBus.id && scope.events.some((event) => compareEvent(event, { ...expected, busId: scope.bus.id }, scope.bus.id) === "exact"));
-    if (matches.length > 1) return this.cloudItem(item, selectedBus, selected.events, ["SKIP_CONFLICT"], "Multiple exact StagePilot cues already exist.", matches[0]?.id);
-    if (matches.length === 1) return this.cloudItem(item, selectedBus, selected.events, ["SKIP_ALREADY_PRESENT"], "The exact StagePilot cue already exists.", matches[0]?.id);
-    if (conflict || outside) return this.cloudItem(item, selectedBus, selected.events, ["SKIP_CONFLICT"], outside ? "An exact cue exists on another bus." : "A malformed, different-velocity, or different-start cue requires review.");
-    return this.cloudItem(item, selectedBus, selected.events, ["CREATE_CLOUD_EVENT"], "The exact cloud-arrangement cue is missing.");
+    const conflict = selected.events.some((event) => ["conflict", "other-position", "malformed"].includes(compareEvent(event, expected, selectedBus.id)));
+    const outside = scopes.some((scope) => scope.bus.id !== selectedBus.id
+      && scope.events.some((event) =>
+        event.malformed
+        || compareEvent(event, { ...expected, busId: scope.bus.id }, scope.bus.id) === "exact"));
+    if (matches.length > 1) return this.cloudItem(item, selectedBus, selected.events, cue, ["SKIP_CONFLICT"], "Multiple exact ordinal cues already exist.", matches[0]?.id);
+    if (matches.length === 1) return this.cloudItem(item, selectedBus, selected.events, cue, ["SKIP_ALREADY_PRESENT"], "The exact ordinal cue already exists.", matches[0]?.id);
+    if (conflict || outside) return this.cloudItem(item, selectedBus, selected.events, cue, ["SKIP_CONFLICT"], outside ? "An exact cue exists on another bus." : "An existing E7 cue conflicts in velocity, position, or shape.");
+    return this.cloudItem(item, selectedBus, selected.events, cue, ["CREATE_CLOUD_EVENT"], "Create the ordinal cue on the proven Cloud Arrangement.");
   }
 
-  private findOutsideConflict(configuration: Configuration, item: SetlistItem, selectedBus: MidiBus, scopes: RemoteEventScope[]): string | undefined {
-    for (const scope of scopes) {
-      if (scope.events.some((event) => event.malformed)) {
-        return "A malformed MIDI event in another bank or bus cannot be compared safely; no new bank was created.";
-      }
-      const expected = { ...expectedEvent(this.gateway.expectedEventArguments(configuration, "library", { libraryEntryId: item.libraryEntryId, bankId: scope.bank!.id }), scope.bus.id), busId: scope.bus.id };
-      if (scope.events.some((event) => compareEvent(event, expected, scope.bus.id) === "exact")) {
-        return "An exact StagePilot cue already exists in another bank or on another bus; no new bank was created.";
-      }
-    }
-    return undefined;
-  }
-
-  private base(item: SetlistItem, bus: MidiBus, operations: CuePlanItem["operations"], reason: string, banks: MidiBank[] = []): CuePlanItem {
+  private base(item: SetlistItem, bus: MidiBus, songOrdinal: number | undefined, cue: ResolvedCue | undefined, operations: CuePlanItem["operations"], reason: string, banks: MidiBank[] = []): CuePlanItem {
     return {
       setlistPosition: item.position,
+      songOrdinal,
+      velocity: cue?.velocity,
       songTitle: item.title,
       targetType: item.targetType,
       targetId: item.libraryEntryId ?? item.arrangementId,
@@ -156,20 +169,21 @@ export class CuePlanner {
       arrangementId: item.arrangementId,
       busId: bus.id,
       busType: bus.type,
+      resolvedPosition: cue?.position,
       operations,
       reason,
-      risk: operations.some((operation) => operation.startsWith("SKIP_")) ? reason : undefined,
-      verificationStrategy: "Re-read the scoped event list and compare every canonical cue field.",
+      risk: operations.some((operation) => operation.startsWith("SKIP_")) ? reason : item.targetType === "library" ? "Velocity is stored on a reusable Library asset and is specific to this test setlist order." : undefined,
+      verificationStrategy: "Re-read the scoped event list and compare channel, note, ordinal velocity, one-beat position, bus, and target.",
       existingBanks: banks,
       selectedBusEvents: [],
     };
   }
 
-  private item(item: SetlistItem, bus: MidiBus, bank: MidiBank, events: MidiEvent[], operations: CuePlanItem["operations"], reason: string, eventId?: string): CuePlanItem {
-    return { ...this.base(item, bus, operations, reason, [bank]), libraryId: item.libraryEntryId, targetId: item.libraryEntryId, bankId: bank.id, selectedBusEvents: events, existingMatchingEventId: eventId };
+  private libraryItem(item: SetlistItem, bus: MidiBus, bank: MidiBank, events: MidiEvent[], cue: ResolvedCue, operations: CuePlanItem["operations"], reason: string, eventId?: string): CuePlanItem {
+    return { ...this.base(item, bus, cue.songOrdinal, cue, operations, reason, [bank]), bankId: bank.id, selectedBusEvents: events, existingMatchingEventId: eventId };
   }
 
-  private cloudItem(item: SetlistItem, bus: MidiBus, events: MidiEvent[], operations: CuePlanItem["operations"], reason: string, eventId?: string): CuePlanItem {
-    return { ...this.base(item, bus, operations, reason), arrangementId: item.arrangementId, targetId: item.arrangementId, selectedBusEvents: events, existingMatchingEventId: eventId };
+  private cloudItem(item: SetlistItem, bus: MidiBus, events: MidiEvent[], cue: ResolvedCue, operations: CuePlanItem["operations"], reason: string, eventId?: string): CuePlanItem {
+    return { ...this.base(item, bus, cue.songOrdinal, cue, operations, reason), selectedBusEvents: events, existingMatchingEventId: eventId };
   }
 }

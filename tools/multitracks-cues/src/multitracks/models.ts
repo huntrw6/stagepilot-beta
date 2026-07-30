@@ -32,6 +32,7 @@ export interface MidiBus {
 export interface MidiBank {
   id: string;
   name: string;
+  isDefault?: boolean;
   raw: Record<string, unknown>;
 }
 

@@ -13,11 +13,15 @@ export class TokenStore {
   constructor(private readonly vault: CredentialVault) {}
 
   service(identity: TokenStoreIdentity): string {
-    return `org.stagepilot.multitracks-cues:${new URL(identity.serverOrigin).origin}:${new URL(identity.issuer).origin}`;
+    const origin = Buffer.from(new URL(identity.serverOrigin).origin).toString("base64url");
+    const issuer = Buffer.from(new URL(identity.issuer).origin).toString("base64url");
+    return `org.stagepilot.multitracks-cues.${origin}.${issuer}`;
   }
 
   account(identity: TokenStoreIdentity): string {
-    return `${identity.clientId}:${identity.organizationId ?? "unselected"}`;
+    const client = Buffer.from(identity.clientId).toString("base64url");
+    const organization = Buffer.from(identity.organizationId ?? "unselected").toString("base64url");
+    return `${client}.${organization}`;
   }
 
   async load(identity: TokenStoreIdentity): Promise<StoredTokens | undefined> {
@@ -37,15 +41,15 @@ export class TokenStore {
   }
 
   async loadClientSecret(identity: TokenStoreIdentity): Promise<string | undefined> {
-    return (await this.vault.get(this.service(identity), `${identity.clientId}:client-secret`)) ?? undefined;
+    return (await this.vault.get(this.service(identity), `${Buffer.from(identity.clientId).toString("base64url")}.client-secret`)) ?? undefined;
   }
 
   async saveClientSecret(identity: TokenStoreIdentity, secret: string): Promise<void> {
-    await this.vault.set(this.service(identity), `${identity.clientId}:client-secret`, secret);
+    await this.vault.set(this.service(identity), `${Buffer.from(identity.clientId).toString("base64url")}.client-secret`, secret);
   }
 
   async deleteClientSecret(identity: TokenStoreIdentity): Promise<void> {
-    await this.vault.delete(this.service(identity), `${identity.clientId}:client-secret`);
+    await this.vault.delete(this.service(identity), `${Buffer.from(identity.clientId).toString("base64url")}.client-secret`);
   }
 
   expiresAt(tokens: StoredTokens): number | undefined {

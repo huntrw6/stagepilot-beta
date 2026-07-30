@@ -2,7 +2,7 @@
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Command, InvalidArgumentError } from "commander";
-import { APP_VERSION, EXIT } from "../constants.js";
+import { APP_VERSION, EXIT, SETLIST_ORDINAL_TEST_PROFILE } from "../constants.js";
 import { ConfigurationStore, applicationDataDirectory } from "../config/store.js";
 import { configurationSchema } from "../config/schema.js";
 import { runDoctor } from "../doctor.js";
@@ -30,7 +30,7 @@ interface GlobalOptions {
 const program = new Command();
 program
   .name("stagepilot-cues")
-  .description("Safely add StagePilot Start next MIDI cues through the official MultiTracks MCP server.")
+  .description("Safely prepare and verify explicit MultiTracks MIDI cue test profiles.")
   .version(APP_VERSION)
   .option("--json", "print machine-readable JSON")
   .option("--quiet", "suppress normal terminal output")
@@ -48,6 +48,12 @@ const positiveInteger = (value: string): number => {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) throw new InvalidArgumentError("Use a positive integer.");
   return parsed;
+};
+const cueProfile = (value: string): string => {
+  if (value !== SETLIST_ORDINAL_TEST_PROFILE) {
+    throw new InvalidArgumentError(`Use --cue-profile ${SETLIST_ORDINAL_TEST_PROFILE}.`);
+  }
+  return value;
 };
 const reportDirectory = (configured: string): string =>
   path.isAbsolute(configured) ? configured : path.join(applicationDataDirectory(), configured);
@@ -125,6 +131,7 @@ setlists.command("list")
 
 setlists.command("inspect")
   .requiredOption("--setlist-id <id>")
+  .requiredOption("--cue-profile <profile>", "explicit test cue profile", cueProfile)
   .option("--song-position <number>", "inspect one setlist position", positiveInteger)
   .action(async (options: { setlistId: string; songPosition?: number }) => runPlanCommand("inspect", options));
 
@@ -134,17 +141,13 @@ program.command("configure").description("Configure OAuth client, cue defaults, 
   const clientId = await ask(`MultiTracks-issued OAuth client ID [${current.clientId ?? "not configured"}]: `);
   const clientSecret = clientId ? await askSecret("Optional MultiTracks-issued client secret (leave blank for none): ") : "";
   if (clientId) current = await service.configureClient(current, clientId, clientSecret || undefined);
-  const bankName = await ask(`MIDI bank name [${current.bankName}]: `);
   const channel = await ask(`MIDI channel [${current.channel}]: `);
   const note = await ask(`MIDI note [${current.note} / E7]: `);
-  const velocity = await ask(`Velocity [${current.velocity}]: `);
   const reportDirectoryValue = await ask(`Report directory [${current.reportDirectory}]: `);
   current = configurationSchema.parse({
     ...current,
-    bankName: bankName || current.bankName,
     channel: channel ? Number(channel) : current.channel,
     note: note ? Number(note) : current.note,
-    velocity: velocity ? Number(velocity) : current.velocity,
     reportDirectory: reportDirectoryValue || current.reportDirectory,
     color: !process.env.NO_COLOR,
   });
@@ -173,27 +176,33 @@ program.command("configure").description("Configure OAuth client, cue defaults, 
 program.command("prepare")
   .description("Dry-run the exact changes for a setlist (default safe mode).")
   .requiredOption("--setlist-id <id>")
+  .requiredOption("--cue-profile <profile>", "explicit test cue profile", cueProfile)
   .option("--song-position <number>", "prepare one test song", positiveInteger)
-  .action(async (options: { setlistId: string; songPosition?: number }) => runPlanCommand("prepare", options));
+  .action(async (options: { setlistId: string; songPosition?: number; cueProfile: string }) => runPlanCommand("prepare", options));
 
 program.command("apply")
   .description("Explicitly apply and verify safe cue additions.")
   .requiredOption("--setlist-id <id>")
+  .requiredOption("--cue-profile <profile>", "explicit test cue profile", cueProfile)
   .option("--song-position <number>", "apply to one test song", positiveInteger)
-  .option("--yes", "skip typed confirmation (automation only)")
-  .action(async (options: { setlistId: string; songPosition?: number; yes?: boolean }) => {
+  .option("--yes", "skip typed confirmation only with --dangerous-development-confirmation")
+  .option("--dangerous-development-confirmation", "allow --yes for controlled development")
+  .action(async (options: { setlistId: string; songPosition?: number; yes?: boolean; dangerousDevelopmentConfirmation?: boolean; cueProfile: string }) => {
     const configStore = new ConfigurationStore();
     const configuration = await configStore.load();
     await withConnection(async (services) => {
       const positions = options.songPosition ? [options.songPosition] : undefined;
-      const fresh = await inspectSetlist(services, configuration, options.setlistId, positions);
+      const fresh = await inspectSetlist(services, configuration, options.setlistId, SETLIST_ORDINAL_TEST_PROFILE, positions);
       print(globals().json ? fresh : renderPlan(fresh), globals());
-      if (!options.yes && !(await confirmApply(options.setlistId))) {
+      if (options.yes && !options.dangerousDevelopmentConfirmation) {
+        throw new StagePilotCuesError("--yes requires --dangerous-development-confirmation.", EXIT.INVALID);
+      }
+      if (!options.yes && !(await confirmApply(options.setlistId, options.songPosition))) {
         throw new StagePilotCuesError("Apply cancelled; no remote writes occurred.", EXIT.INVALID);
       }
       const startedAt = new Date().toISOString();
       const directory = reportDirectory(configuration.reportDirectory);
-      const result = await applyCuePlan(services, configuration, options.setlistId, directory, positions);
+      const result = await applyCuePlan(services, configuration, options.setlistId, directory, SETLIST_ORDINAL_TEST_PROFILE, positions);
       const reporter = new Reporter(directory);
       const files = await reporter.write({
         startedAt,
@@ -215,13 +224,14 @@ program.command("apply")
 program.command("verify")
   .description("Read back and verify cues without writing.")
   .requiredOption("--setlist-id <id>")
+  .requiredOption("--cue-profile <profile>", "explicit test cue profile", cueProfile)
   .option("--song-position <number>", "verify one setlist position", positiveInteger)
-  .action(async (options: { setlistId: string; songPosition?: number }) => {
+  .action(async (options: { setlistId: string; songPosition?: number; cueProfile: string }) => {
     const configStore = new ConfigurationStore();
     const configuration = await configStore.load();
     await withConnection(async (services) => {
       const startedAt = new Date().toISOString();
-      const result = await verifyCuePlan(services, configuration, options.setlistId, options.songPosition ? [options.songPosition] : undefined);
+      const result = await verifyCuePlan(services, configuration, options.setlistId, SETLIST_ORDINAL_TEST_PROFILE, options.songPosition ? [options.songPosition] : undefined);
       const directory = reportDirectory(configuration.reportDirectory);
       const files = await new Reporter(directory).write({ startedAt, finishedAt: new Date().toISOString(), command: "verify", serverOrigin: new URL(configuration.serverUrl).origin, organization: configuration.organization, setlist: result.plan.setlist, configuration: result.plan.configuration, plan: result.plan.items, finalStatus: result.summary.success ? "success" : "failed" });
       print(globals().json ? { ...result, reports: files } : `${renderPlan(result.plan)}\n\nVerification: ${JSON.stringify(result.summary)}\nReports: ${files.json}`, globals());
@@ -229,9 +239,59 @@ program.command("verify")
     });
   });
 
+program.command("test-real-setlist")
+  .description("Guided read-only real-setlist inspection; always stops before the first write.")
+  .action(async () => {
+    const checks = await runDoctor();
+    print(checks.map((check) => `${check.status.toUpperCase().padEnd(7)} ${check.name}: ${check.message}`).join("\n"), globals());
+    if (checks.some((check) => check.status === "error")) {
+      throw new StagePilotCuesError("Doctor found a blocking problem. Resolve it before inspecting a real setlist.", EXIT.AUTH);
+    }
+    const { configStore } = createAuthentication();
+    const configuration = await configStore.load();
+    await withConnection(async (services) => {
+      const capability = services.client.validateCapabilities();
+      if (capability.missing.length) {
+        throw new StagePilotCuesError(`Required MCP tools are missing: ${capability.missing.join(", ")}.`, EXIT.CAPABILITY);
+      }
+      const directory = reportDirectory(configuration.reportDirectory);
+      const schemaFile = path.join(directory, "multitracks-tools.sanitized.json");
+      await mkdir(directory, { recursive: true });
+      await saveSanitizedToolSchemas(services, schemaFile);
+      const today = new Date().toISOString().slice(0, 10);
+      const until = new Date(Date.now() + configuration.defaultDateWindowDays * 86_400_000).toISOString().slice(0, 10);
+      const candidates = await listSetlists(services, { from: today, to: until, limit: 100 });
+      print(candidates.map((item) => `${item.targetDate ?? "no date"}  ${item.name}  [${item.id}]`).join("\n") || "No upcoming setlists found.", globals());
+      const setlistId = await ask("Enter one exact setlist ID to inspect: ");
+      if (!setlistId || candidates.filter((item) => item.id === setlistId).length !== 1) {
+        throw new StagePilotCuesError("The setlist ID did not resolve to exactly one listed setlist.", EXIT.AMBIGUOUS);
+      }
+      const plan = await inspectSetlist(services, configuration, setlistId, SETLIST_ORDINAL_TEST_PROFILE);
+      const files = await new Reporter(directory).write({
+        startedAt: plan.generatedAt,
+        finishedAt: new Date().toISOString(),
+        command: "prepare",
+        serverOrigin: new URL(configuration.serverUrl).origin,
+        organization: configuration.organization,
+        setlist: plan.setlist,
+        configuration: plan.configuration,
+        plan: plan.items,
+        finalStatus: plan.items.some((item) => ["ERROR", "SKIP_AMBIGUOUS", "SKIP_CONFLICT"].some((operation) => item.operations.includes(operation as never))) ? "failed" : "success",
+      });
+      print(`${renderPlan(plan)}\n\nSanitized schemas: ${schemaFile}\nReports: ${files.json}`, globals());
+      const firstWritable = plan.items.find((item) => item.operations.some((operation) => operation.startsWith("CREATE_")));
+      if (firstWritable) {
+        print(`\nNo remote write occurred. Review the report, then test one song with:\n./bin/stagepilot-cues apply --setlist-id ${setlistId} --song-position ${firstWritable.setlistPosition} --cue-profile ${SETLIST_ORDINAL_TEST_PROFILE}`, globals());
+      } else {
+        print("\nNo safe one-song write is currently available; resolve every reported ambiguity or conflict first.", globals());
+      }
+    });
+  });
+
 program.command("sync-next")
   .description("Find one unambiguous upcoming setlist; dry-run unless --apply is supplied.")
   .option("--apply", "apply after typed confirmation")
+  .requiredOption("--cue-profile <profile>", "explicit test cue profile", cueProfile)
   .option("--yes", "skip typed confirmation with --apply")
   .action(async (options: { apply?: boolean; yes?: boolean }) => {
     const configStore = new ConfigurationStore();
@@ -245,16 +305,16 @@ program.command("sync-next")
       const setlistId = candidates[0]!.id;
       if (!options.apply) {
         const startedAt = new Date().toISOString();
-        const plan = await inspectSetlist(services, configuration, setlistId);
+        const plan = await inspectSetlist(services, configuration, setlistId, SETLIST_ORDINAL_TEST_PROFILE);
         const directory = reportDirectory(configuration.reportDirectory);
         const files = await new Reporter(directory).write({ startedAt, finishedAt: new Date().toISOString(), command: "prepare", serverOrigin: new URL(configuration.serverUrl).origin, organization: configuration.organization, setlist: plan.setlist, configuration: plan.configuration, plan: plan.items, finalStatus: "success" });
         print(globals().json ? { plan, reports: files } : `${renderPlan(plan)}\n\nReports: ${files.json}`, globals());
         return;
       }
-      const plan = await inspectSetlist(services, configuration, setlistId);
+      const plan = await inspectSetlist(services, configuration, setlistId, SETLIST_ORDINAL_TEST_PROFILE);
       print(renderPlan(plan), globals());
       if (!options.yes && !(await confirmApply(setlistId))) throw new StagePilotCuesError("Apply cancelled; no remote writes occurred.", EXIT.INVALID);
-      const result = await applyCuePlan(services, configuration, setlistId, reportDirectory(configuration.reportDirectory));
+      const result = await applyCuePlan(services, configuration, setlistId, reportDirectory(configuration.reportDirectory), SETLIST_ORDINAL_TEST_PROFILE);
       print(result, globals());
       if (!result.success) process.exitCode = EXIT.PARTIAL_FAILURE;
     });
@@ -265,7 +325,7 @@ async function runPlanCommand(command: "inspect" | "prepare", options: { setlist
   const configuration = await configStore.load();
   await withConnection(async (services) => {
     const startedAt = new Date().toISOString();
-    const plan = await inspectSetlist(services, configuration, options.setlistId, options.songPosition ? [options.songPosition] : undefined);
+    const plan = await inspectSetlist(services, configuration, options.setlistId, SETLIST_ORDINAL_TEST_PROFILE, options.songPosition ? [options.songPosition] : undefined);
     const directory = reportDirectory(configuration.reportDirectory);
     const files = await new Reporter(directory).write({ startedAt, finishedAt: new Date().toISOString(), command, serverOrigin: new URL(configuration.serverUrl).origin, organization: configuration.organization, setlist: plan.setlist, configuration: plan.configuration, plan: plan.items, finalStatus: plan.items.some((item) => item.operations.includes("ERROR")) ? "failed" : "success" });
     print(globals().json ? { plan, reports: files } : `${renderPlan(plan)}\n\nReports: ${files.json}`, globals());

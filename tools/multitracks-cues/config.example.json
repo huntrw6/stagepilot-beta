@@ -1,9 +1,7 @@
 {
   "serverUrl": "https://mcp.multitracks.com/mcp",
-  "bankName": "StagePilot",
   "channel": 1,
   "note": 112,
-  "velocity": 100,
   "reportDirectory": "reports",
   "color": true,
   "defaultDateWindowDays": 30,

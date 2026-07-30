@@ -1,5 +1,6 @@
 import type { Configuration } from "../config/schema.js";
 import type { CuePlanner } from "./planner.js";
+import type { CueProfile } from "./models.js";
 
 export interface VerificationSummary {
   verified: number;
@@ -14,9 +15,10 @@ export async function verifyCuePlan(
   planner: CuePlanner,
   configuration: Configuration,
   setlistId: string,
+  cueProfile: CueProfile,
   positions?: number[],
 ): Promise<{ plan: Awaited<ReturnType<CuePlanner["buildCuePlan"]>>; summary: VerificationSummary }> {
-  const plan = await planner.buildCuePlan(configuration, setlistId, positions);
+  const plan = await planner.buildCuePlan(configuration, setlistId, cueProfile, positions);
   const summary: VerificationSummary = { verified: 0, missing: 0, conflicting: 0, duplicated: 0, skipped: 0, success: true };
   for (const item of plan.items) {
     if (item.operations.includes("SKIP_NON_SONG")) summary.skipped += 1;

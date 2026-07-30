@@ -1,29 +1,29 @@
 # MultiTracks Playback cue automation
 
-StagePilot includes an independent TypeScript package at `tools/multitracks-cues`. It is an MCP client—not an MCP server—and has no dependency on the StagePilot Python backend, desktop shell, ChatGPT, OpenAI, Claude, or any AI model.
+StagePilot includes an independent TypeScript MCP client at `tools/multitracks-cues`. The explicit `setlist-ordinal-test` profile validates cue creation without changing StagePilot’s production E7/velocity-100 runtime behavior.
 
-The utility connects to the official MultiTracks Streamable HTTP endpoint, validates live `tools/list` input schemas, and maps the canonical StagePilot Start-next cue into the exact schema only when song-start semantics can be proven. Library MIDI and explicit Cloud Arrangement MIDI targets are handled separately. Ambiguous classification, duplicate banks, malformed events, near-start cues, alternate velocities, and cues in another bank or bus are reported rather than changed.
+The profile assigns velocity from the complete, position-sorted setlist: qualifying song 1 receives velocity 1, song 2 receives 2, and so on. Non-song, ambiguous, and unsupported items do not consume ordinals. The CLI fails before writing if more than 127 songs qualify.
 
-Its safety sequence is:
+The cue is placed exactly one schema-proven musical beat after song start. The adapter accepts nested or flat measure/bar, beat, and tick coordinates only when their start values and the beat increment are unambiguous. It never substitutes milliseconds or guesses tempo, time signature, PPQ, or pickup behavior.
+
+Library events use only an existing, uniquely proven Default MIDI Bank. Bank creation is not allowlisted. Repeated reusable Library targets are rejected when their occurrences require different velocities. Cloud Arrangements remain occurrence-specific only when stable writable identities are explicit.
+
+The safety sequence is:
 
 ```text
-fresh setlist + bus + bank + event inspection
-                  ↓
-        deterministic dry-run plan
-                  ↓
-       explicit apply confirmation
-                  ↓
-       one sequential create call
-                  ↓
-    complete scoped event read-back
-                  ↓
- canonical verification + journal/report
+complete setlist classification and ordinal assignment
+                       ↓
+bus, target, Default-bank, and event inspection
+                       ↓
+schema-proven one-beat position + deterministic dry-run
+                       ↓
+explicit one-song confirmation and one create call
+                       ↓
+complete scoped read-back and canonical verification
+                       ↓
+atomic journal + sanitized text/JSON/CSV reports
 ```
 
-Library targets are deduplicated by stable library entry ID. Cloud arrangements remain distinct by arrangement ID. The utility never copies, replaces, imports, uploads, modifies, or deletes MIDI data.
+No bank or event is overwritten, moved, updated, or deleted. No MIDI file, copied bank, or production-cue import is used. Exact existing cues are idempotently skipped; every discrepancy becomes a conflict.
 
-See the [package guide](../tools/multitracks-cues/README.md) for installation and commands and [client registration](multitracks-client-registration.md) for the current external OAuth requirement.
-
-## Future desktop integration
-
-The public package boundary exports reusable connection, authentication, discovery, inspection, planning, apply, and verification services. A future StagePilot desktop panel can call the compiled package or supervise it as a sidecar. The current standalone tool intentionally does not import the StagePilot backend or alter the released desktop UI.
+Run `./scripts/setup-multitracks-cues.sh`, then follow the complete commands and recovery guidance in the [package guide](../tools/multitracks-cues/README.md).
