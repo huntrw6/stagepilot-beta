@@ -106,7 +106,10 @@ export function normalizeMidiBanks(value: unknown): MidiBank[] {
     const raw = asRecord(item);
     const id = raw && text(raw, ["id", "bankId", "bank_id"]);
     const name = raw && text(raw, ["name", "title", "bankName", "bank_name"]);
-    return raw && id && name ? [{ id, name, raw }] : [];
+    const defaultValue = raw && first(raw, ["isDefault", "is_default", "default"]);
+    return raw && id && name
+      ? [{ id, name, isDefault: defaultValue === true, raw }]
+      : [];
   });
 }
 

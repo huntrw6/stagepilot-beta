@@ -21,7 +21,7 @@ export function compareEvent(actual: MidiEvent, expected: MidiEvent, impliedBusI
   const actualBus = actual.busId ?? impliedBusId;
   if (actualBus !== expected.busId || actual.channel !== expected.channel || actual.note !== expected.note) return "unrelated";
   if (!equalPosition(actual.position, expected.position)) {
-    return actual.velocity === expected.velocity ? "other-position" : "unrelated";
+    return "other-position";
   }
   return actual.velocity === expected.velocity ? "exact" : "conflict";
 }

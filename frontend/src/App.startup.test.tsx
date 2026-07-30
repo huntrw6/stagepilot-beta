@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const desktop = vi.hoisted(() => ({
   restartDesktopBackend: vi.fn().mockResolvedValue(true),
   status: {
-    state: "failed" as const,
+    state: "failed" as "failed" | "starting",
     message:
       "The packaged StagePilot backend was blocked by macOS code-signing policy. This application build is invalid.",
     port: 8765,
@@ -41,6 +41,20 @@ import App from "./App";
 describe("packaged backend startup recovery", () => {
   beforeEach(() => {
     desktop.restartDesktopBackend.mockClear();
+    desktop.status.state = "failed";
+  });
+
+  it("shows only the primary descriptor during a normal backend start", async () => {
+    desktop.status.state = "starting";
+    render(<App />);
+
+    expect(await screen.findByText("Starting the local backend")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/blocked by macOS code-signing policy/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Live connection interrupted; reconnecting."),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the specific signing failure instead of a reconnect loop", async () => {

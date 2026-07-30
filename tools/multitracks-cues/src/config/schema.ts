@@ -9,10 +9,8 @@ export const configurationSchema = z.object({
   midiBus: z
     .object({ id: z.string().min(1), name: z.string().optional(), type: z.string().optional() })
     .optional(),
-  bankName: z.string().min(1).default("StagePilot"),
   channel: z.number().int().min(1).max(16).default(1),
   note: z.number().int().min(0).max(127).default(112),
-  velocity: z.number().int().min(1).max(127).default(100),
   reportDirectory: z.string().min(1).default("reports"),
   color: z.boolean().default(true),
   setlistNameFilter: z.string().min(1).optional(),

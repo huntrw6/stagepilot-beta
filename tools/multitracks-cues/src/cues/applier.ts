@@ -1,8 +1,10 @@
 import path from "node:path";
 import type { Configuration } from "../config/schema.js";
+import { EXIT } from "../constants.js";
+import { AmbiguityError } from "../errors.js";
 import type { MultiTracksGateway } from "../multitracks/gateway.js";
 import { OperationJournal } from "../reporting/journal.js";
-import type { ApplyResult, CuePlanItem } from "./models.js";
+import type { ApplyResult, CuePlanItem, CueProfile } from "./models.js";
 import type { CuePlanner } from "./planner.js";
 
 export class CueApplier {
@@ -11,8 +13,16 @@ export class CueApplier {
     private readonly planner: CuePlanner,
   ) {}
 
-  async applyCuePlan(configuration: Configuration, setlistId: string, reportDirectory: string, positions?: number[]): Promise<ApplyResult> {
-    const plan = await this.planner.buildCuePlan(configuration, setlistId, positions);
+  async applyCuePlan(configuration: Configuration, setlistId: string, reportDirectory: string, cueProfile: CueProfile, positions?: number[]): Promise<ApplyResult> {
+    const plan = await this.planner.buildCuePlan(configuration, setlistId, cueProfile, positions);
+    const unsafe = plan.items.find((item) =>
+      item.operations.some((operation) => operation === "SKIP_AMBIGUOUS" || operation === "SKIP_CONFLICT" || operation === "ERROR"));
+    if (unsafe) {
+      throw new AmbiguityError(
+        `Apply stopped before writing because setlist position ${unsafe.setlistPosition} has an unresolved risk: ${unsafe.reason}`,
+        EXIT.AMBIGUOUS,
+      );
+    }
     const journal = new OperationJournal(path.join(reportDirectory, `journal-${setlistId}.json`));
     const results: ApplyResult["results"] = [];
     for (const initial of plan.items) {
@@ -23,7 +33,7 @@ export class CueApplier {
         await journal.record({ timestamp: new Date().toISOString(), setlistPosition: initial.setlistPosition, targetId: initial.targetId, operation: initial.operations.join("+"), outcome: status, message: initial.reason });
         continue;
       }
-      const freshPlan = await this.planner.buildCuePlan(configuration, setlistId, [initial.setlistPosition]);
+      const freshPlan = await this.planner.buildCuePlan(configuration, setlistId, cueProfile, [initial.setlistPosition]);
       const fresh = freshPlan.items[0];
       if (!fresh || !fresh.operations.some((operation) => operation.startsWith("CREATE_"))) {
         const verified = fresh?.operations.includes("SKIP_ALREADY_PRESENT") ?? false;
@@ -35,7 +45,7 @@ export class CueApplier {
       try {
         await this.applyOne(configuration, fresh);
       } catch (error) {
-        const reconciled = await this.planner.buildCuePlan(configuration, setlistId, [initial.setlistPosition]);
+        const reconciled = await this.planner.buildCuePlan(configuration, setlistId, cueProfile, [initial.setlistPosition]);
         const item = reconciled.items[0];
         const verified = item?.operations.includes("SKIP_ALREADY_PRESENT") ?? false;
         const message = verified
@@ -45,7 +55,7 @@ export class CueApplier {
         await journal.record({ timestamp: new Date().toISOString(), setlistPosition: initial.setlistPosition, targetId: initial.targetId, operation: fresh.operations.join("+"), outcome: verified ? "verified" : "failed", message, eventId: item?.existingMatchingEventId });
         continue;
       }
-      const verification = await this.planner.buildCuePlan(configuration, setlistId, [initial.setlistPosition]);
+      const verification = await this.planner.buildCuePlan(configuration, setlistId, cueProfile, [initial.setlistPosition]);
       const verifiedItem = verification.items[0];
       const verified = verifiedItem?.operations.includes("SKIP_ALREADY_PRESENT") ?? false;
       const message = verified ? "Created event was read back and verified." : "Created event could not be verified by read-back.";
@@ -56,18 +66,21 @@ export class CueApplier {
   }
 
   private async applyOne(configuration: Configuration, item: CuePlanItem): Promise<void> {
+    if (!item.songOrdinal || !item.velocity || !item.resolvedPosition) {
+      throw new Error("The planned cue is missing its resolved ordinal, velocity, or one-beat position.");
+    }
+    const cue = {
+      channel: 1,
+      note: 112,
+      velocity: item.velocity,
+      position: item.resolvedPosition,
+      songOrdinal: item.songOrdinal,
+    };
     if (item.targetType === "library") {
-      let bankId = item.bankId;
-      if (item.operations.includes("CREATE_BANK")) {
-        await this.gateway.createLibraryBank(item.libraryId!, configuration.bankName);
-        const banks = (await this.gateway.listLibraryBanks(item.libraryId!)).filter((bank) => bank.name === configuration.bankName);
-        if (banks.length !== 1) throw new Error("Bank creation did not resolve to exactly one StagePilot bank.");
-        bankId = banks[0]!.id;
-      }
-      if (!bankId) throw new Error("No verified bank ID is available for Library MIDI event creation.");
-      await this.gateway.createLibraryEvent(configuration, item.libraryId!, bankId);
+      if (!item.bankId) throw new Error("No verified Default MIDI Bank ID is available.");
+      await this.gateway.createLibraryEvent(item.busId, item.libraryId!, item.bankId, cue);
     } else if (item.targetType === "cloud") {
-      await this.gateway.createCloudEvent(configuration, item.arrangementId!);
+      await this.gateway.createCloudEvent(item.busId, item.arrangementId!, cue);
     } else {
       throw new Error("Ambiguous target reached the apply boundary.");
     }

@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const tauri = vi.hoisted(() => ({
   invoke: vi.fn().mockResolvedValue(undefined),
   isTauri: vi.fn(() => true),
+  openUrl: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@tauri-apps/api/core", () => tauri);
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: tauri.openUrl }));
 
-import { backendStartupTitle, hideDesktopWindow } from "./desktop";
+import { backendStartupTitle, hideDesktopWindow, openExternalUrl } from "./desktop";
 
 describe("backend startup labels", () => {
   it("distinguishes actionable packaged-backend failures", () => {
@@ -36,6 +38,7 @@ describe("backend startup labels", () => {
 describe("desktop window controls", () => {
   beforeEach(() => {
     tauri.invoke.mockClear();
+    tauri.openUrl.mockClear();
     tauri.isTauri.mockReturnValue(true);
   });
 
@@ -51,5 +54,32 @@ describe("desktop window controls", () => {
     await hideDesktopWindow();
 
     expect(tauri.invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("external links", () => {
+  beforeEach(() => {
+    tauri.openUrl.mockClear();
+    tauri.isTauri.mockReturnValue(true);
+  });
+
+  it("uses the operating system browser from the desktop shell", async () => {
+    await openExternalUrl("https://example.com/help");
+
+    expect(tauri.openUrl).toHaveBeenCalledWith("https://example.com/help");
+  });
+
+  it("opens a new browser tab outside the desktop shell", async () => {
+    tauri.isTauri.mockReturnValue(false);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await openExternalUrl("https://example.com/help");
+
+    expect(open).toHaveBeenCalledWith(
+      "https://example.com/help",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    open.mockRestore();
   });
 });

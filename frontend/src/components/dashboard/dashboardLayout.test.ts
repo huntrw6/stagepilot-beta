@@ -40,6 +40,18 @@ describe("dashboard layout model", () => {
     }
   });
 
+  it("fills the default desktop columns to the same total height", () => {
+    const desktop = createDefaultDashboardLayout().desktop;
+    const servicePlan = desktop.find(({ id }) => id === "service-plan")!;
+    const rightColumnBottom = Math.max(
+      ...desktop
+        .filter(({ x }) => x === 7)
+        .map(({ y, h }) => y + h),
+    );
+
+    expect(servicePlan.y + servicePlan.h).toBe(rightColumnBottom);
+  });
+
   it("rejects unknown, duplicate, missing, negative, and zero-sized items", () => {
     const valid = createDefaultDashboardLayout();
     expect(parseDashboardLayout({

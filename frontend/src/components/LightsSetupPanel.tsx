@@ -232,7 +232,7 @@ export function LightsSetupPanel({
             >
               <span
                 aria-hidden="true"
-                className={`absolute top-1 h-4 w-4 rounded-full bg-sky-300 shadow-sm shadow-sky-300/30 transition-transform duration-200 ${noteDisplayMode === "numeric" ? "translate-x-6" : "translate-x-1"}`}
+                className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-sky-300 shadow-sm shadow-sky-300/30 transition-transform duration-200 ${noteDisplayMode === "numeric" ? "translate-x-7" : "translate-x-1"}`}
               />
             </button>
             <span aria-hidden="true" className={noteDisplayMode === "numeric" ? "text-sky-200" : "text-slate-500"}>#</span>

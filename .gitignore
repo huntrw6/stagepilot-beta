@@ -1,0 +1,11 @@
+.tools/
+.codex/
+graphify-out/
+
+**/node_modules/
+**/dist/
+
+backend/build/
+desktop/src-tauri/binaries/
+desktop/src-tauri/gen/
+desktop/src-tauri/target/

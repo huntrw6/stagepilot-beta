@@ -1,24 +1,28 @@
 import type { MidiBank, MidiEvent, Setlist } from "../multitracks/models.js";
+import type { SETLIST_ORDINAL_TEST_PROFILE } from "../constants.js";
+
+export type CueProfile = typeof SETLIST_ORDINAL_TEST_PROFILE;
 
 export type PlanOperation =
   | "SKIP_NON_SONG"
   | "SKIP_ALREADY_PRESENT"
   | "SKIP_AMBIGUOUS"
   | "SKIP_CONFLICT"
-  | "CREATE_BANK"
   | "CREATE_LIBRARY_EVENT"
   | "CREATE_CLOUD_EVENT"
   | "ERROR";
 
 export interface CuePlanItem {
   setlistPosition: number;
+  songOrdinal?: number;
+  velocity?: number;
   songTitle: string;
   targetType: "library" | "cloud" | "ambiguous" | "non-song";
   targetId?: string;
   libraryId?: string;
   arrangementId?: string;
   bankId?: string;
-  proposedBankName?: string;
+  resolvedPosition?: Record<string, number>;
   busId: string;
   busType?: string;
   existingMatchingEventId?: string;
@@ -36,13 +40,20 @@ export interface CuePlan {
   setlist: Setlist;
   items: CuePlanItem[];
   configuration: {
-    bankName: string;
+    cueProfile: "setlist-ordinal-test";
     channel: number;
     note: number;
-    velocity: number;
     busId: string;
     busType?: string;
   };
+}
+
+export interface ResolvedCue {
+  channel: number;
+  note: number;
+  velocity: number;
+  position: Record<string, number>;
+  songOrdinal: number;
 }
 
 export interface ApplyResult {

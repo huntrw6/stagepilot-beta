@@ -5,6 +5,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApplicationState, SettingsResponse } from "../types";
 import { PlanningCenterSetupPanel } from "./PlanningCenterSetupPanel";
 
+const desktop = vi.hoisted(() => ({
+  openExternalUrl: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../desktop", () => ({
+  openExternalUrl: desktop.openExternalUrl,
+}));
+
 const settings: SettingsResponse = {
   settings: {
     schema_version: 1,
@@ -138,6 +146,7 @@ describe("PlanningCenterSetupPanel", () => {
       const helpButton = screen.getByRole("button", {
         name: "How to get a Planning Center Personal Access Token",
       });
+      expect(helpButton).toHaveClass("leading-none", "pb-px");
       const hoverArea = helpButton.parentElement!;
       const tooltip = screen.getByRole("tooltip");
 
@@ -150,6 +159,10 @@ describe("PlanningCenterSetupPanel", () => {
       const link = screen.getByRole("link", { name: "Personal Access Tokens page" });
       expect(link).toHaveAttribute(
         "href",
+        "https://api.planningcenteronline.com/personal_access_tokens",
+      );
+      fireEvent.click(link);
+      expect(desktop.openExternalUrl).toHaveBeenCalledWith(
         "https://api.planningcenteronline.com/personal_access_tokens",
       );
       fireEvent.mouseEnter(tooltip);

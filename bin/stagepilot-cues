@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+supported_node() {
+  "$1" -e 'const m=Number(process.versions.node.split(".")[0]);process.exit(m===22||m===24?0:1)' >/dev/null 2>&1
+}
+
+if command -v node >/dev/null 2>&1 && supported_node "$(command -v node)"; then
+  NODE="$(command -v node)"
+else
+  case "$(uname -m)" in
+    arm64) PLATFORM="darwin-arm64" ;;
+    x86_64) PLATFORM="darwin-x64" ;;
+    *) echo "Unsupported architecture. Run scripts/setup-multitracks-cues.sh on macOS." >&2; exit 2 ;;
+  esac
+  NODE="$ROOT/.tools/node/node-v22.23.1-${PLATFORM}/bin/node"
+  [ -x "$NODE" ] || { echo "Node.js is not prepared. Run ./scripts/setup-multitracks-cues.sh." >&2; exit 2; }
+fi
+
+exec "$NODE" "$ROOT/tools/multitracks-cues/dist/cli/main.js" "$@"

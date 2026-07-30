@@ -219,7 +219,9 @@ describe("LightsSetupPanel", () => {
     const displaySwitch = screen.getByRole("switch", {
       name: "MIDI note display: music notation",
     });
+    const switchThumb = displaySwitch.querySelector("span");
     expect(displaySwitch).not.toBeChecked();
+    expect(switchThumb).toHaveClass("left-0", "translate-x-1");
     expect(screen.getAllByRole("option", { name: "C4" })).toHaveLength(2);
 
     await user.click(displaySwitch);
@@ -227,6 +229,7 @@ describe("LightsSetupPanel", () => {
     expect(
       screen.getByRole("switch", { name: "MIDI note display: numeric value" }),
     ).toBeChecked();
+    expect(switchThumb).toHaveClass("left-0", "translate-x-7");
     expect(screen.getAllByRole("option", { name: "72" })).toHaveLength(2);
     expect(screen.getByLabelText("Lighting cue note")).toHaveValue("72");
     expect(onSaveCues).not.toHaveBeenCalled();

@@ -84,6 +84,19 @@ describe("OAuth and credential safety", () => {
     expect(JSON.stringify(status)).not.toContain("refreshed");
   });
 
+  it("uses credential-store-safe keys while retaining the complete identity", () => {
+    const store = new TokenStore(new CredentialVault(async () => new MemoryBackend()));
+    const identity = {
+      serverOrigin: "https://mcp.multitracks.com/mcp",
+      issuer: "https://account.multitracks.com/",
+      clientId: "client:id",
+      organizationId: "org/one",
+    };
+    expect(store.service(identity)).toMatch(/^[A-Za-z0-9._@-]+$/);
+    expect(store.account(identity)).toMatch(/^[A-Za-z0-9._@-]+$/);
+    expect(store.service(identity)).not.toContain("https://");
+  });
+
   it("reports missing static registration and uses DCR only when advertised", async () => {
     const backend = new MemoryBackend();
     const configStore = new MemoryConfigStore();

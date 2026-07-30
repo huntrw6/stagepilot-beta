@@ -108,10 +108,7 @@ function StagePilotApp() {
       startupProgress.phase === "failed"
         ? backendStartupTitle(backendSupervisor)
         : startupProgress.headline;
-    const showStartupError =
-      Boolean(stagePilot.error) &&
-      startupProgress.phase !== "failed" &&
-      startupProgress.tone === "delayed";
+    const showStartupDetails = startupProgress.phase === "failed";
     return (
       <>
         <DesktopTitleBar />
@@ -137,16 +134,13 @@ function StagePilotApp() {
             <p className="mt-6 text-lg font-semibold text-white">
               {progressHeadline}
             </p>
-            <p
-              aria-live={startupProgress.phase === "failed" ? "assertive" : undefined}
-              className={`mt-2 text-sm ${backendSupervisor?.state === "failed" ? "text-rose-300" : "text-slate-400"}`}
-            >
-              {stagePilot.state
-                ? "Dashboard ready."
-                : backendSupervisor?.message ?? "Waiting for the StagePilot backend."}
-            </p>
-            {showStartupError && (
-              <p className="mt-4 text-sm text-rose-300">{stagePilot.error}</p>
+            {showStartupDetails && (
+              <p
+                aria-live={startupProgress.phase === "failed" ? "assertive" : undefined}
+                className={`mt-2 text-sm ${backendSupervisor?.state === "failed" ? "text-rose-300" : "text-slate-400"}`}
+              >
+                {backendSupervisor?.message ?? "Waiting for the StagePilot backend."}
+              </p>
             )}
             {startupProgress.phase === "failed" && (
               <div className="mt-6 flex flex-wrap justify-center gap-3">

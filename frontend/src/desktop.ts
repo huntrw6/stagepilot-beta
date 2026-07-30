@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type BackendSupervisorStatus = {
   state: "starting" | "ready" | "external" | "failed" | "stopped";
@@ -73,4 +74,12 @@ export const restartDesktopBackend = async (): Promise<boolean> => {
   if (!isTauri()) return false;
   await invoke<BackendSupervisorStatus>("restart_managed_backend");
   return true;
+};
+
+export const openExternalUrl = async (url: string): Promise<void> => {
+  if (isTauri()) {
+    await openUrl(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 };
