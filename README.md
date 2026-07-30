@@ -7,13 +7,13 @@ Production desktop builds check the signed
 stays unchanged when StagePilot is current; an **Update** button appears beside
 the logo only when a newer signed release is available.
 
-## Download StagePilot 1.1.32
+## Download StagePilot 1.1.43
 
-Download the installer for your computer from the [StagePilot v1.1.32 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.32):
+Download the installer for your computer from the [StagePilot v1.1.43 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.43):
 
-- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.32/StagePilot_1.1.32_x64-setup.exe)
-- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.32/StagePilot_1.1.32_x64.dmg)
-- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.32/StagePilot_1.1.32_aarch64.dmg)
+- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.43/StagePilot_1.1.43_x64-setup.exe)
+- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.43/StagePilot_1.1.43_x64.dmg)
+- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.43/StagePilot_1.1.43_aarch64.dmg)
 
 On **Windows**, run the installer and open StagePilot from the Start menu.
 
@@ -146,6 +146,9 @@ Test the complete signal path with the same computers, network, MIDI routes, Pla
 ## Contributing
 
 StagePilot is open source. Development, testing, and packaging instructions are in [CONTRIBUTING.md](CONTRIBUTING.md), with future direction in [ROADMAP.md](ROADMAP.md).
+
+Maintainers can validate, version, push, and publish all supported installers
+with one PowerShell command. See [Creating a StagePilot release](docs/creating-a-release.md).
 
 ## License
 

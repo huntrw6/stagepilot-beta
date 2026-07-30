@@ -11,7 +11,7 @@ use std::{
 
 use serde::Serialize;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent, WebviewWindow, WebviewWindowBuilder,
 };
@@ -26,6 +26,23 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_INTERVAL: Duration = Duration::from_millis(250);
 const RECENT_BACKEND_LINES: usize = 32;
 const BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
+const STAGEPILOT_GITHUB_URL: &str = "https://github.com/huntrw6/stagepilot";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StagePilotMenuAction {
+    Restart,
+    Minimize,
+    ToggleFullscreen,
+}
+
+fn stagepilot_menu_action(id: &str) -> Option<StagePilotMenuAction> {
+    match id {
+        "restart-stagepilot" => Some(StagePilotMenuAction::Restart),
+        "minimize-stagepilot" => Some(StagePilotMenuAction::Minimize),
+        "toggle-fullscreen-stagepilot" => Some(StagePilotMenuAction::ToggleFullscreen),
+        _ => None,
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -645,6 +662,95 @@ fn hide_application_window(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| format!("StagePilot could not hide its window: {error}"))
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn install_application_menu(app: &tauri::AppHandle) -> Result<(), String> {
+    let package = app.package_info();
+    let config = app.config();
+    let about = AboutMetadata {
+        name: Some(package.name.clone()),
+        version: Some(package.version.to_string()),
+        copyright: config.bundle.copyright.clone(),
+        credits: Some(format!("StagePilot on GitHub\n{STAGEPILOT_GITHUB_URL}")),
+        icon: app.default_window_icon().cloned(),
+        ..Default::default()
+    };
+    let restart = MenuItem::with_id(
+        app,
+        "restart-stagepilot",
+        "Restart StagePilot",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| error.to_string())?;
+    let application_menu = Submenu::with_items(
+        app,
+        package.name.clone(),
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, Some(about))
+                .map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::services(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::hide(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::hide_others(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::show_all(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?,
+            &restart,
+            &PredefinedMenuItem::quit(app, None).map_err(|error| error.to_string())?,
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::redo(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::separator(app).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::cut(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::copy(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::paste(app, None).map_err(|error| error.to_string())?,
+            &PredefinedMenuItem::select_all(app, None).map_err(|error| error.to_string())?,
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    let minimize = MenuItem::with_id(
+        app,
+        "minimize-stagepilot",
+        "Minimize",
+        true,
+        Some("Command+M"),
+    )
+    .map_err(|error| error.to_string())?;
+    let toggle_fullscreen = MenuItem::with_id(
+        app,
+        "toggle-fullscreen-stagepilot",
+        "Toggle Full Screen",
+        true,
+        Some("Control+Command+F"),
+    )
+    .map_err(|error| error.to_string())?;
+    let window_menu = Submenu::with_id_and_items(
+        app,
+        "stagepilot-window-menu",
+        "Window",
+        true,
+        &[&minimize, &toggle_fullscreen],
+    )
+    .map_err(|error| error.to_string())?;
+    let help_menu = Submenu::with_id_and_items(app, "stagepilot-help-menu", "Help", true, &[])
+        .map_err(|error| error.to_string())?;
+    let menu = Menu::with_items(
+        app,
+        &[&application_menu, &edit_menu, &window_menu, &help_menu],
+    )
+    .map_err(|error| error.to_string())?;
+    app.set_menu(menu).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn install_tray(app: &tauri::App) -> Result<(), String> {
     let show = MenuItem::with_id(
         app,
@@ -699,9 +805,31 @@ pub fn run() {
     let shutdown_supervisor = supervisor.clone();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .on_menu_event(
+            |app, event| match stagepilot_menu_action(event.id().as_ref()) {
+                Some(StagePilotMenuAction::Restart) => {
+                    app.state::<BackendSupervisor>().stop(app);
+                    app.request_restart();
+                }
+                Some(StagePilotMenuAction::Minimize) => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.minimize();
+                    }
+                }
+                Some(StagePilotMenuAction::ToggleFullscreen) => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        if let Ok(fullscreen) = window.is_fullscreen() {
+                            let _ = window.set_fullscreen(!fullscreen);
+                        }
+                    }
+                }
+                None => {}
+            },
+        )
         .manage(supervisor.clone())
         .invoke_handler(tauri::generate_handler![
             backend_supervisor_status,
@@ -709,6 +837,8 @@ pub fn run() {
             hide_application_window
         ])
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            install_application_menu(app.handle()).map_err(std::io::Error::other)?;
             restore_main_window(app.handle(), true).map_err(std::io::Error::other)?;
             install_tray(app).map_err(std::io::Error::other)?;
             if let Err(message) = start_backend(app.handle(), supervisor.clone()) {
@@ -825,6 +955,23 @@ mod tests {
         assert!(has("window-state:default"));
         assert!(!has("shell:allow-execute"));
         assert!(!has("fs:default"));
+    }
+
+    #[test]
+    fn native_menu_actions_are_mapped_without_capturing_system_items() {
+        assert_eq!(
+            stagepilot_menu_action("restart-stagepilot"),
+            Some(StagePilotMenuAction::Restart)
+        );
+        assert_eq!(
+            stagepilot_menu_action("minimize-stagepilot"),
+            Some(StagePilotMenuAction::Minimize)
+        );
+        assert_eq!(
+            stagepilot_menu_action("toggle-fullscreen-stagepilot"),
+            Some(StagePilotMenuAction::ToggleFullscreen)
+        );
+        assert_eq!(stagepilot_menu_action("quit-stagepilot"), None);
     }
 
     #[test]

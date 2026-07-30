@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useDelayedHover } from "../hooks/useDelayedHover";
+import { openExternalUrl } from "../desktop";
 import type {
   ApplicationState,
   PlanningCenterServiceType,
@@ -133,7 +134,7 @@ export function PlanningCenterSetupPanel({
               <button
                 aria-describedby="planning-center-pat-help"
                 aria-label="How to get a Planning Center Personal Access Token"
-                className="grid h-4 w-4 place-items-center rounded-full border border-slate-500 text-[0.65rem] font-black normal-case tracking-normal text-slate-400 transition hover:border-blue-300 hover:text-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400/60"
+                className="grid h-4 w-4 place-items-center rounded-full border border-slate-500 pb-px text-[0.65rem] font-black leading-none normal-case tracking-normal text-slate-400 transition hover:border-blue-300 hover:text-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400/60"
                 type="button"
               >
                 ?
@@ -150,6 +151,10 @@ export function PlanningCenterSetupPanel({
                     <a
                       className="font-semibold text-blue-300 underline decoration-blue-300/50 underline-offset-2 hover:text-blue-200"
                       href="https://api.planningcenteronline.com/personal_access_tokens"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void openExternalUrl(event.currentTarget.href);
+                      }}
                       rel="noreferrer"
                       target="_blank"
                     >

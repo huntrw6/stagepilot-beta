@@ -8,6 +8,14 @@
     "core:window:allow-minimize",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://api.planningcenteronline.com/personal_access_tokens"
+        }
+      ]
+    },
     "updater:default",
     "process:allow-restart",
     "window-state:default"
