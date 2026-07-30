@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -283,6 +283,8 @@ describe("Dashboard Planning Center plan states", () => {
       name: "Update StagePilot to version 1.2.0",
     });
     expect(brand).toContainElement(button);
+    expect(screen.getByRole("heading", { name: "StagePilot" })).toHaveClass("select-none");
+    expect(screen.getByRole("heading", { name: "StagePilot" })).not.toHaveClass("scale-[1.8]");
   });
 
   it("does not reserve header space for a current updater state", () => {
@@ -423,7 +425,33 @@ describe("Dashboard Planning Center plan states", () => {
     renderDashboard({ ...loadedServiceState, is_stale: true });
 
     expect(screen.getByText("Check system")).toBeInTheDocument();
-    expect(screen.queryByText("All systems ready")).not.toBeInTheDocument();
+    expect(screen.getByRole("tooltip").firstElementChild).toHaveClass("bg-slate-950/85");
+  });
+
+  it("keeps readiness details open across its trigger and panel hover region", () => {
+    vi.useFakeTimers();
+    try {
+      renderDashboard({ ...loadedServiceState, is_stale: true });
+
+      const status = screen.getByRole("button", { name: "Check system" });
+      const hoverArea = status.parentElement!;
+      const tooltip = screen.getByRole("tooltip");
+
+      fireEvent.mouseEnter(hoverArea);
+      act(() => vi.advanceTimersByTime(499));
+      expect(tooltip).toHaveClass("invisible");
+      act(() => vi.advanceTimersByTime(1));
+      expect(tooltip).toHaveClass("visible");
+
+      fireEvent.mouseEnter(tooltip);
+      expect(tooltip).toHaveClass("visible");
+      fireEvent.mouseLeave(hoverArea);
+      expect(tooltip).toHaveClass("invisible");
+      fireEvent.click(status);
+      expect(tooltip).toHaveClass("visible");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not report readiness when the loaded plan date differs from the target date", () => {
@@ -434,7 +462,6 @@ describe("Dashboard Planning Center plan states", () => {
     });
 
     expect(screen.getByText("Check system")).toBeInTheDocument();
-    expect(screen.queryByText("All systems ready")).not.toBeInTheDocument();
   });
 
   it("does not require the demo integration in production mode", async () => {
@@ -450,7 +477,8 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.getAllByText("Connected to Playback").length).toBeGreaterThan(0);
     expect(screen.queryByText("Demo integration running")).not.toBeInTheDocument();
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
-    expect(screen.getByText("All systems ready")).toBeInTheDocument();
+    expect(screen.getByText("Lights MIDI output disconnected")).toHaveClass("text-slate-400");
+    expect(screen.getByText("Optional")).toBeInTheDocument();
   });
 
   it("keeps MIDI setup closed until its connection card is clicked", async () => {
@@ -524,7 +552,7 @@ describe("Dashboard Planning Center plan states", () => {
     expect(screen.getByText("Planning Center plan loaded")).toBeInTheDocument();
     expect(screen.getByText("Service plan")).toBeInTheDocument();
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
-    expect(screen.getByText("All systems ready")).toBeInTheDocument();
+    expect(screen.getByText("Lights MIDI output disconnected")).toBeInTheDocument();
     expect(screen.queryByText("TodayÃ¢â‚¬â„¢s plan loaded")).not.toBeInTheDocument();
     expect(screen.queryByText("TodayÃ¢â‚¬â„¢s service")).not.toBeInTheDocument();
   });
@@ -582,8 +610,20 @@ describe("Dashboard widget layout", () => {
     expect(screen.queryByRole("button", { name: "Move Service Plan later" })).not.toBeInTheDocument();
     expect(screen.queryByRole("toolbar", { name: "Dashboard layout tools" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Edit layout" }));
-    expect(screen.getByRole("toolbar", { name: "Dashboard layout tools" })).toBeInTheDocument();
+    const editLayout = screen.getByRole("button", { name: "Edit layout" });
+    const dashboardGrid = editLayout.closest("section")?.querySelector(".stagepilot-dashboard-grid");
+    expect(dashboardGrid).not.toBeNull();
+    expect(
+      dashboardGrid!.compareDocumentPosition(editLayout)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(editLayout);
+    const layoutToolbar = screen.getByRole("toolbar", { name: "Dashboard layout tools" });
+    expect(
+      dashboardGrid!.compareDocumentPosition(layoutToolbar)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Move Service Plan later" }));
 
     await waitFor(() => {
@@ -597,6 +637,32 @@ describe("Dashboard widget layout", () => {
     expect(screen.getByRole("button", { name: "Drag Manual Controls to a new dashboard position" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("button", { name: "Drag Manual Controls to a new dashboard position" })).not.toBeInTheDocument();
+  });
+
+  it("blocks readiness when a configured Lights output disconnects", () => {
+    const configuredLightsSettings: SettingsResponse = {
+      ...productionSettings,
+      settings: {
+        ...productionSettings.settings,
+        lights: {
+          ...productionSettings.settings.lights,
+          enabled: true,
+          output_name: "StagePilot to Lightkey",
+        },
+      },
+    };
+
+    renderDashboard(loadedServiceState, {
+      settings: configuredLightsSettings,
+      state: applicationState(loadedServiceState, {
+        lights_status: "disconnected",
+        plugins: {},
+      }),
+    });
+
+    expect(screen.getByRole("button", { name: "Check system" })).toBeInTheDocument();
+    expect(screen.getByText("Lights MIDI output disconnected")).toHaveClass("text-slate-400");
+    expect(screen.queryByText("Optional")).not.toBeInTheDocument();
   });
 
   it("adds intentional spacers and confirms before resetting them", async () => {
@@ -703,7 +769,13 @@ describe("Dashboard connection configuration panels", () => {
     for (const icon of ["planning-center", "multitracks", "propresenter", "lights", "stagepilot"]) {
       const image = document.querySelector(`[data-status-icon="${icon}"]`);
       expect(image).toBeInTheDocument();
-      expect(image?.parentElement).toHaveClass("hidden", "xl:grid");
+      expect(image?.parentElement).toHaveClass("h-9", "w-9");
+      expect(image?.parentElement?.parentElement).toHaveClass(
+        "hidden",
+        "h-12",
+        "w-12",
+        "xl:grid",
+      );
     }
   });
 

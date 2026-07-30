@@ -6,7 +6,7 @@ on:
       release_tag:
         description: GitHub release tag that receives the Windows installer
         required: true
-        default: v1.1.32
+        default: v1.1.41
 # Windows tag releases are built by release-macos.yml so latest.json is
 # published only after every platform artifact and signature is available.
 

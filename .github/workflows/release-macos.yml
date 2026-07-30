@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing version tag to build and publish
         required: true
-        default: v1.1.35
+        default: v1.1.41
   push:
     tags:
       - "v*"

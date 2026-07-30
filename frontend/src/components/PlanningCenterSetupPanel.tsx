@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useDelayedHover } from "../hooks/useDelayedHover";
 import type {
   ApplicationState,
   PlanningCenterServiceType,
@@ -58,6 +59,7 @@ export function PlanningCenterSetupPanel({
   const [titlePreference, setTitlePreference] = useState("");
   const [preferredTime, setPreferredTime] = useState("");
   const [removeSecret, setRemoveSecret] = useState(false);
+  const applicationIdHelp = useDelayedHover();
 
   useEffect(() => {
     if (!settings) return;
@@ -115,16 +117,62 @@ export function PlanningCenterSetupPanel({
       />
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <label className="text-sm text-slate-300">
-          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Application ID</span>
+        <div className="text-sm text-slate-300">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <label
+              className="text-xs font-bold uppercase tracking-wider text-slate-500"
+              htmlFor="planning-center-application-id"
+            >
+              Application ID
+            </label>
+            <div
+              className="relative"
+              ref={applicationIdHelp.containerRef}
+              {...applicationIdHelp.hoverProps}
+            >
+              <button
+                aria-describedby="planning-center-pat-help"
+                aria-label="How to get a Planning Center Personal Access Token"
+                className="grid h-4 w-4 place-items-center rounded-full border border-slate-500 text-[0.65rem] font-black normal-case tracking-normal text-slate-400 transition hover:border-blue-300 hover:text-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400/60"
+                type="button"
+              >
+                ?
+              </button>
+              <div
+                className={`absolute left-0 top-full z-50 w-[min(22rem,calc(100vw-3rem))] pt-2 text-left text-sm font-normal normal-case tracking-normal transition ${applicationIdHelp.open ? "visible translate-y-0 opacity-100" : "pointer-events-none invisible translate-y-1 opacity-0"}`}
+                id="planning-center-pat-help"
+                role="tooltip"
+              >
+                <div className="rounded-xl border border-blue-300/20 bg-slate-950/95 p-4 text-slate-300 shadow-2xl shadow-black/50 backdrop-blur-xl">
+                  <p className="font-semibold text-slate-100">Connect your Planning Center account</p>
+                  <p className="mt-2 leading-relaxed">
+                    Open Planning Center&apos;s{" "}
+                    <a
+                      className="font-semibold text-blue-300 underline decoration-blue-300/50 underline-offset-2 hover:text-blue-200"
+                      href="https://api.planningcenteronline.com/personal_access_tokens"
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Personal Access Tokens page
+                    </a>
+                    , create a new token, and give it a recognizable name. Copy
+                    its Client ID into Application ID and its Secret into the
+                    Secret field. Save the settings, then load your service types
+                    to keep StagePilot&apos;s Service Plan updated.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
           <input
             autoComplete="username"
             className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-blue-500/60"
             disabled={busy}
+            id="planning-center-application-id"
             onChange={(event) => setAppId(event.target.value)}
             value={appId}
           />
-        </label>
+        </div>
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Secret</span>
           <input

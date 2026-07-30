@@ -25,6 +25,7 @@ from stagepilot.core.settings import (
     default_settings_path,
 )
 from stagepilot.main import create_app
+from stagepilot.services.dashboard_auth import hash_dashboard_pin, verify_dashboard_pin
 
 
 class RecordingCredentialStore:
@@ -97,6 +98,8 @@ def test_built_in_defaults_load_without_a_saved_file(tmp_path: Path) -> None:
     assert settings.integration_modes == IntegrationModes()
     assert service.snapshot().onboarding.general_completed is False
     assert settings.midi.note == 112
+    assert service.snapshot().web_dashboard_pin_enabled is True
+    assert verify_dashboard_pin("1234", service.snapshot().web_dashboard_pin_hash)
     assert set(dict(settings.midi.mappings.configured()).values()) == {
         100,
         101,
@@ -105,6 +108,23 @@ def test_built_in_defaults_load_without_a_saved_file(tmp_path: Path) -> None:
         104,
         105,
     }
+
+
+def test_dashboard_pin_is_hashed_and_survives_restart(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    first = settings_service(path)
+    first.load()
+    first.update_dashboard_access(enabled=True, pin_hash=hash_dashboard_pin("8642"))
+
+    saved_text = path.read_text(encoding="utf-8")
+    assert "8642" not in saved_text
+
+    second = settings_service(path)
+    second.load()
+    saved = second.snapshot()
+    assert saved.web_dashboard_pin_enabled is True
+    assert verify_dashboard_pin("8642", saved.web_dashboard_pin_hash)
+    assert not verify_dashboard_pin("1234", saved.web_dashboard_pin_hash)
 
 
 def test_saved_settings_survive_a_new_service_instance(tmp_path: Path) -> None:

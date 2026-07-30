@@ -91,6 +91,8 @@ class PersistentSettings(BaseModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     server_port: int = Field(default=8765, ge=1, le=65535)
     lan_access: bool = False
+    web_dashboard_pin_enabled: bool = True
+    web_dashboard_pin_hash: str | None = Field(default=None, exclude=True)
     planning_center: PersistentPlanningCenterSettings = Field(
         default_factory=PersistentPlanningCenterSettings
     )
@@ -205,7 +207,10 @@ class SettingsFileStore:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with temporary.open("x", encoding="utf-8", newline="\n") as handle:
-                handle.write(settings.model_dump_json(indent=2))
+                payload = settings.model_dump(mode="json")
+                if settings.web_dashboard_pin_hash is not None:
+                    payload["web_dashboard_pin_hash"] = settings.web_dashboard_pin_hash
+                handle.write(json.dumps(payload, indent=2))
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -535,7 +540,11 @@ class SettingsService:
             return self.snapshot()
         resolved = PersistentSettings.from_runtime(self._runtime)
         return resolved.model_copy(
-            update={"onboarding": self._persistent.onboarding},
+            update={
+                "onboarding": self._persistent.onboarding,
+                "web_dashboard_pin_enabled": self._persistent.web_dashboard_pin_enabled,
+                "web_dashboard_pin_hash": self._persistent.web_dashboard_pin_hash,
+            },
             deep=True,
         )
 
@@ -547,6 +556,10 @@ class SettingsService:
         return self._runtime.model_copy(deep=True)
 
     def save(self, settings: PersistentSettings) -> None:
+        if settings.web_dashboard_pin_hash is None:
+            settings = settings.model_copy(
+                update={"web_dashboard_pin_hash": self._persistent.web_dashboard_pin_hash}
+            )
         if self._persistent.onboarding.general_completed:
             settings = settings.model_copy(
                 update={"onboarding": self._persistent.onboarding},
@@ -555,6 +568,17 @@ class SettingsService:
         self._store.save(settings)
         self._persistent = settings.model_copy(deep=True)
         self._runtime = self._resolve(self._persistent, self._secret)
+
+    def update_dashboard_access(self, *, enabled: bool, pin_hash: str | None = None) -> None:
+        updated = self._persistent.model_copy(
+            update={
+                "web_dashboard_pin_enabled": enabled,
+                "web_dashboard_pin_hash": (
+                    pin_hash if pin_hash is not None else self._persistent.web_dashboard_pin_hash
+                ),
+            }
+        )
+        self.save(updated)
 
     def update_planning_center(
         self,

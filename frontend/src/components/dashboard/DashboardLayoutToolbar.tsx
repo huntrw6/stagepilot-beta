@@ -15,7 +15,7 @@ export function DashboardLayoutToolbar({
 }) {
   if (!editing) {
     return (
-      <div className="mb-3 flex justify-end">
+      <div className="mt-3 flex justify-end">
         <button
           className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-300 transition hover:border-white/20 hover:bg-slate-950/70 hover:text-white"
           onClick={onEdit}
@@ -30,7 +30,7 @@ export function DashboardLayoutToolbar({
   return (
     <div
       aria-label="Dashboard layout tools"
-      className="mb-3 flex flex-wrap items-center justify-end gap-2 rounded-xl border border-sky-300/20 bg-slate-950/70 p-3 shadow-panel"
+      className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-xl border border-sky-300/20 bg-slate-950/70 p-3 shadow-panel"
       role="toolbar"
     >
       <span className="mr-auto text-xs font-bold uppercase tracking-[0.18em] text-sky-200">

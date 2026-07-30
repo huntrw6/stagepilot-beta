@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+## [1.1.41] - 2026-07-29
+
+### Fixed
+
+- Add a browser-only PIN gate before the dashboard loading screen, with
+  password protection enabled by default and configurable from StagePilot
+  Backend without changing the desktop startup experience.
+- Report ProPresenter as disconnected, rather than errored, while the
+  application is closed or unreachable, while retaining error status for
+  confirmed API and configuration failures.
+- Continuously monitor ProPresenter, Playback MIDI input, and Lights MIDI
+  output availability so status cards reflect closed applications, detached
+  devices, and subsequent reconnections without manual refreshes.
+- Keep only the newest unresolved error pinned in Recent Event Stream and
+  automatically remove its pin when the affected integration recovers.
+- Keep the Lights configuration header synchronized with the Lights dashboard
+  status instead of showing a separate loading state.
+- Move readiness details into a translucent header-status hover/focus panel,
+  show disconnected checks neutrally, and keep unconfigured Lights optional
+  until a MIDI output has been selected.
+- Double the Service Plan widget's default desktop and tablet height so more of
+  the service order is visible without scrolling.
+- Keep readiness and Planning Center PAT help popovers open while their trigger
+  or panel is hovered, open them immediately on click, and use a short,
+  discoverable hover delay.
+
+### Changed
+
+- Replace the standalone readiness widget with connection details available
+  from the header system status while keeping optional Lights configuration
+  from blocking overall readiness.
+- Enlarge connection-icon backgrounds without enlarging their icons.
+- Place both the Edit Layout button and its editing toolbar below the dashboard.
+- Add concise Personal Access Token setup guidance and a direct Planning Center
+  help link beside Application ID.
+
 ## [1.1.35] - 2026-07-29
 
 ### Fixed

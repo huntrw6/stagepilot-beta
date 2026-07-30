@@ -64,11 +64,13 @@ While the StagePilot desktop app is running, the same dashboard is available in 
 To open it from another computer on the same trusted network:
 
 1. Open **StagePilot backend** and enable **Allow dashboard access from this local network**.
-2. Save the settings and fully restart StagePilot.
-3. Find the StagePilot computer's local IP address, such as `192.168.1.40`.
-4. On the other computer, open `http://192.168.1.40:8765`, replacing the address and port as needed.
+2. Replace the initial dashboard PIN (`1234`) with a private PIN, then save the settings.
+3. Fully restart StagePilot.
+4. Find the StagePilot computer's local IP address, such as `192.168.1.40`.
+5. On the other computer, open `http://192.168.1.40:8765`, replacing the address and port as needed.
+6. Enter the dashboard PIN. The normal StagePilot loading screen appears only after access is approved.
 
-Allow StagePilot through the operating-system firewall if prompted. LAN dashboard access has no separate login, so enable it only on a trusted, private production network—not public Wi-Fi.
+PIN protection is enabled by default and can be disabled in **StagePilot backend**, but LAN access should still be used only on a trusted, private production network—not public Wi-Fi. Allow StagePilot through the operating-system firewall if prompted.
 
 ## Weekly operation
 

@@ -20,6 +20,7 @@ import {
   testPlanningCenter,
   updatePlanningCenterSettings,
   updateProPresenterSettings,
+  updateDashboardAccess,
   updateSettings,
 } from "../api";
 import type {
@@ -55,6 +56,7 @@ vi.mock("../api", () => ({
   testProPresenter: vi.fn(),
   refreshProPresenterTimers: vi.fn(),
   updateProPresenterSettings: vi.fn(),
+  updateDashboardAccess: vi.fn(),
   websocketUrl: "ws://127.0.0.1:8765/ws",
 }));
 
@@ -226,10 +228,12 @@ const mockedTestPlanningCenter = vi.mocked(testPlanningCenter);
 const mockedUpdatePlanningCenterSettings = vi.mocked(updatePlanningCenterSettings);
 const mockedUpdateLightsSettings = vi.mocked(updateLightsSettings);
 const mockedUpdateProPresenterSettings = vi.mocked(updateProPresenterSettings);
+const mockedUpdateDashboardAccess = vi.mocked(updateDashboardAccess);
 const mockedUpdateSettings = vi.mocked(updateSettings);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedUpdateDashboardAccess.mockImplementation(async () => settings);
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
   mockedGetHealth.mockResolvedValue(health);
@@ -450,6 +454,7 @@ describe("useStagePilot", () => {
       restart_required: true,
     };
     mockedUpdateSettings.mockResolvedValueOnce(updated);
+    mockedUpdateDashboardAccess.mockResolvedValueOnce(updated);
     const { result } = renderHook(() => useStagePilot());
     await waitFor(() => expect(result.current.settings).toEqual(settings));
 
@@ -462,6 +467,7 @@ describe("useStagePilot", () => {
     );
 
     expect(mockedUpdateSettings).toHaveBeenCalledWith(updated.settings);
+    expect(mockedUpdateDashboardAccess).toHaveBeenCalledWith(true, undefined);
     expect(mockedRememberServerPort).toHaveBeenCalledWith(9001);
     expect(result.current.settings).toEqual(updated);
     expect(result.current.settingsMessage).toMatch(/Restart StagePilot/i);

@@ -1,8 +1,10 @@
 # Dashboard layout
 
 StagePilot uses a local GridStack-powered dashboard for Service Plan, Now
-Playing, Manual Controls, Readiness Check, and Recent Event Stream. Layout data
-never leaves the browser or desktop WebView.
+Playing, Manual Controls, and Recent Event Stream. Layout data never leaves the
+browser or desktop WebView. Connection readiness is available from the
+translucent checklist shown while hovering or focusing the header's system
+status.
 
 ## Edit a layout
 
@@ -93,6 +95,6 @@ removed and the instance is destroyed without deleting React-owned content
 during unmount.
 
 The earlier fixed-slot implementation was removed because it stored only an
-order and mapped array positions to five hard-coded CSS cells. It could not
+order and mapped array positions to hard-coded CSS cells. It could not
 represent dimensions, practical two-dimensional placement, responsive layouts,
 or intentional space.

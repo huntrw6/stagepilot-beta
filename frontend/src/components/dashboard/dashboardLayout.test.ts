@@ -105,8 +105,9 @@ describe("v1 dashboard order migration", () => {
 
   it("preserves a valid v1 order across the new layouts", () => {
     const migrated = migrateDashboardOrder([...order]);
-    expect(migrated?.mobileOrder).toEqual(order);
-    expect(migrated?.desktop.map(({ id }) => id)).toEqual(order);
+    const currentOrder = order.filter((id) => id !== "readiness");
+    expect(migrated?.mobileOrder).toEqual(currentOrder);
+    expect(migrated?.desktop.map(({ id }) => id)).toEqual(currentOrder);
     expect(parseDashboardLayout(migrated)).not.toBeNull();
   });
 

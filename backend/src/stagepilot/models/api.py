@@ -34,6 +34,20 @@ class SettingsResponse(BaseModel):
     restart_required: bool = False
 
 
+class DashboardAuthStatusResponse(BaseModel):
+    required: bool
+    authenticated: bool
+
+
+class DashboardAuthLoginRequest(BaseModel):
+    pin: str = Field(min_length=4, max_length=64)
+
+
+class DashboardAccessSettingsRequest(BaseModel):
+    enabled: bool
+    pin: SecretStr | None = Field(default=None, min_length=4, max_length=64)
+
+
 class PlanningCenterSettingsUpdateRequest(PersistentPlanningCenterSettings):
     """Update non-secret settings and optionally replace or remove the saved PAT secret."""
 

@@ -2,7 +2,6 @@ export const DASHBOARD_WIDGET_IDS = [
   "service-plan",
   "now-playing",
   "manual-controls",
-  "readiness",
   "events",
 ] as const;
 

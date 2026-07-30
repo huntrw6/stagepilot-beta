@@ -37,7 +37,7 @@ describe("dashboard layout storage", () => {
 
     const migrated = loadDashboardLayout(storage);
 
-    expect(migrated.mobileOrder).toEqual(order);
+    expect(migrated.mobileOrder).toEqual(order.filter((id) => id !== "readiness"));
     expect(JSON.parse(storage.getItem(DASHBOARD_LAYOUT_KEY)!)).toEqual(migrated);
     expect(storage.getItem(DASHBOARD_ORDER_V1_KEY)).toBe(JSON.stringify(order));
   });

@@ -43,15 +43,21 @@ class LightsPlugin(Plugin):
         settings: LightsSettings,
         *,
         backend_factory: MidiOutputBackendFactory | None = None,
+        monitor_interval: float = 2.0,
     ) -> None:
         super().__init__(event_bus, state_store)
         self._settings = settings
         self._backend_factory = backend_factory or MidoMidiOutputBackend
+        if monitor_interval <= 0:
+            raise ValueError("Lighting MIDI monitor interval must be positive.")
+        self._monitor_interval = monitor_interval
         self._backend: MidiOutputBackendContract | None = None
         self._port: MidiOutputPortContract | None = None
         self._subscriptions: list[Subscription] = []
         self._pending_song: Song | None = None
         self._timeline_task: asyncio.Task[None] | None = None
+        self._connection_task: asyncio.Task[None] | None = None
+        self._stop_event = asyncio.Event()
         self._operation_lock = asyncio.Lock()
         self._status = PluginStatus.STOPPED
         self._connection_status = ConnectionStatus.DISCONNECTED
@@ -63,6 +69,7 @@ class LightsPlugin(Plugin):
         self._logger = get_logger(self.name)
 
     async def start(self) -> None:
+        self._stop_event.clear()
         self._status = PluginStatus.STARTING
         self._backend = self._backend_factory()
         self._subscriptions.extend(
@@ -88,9 +95,20 @@ class LightsPlugin(Plugin):
                 ConnectionStatus.DISCONNECTED,
                 "Lighting MIDI output is not configured.",
             )
+        self._connection_task = asyncio.create_task(
+            self._supervise_connection(),
+            name="stagepilot-lights-connection",
+        )
 
     async def stop(self) -> None:
         self._status = PluginStatus.STOPPING
+        self._stop_event.set()
+        connection_task = self._connection_task
+        self._connection_task = None
+        if connection_task is not None:
+            connection_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await connection_task
         await self._cancel_timeline()
         for subscription in self._subscriptions:
             await self.event_bus.unsubscribe(subscription)
@@ -288,8 +306,32 @@ class LightsPlugin(Plugin):
         if not self._settings.enabled:
             return False
         if not self._settings.output_name:
+            self._status = PluginStatus.RUNNING
+            self._last_error = None
+            await self._set_connection(
+                ConnectionStatus.DISCONNECTED,
+                "No lighting MIDI output is selected.",
+            )
+            return False
+        try:
+            output_names = await asyncio.to_thread(self._require_backend().list_output_names)
+        except Exception as exc:
+            await self._record_error(exc, "Lighting MIDI outputs could not be listed.")
+            return False
+        matches = output_names.count(self._settings.output_name)
+        if matches == 0:
+            self._status = PluginStatus.RUNNING
+            self._last_error = None
+            await self._set_connection(
+                ConnectionStatus.DISCONNECTED,
+                f'Lighting MIDI output "{self._settings.output_name}" is unavailable; retrying.',
+            )
+            return False
+        if matches > 1:
             self._status = PluginStatus.ERROR
-            self._last_error = "Choose a lighting MIDI output."
+            self._last_error = (
+                f'Multiple lighting MIDI outputs are named "{self._settings.output_name}".'
+            )
             await self._set_connection(ConnectionStatus.ERROR, self._last_error)
             return False
         await self._set_connection(
@@ -323,6 +365,50 @@ class LightsPlugin(Plugin):
             return
         if self._port is None or self._port.closed:
             await self._connect()
+
+    async def _supervise_connection(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self._monitor_interval,
+                )
+                return
+            except TimeoutError:
+                pass
+            if not self._settings.enabled:
+                continue
+            try:
+                names = await asyncio.to_thread(self._require_backend().list_output_names)
+            except Exception as exc:
+                await self._record_error(exc, "Lighting MIDI outputs could not be listed.")
+                continue
+
+            configured_name = self._settings.output_name
+            port = self._port
+            matches = names.count(configured_name) if configured_name else 0
+            if not configured_name or matches != 1 or port is None or port.closed:
+                async with self._operation_lock:
+                    await self._close_port_locked()
+                if matches > 1:
+                    self._status = PluginStatus.ERROR
+                    self._last_error = (
+                        f'Multiple lighting MIDI outputs are named "{configured_name}".'
+                    )
+                    await self._set_connection(ConnectionStatus.ERROR, self._last_error)
+                else:
+                    self._status = PluginStatus.RUNNING
+                    self._last_error = None
+                    await self._set_connection(
+                        ConnectionStatus.DISCONNECTED,
+                        (
+                            f'Lighting MIDI output "{configured_name}" is unavailable; retrying.'
+                            if configured_name
+                            else "No lighting MIDI output is selected."
+                        ),
+                    )
+                if configured_name and matches == 1:
+                    await self._connect()
 
     async def _list_output_names(self) -> list[str]:
         try:

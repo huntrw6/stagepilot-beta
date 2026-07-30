@@ -142,6 +142,27 @@ const state: ApplicationState = {
 };
 
 describe("LightsSetupPanel", () => {
+  it("uses the dashboard connection status while detail data is still loading", () => {
+    render(
+      <LightsSetupPanel
+        connectionStatus="disconnected"
+        error={null}
+        lights={null}
+        message={null}
+        onRefresh={vi.fn()}
+        onSaveCues={vi.fn()}
+        onSaveSettings={vi.fn()}
+        onTest={vi.fn()}
+        pendingOperation={null}
+        settings={settings}
+        state={{ ...state, lights_status: "disconnected" }}
+      />,
+    );
+
+    expect(screen.getByText("disconnected")).toBeInTheDocument();
+    expect(screen.queryByText("loading")).not.toBeInTheDocument();
+  });
+
   it("loads and automatically saves a per-song elapsed-time cue map", async () => {
     const user = userEvent.setup();
     const onSaveCues = vi.fn();

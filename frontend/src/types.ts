@@ -172,6 +172,7 @@ export interface PersistentSettings {
   log_level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
   server_port: number;
   lan_access?: boolean;
+  web_dashboard_pin_enabled?: boolean;
   planning_center: PlanningCenterPublicSettings;
   midi: {
     enabled: boolean;
@@ -256,8 +257,15 @@ export interface SettingsResponse {
 
 export type GeneralSettingsInput = Pick<
   PersistentSettings,
-  "timezone" | "log_level" | "server_port" | "lan_access"
->;
+  "timezone" | "log_level" | "server_port" | "lan_access" | "web_dashboard_pin_enabled"
+> & {
+  web_dashboard_pin?: string;
+};
+
+export interface DashboardAuthStatus {
+  required: boolean;
+  authenticated: boolean;
+}
 
 export type MidiSettingsInput = PersistentSettings["midi"];
 

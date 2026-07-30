@@ -302,9 +302,18 @@ credential or other secret.
 
 The **Allow dashboard access from this local network** setting binds the
 packaged backend to all network interfaces after StagePilot restarts. Other
-devices can then open `http://<stagepilot-computer-ip>:<server-port>`. This mode
-has no separate authentication or TLS and exposes dashboard controls, so use it
-only on a trusted private network. See [security.md](security.md).
+devices can then open `http://<stagepilot-computer-ip>:<server-port>`.
+
+Browser dashboard PIN protection is enabled by default with the initial PIN
+`1234`. Replace that PIN in **StagePilot backend** before enabling LAN access.
+The PIN gate appears before the browser loading screen and protects both API
+and WebSocket access. The desktop application bypasses this browser-only gate.
+The saved PIN is stored as a salted password hash, not as readable text.
+Disabling **Require a PIN for web dashboards** removes the gate.
+
+LAN mode does not provide TLS, so PIN protection is an access barrier for a
+trusted private network rather than permission to expose StagePilot to the
+internet. See [security.md](security.md).
 
 ## Local files
 

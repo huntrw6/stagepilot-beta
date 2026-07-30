@@ -18,6 +18,7 @@ vi.mock("./desktop", async (importOriginal) => {
   const original = await importOriginal<typeof import("./desktop")>();
   return {
     ...original,
+    isDesktopShell: () => true,
     desktopBackendStatus: vi.fn(async () => desktop.status),
     listenForDesktopBackend: vi.fn(async () => null),
     restartDesktopBackend: desktop.restartDesktopBackend,

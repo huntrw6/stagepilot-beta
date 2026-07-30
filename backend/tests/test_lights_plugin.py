@@ -115,6 +115,68 @@ async def test_timer_start_sends_elapsed_cue_as_note_on_off_pulse() -> None:
 
 
 @pytest.mark.asyncio
+async def test_output_monitor_reports_disconnect_and_reconnects() -> None:
+    bus = EventBus()
+    backend = FakeOutputBackend()
+    plugin = LightsPlugin(
+        bus,
+        StateStore(),
+        lights_settings(),
+        backend_factory=lambda: backend,
+        monitor_interval=0.01,
+    )
+
+    await plugin.start()
+    first_port = backend.ports[0]
+    backend.names.clear()
+
+    deadline = asyncio.get_running_loop().time() + 1
+    while asyncio.get_running_loop().time() < deadline:
+        snapshot = await plugin.snapshot()
+        if snapshot.connection_status is ConnectionStatus.DISCONNECTED:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        raise AssertionError("Lighting output loss was not detected.")
+
+    assert first_port.closed is True
+    backend.names.append("StagePilot to Lightkey")
+
+    deadline = asyncio.get_running_loop().time() + 1
+    while asyncio.get_running_loop().time() < deadline:
+        snapshot = await plugin.snapshot()
+        if snapshot.connection_status is ConnectionStatus.CONNECTED:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        raise AssertionError("Lighting output recovery was not detected.")
+
+    assert len(backend.ports) == 2
+    await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_configured_output_starts_disconnected() -> None:
+    bus = EventBus()
+    backend = FakeOutputBackend(names=[])
+    plugin = LightsPlugin(
+        bus,
+        StateStore(),
+        lights_settings(),
+        backend_factory=lambda: backend,
+        monitor_interval=0.01,
+    )
+
+    await plugin.start()
+    snapshot = await plugin.snapshot()
+    await plugin.stop()
+
+    assert snapshot.connection_status is ConnectionStatus.DISCONNECTED
+    assert snapshot.detail is not None
+    assert "unavailable" in snapshot.detail
+
+
+@pytest.mark.asyncio
 async def test_timer_payload_carries_song_without_relying_on_subscriber_order() -> None:
     bus = EventBus()
     backend = FakeOutputBackend()

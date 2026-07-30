@@ -91,7 +91,10 @@ const validItems = (
   mode: "desktop" | "tablet",
 ): DashboardLayoutItem[] | null => {
   if (!Array.isArray(value)) return null;
-  const items = value.map((item) => normalizeItem(item, columns, mode));
+  const withoutLegacyReadiness = value.filter(
+    (item) => !(isRecord(item) && item.id === "readiness" && item.kind === "widget"),
+  );
+  const items = withoutLegacyReadiness.map((item) => normalizeItem(item, columns, mode));
   if (items.some((item) => item === null)) return null;
   const normalized = items as DashboardLayoutItem[];
   const ids = normalized.map(({ id }) => id);
@@ -107,7 +110,7 @@ export const parseDashboardLayout = (value: unknown): DashboardLayoutState | nul
   const desktop = validItems(value.desktop, DASHBOARD_COLUMNS.desktop, "desktop");
   const tablet = validItems(value.tablet, DASHBOARD_COLUMNS.tablet, "tablet");
   if (!desktop || !tablet || !Array.isArray(value.mobileOrder)) return null;
-  const mobileOrder = value.mobileOrder;
+  const mobileOrder = value.mobileOrder.filter((id) => id !== "readiness");
   if (
     mobileOrder.some((id) => !isDashboardWidgetId(id) && !isDashboardSpacerId(id))
     || new Set(mobileOrder).size !== mobileOrder.length
@@ -139,14 +142,17 @@ export const packWidgetsInOrder = (
 };
 
 export const migrateDashboardOrder = (value: unknown): DashboardLayoutState | null => {
+  const orderWithoutLegacyReadiness = Array.isArray(value)
+    ? value.filter((id) => id !== "readiness")
+    : value;
   if (
-    !Array.isArray(value)
-    || value.length !== DASHBOARD_WIDGET_IDS.length
-    || value.some((id) => !isDashboardWidgetId(id))
-    || new Set(value).size !== value.length
-    || !DASHBOARD_WIDGET_IDS.every((id) => value.includes(id))
+    !Array.isArray(orderWithoutLegacyReadiness)
+    || orderWithoutLegacyReadiness.length !== DASHBOARD_WIDGET_IDS.length
+    || orderWithoutLegacyReadiness.some((id) => !isDashboardWidgetId(id))
+    || new Set(orderWithoutLegacyReadiness).size !== orderWithoutLegacyReadiness.length
+    || !DASHBOARD_WIDGET_IDS.every((id) => orderWithoutLegacyReadiness.includes(id))
   ) return null;
-  const order = value as DashboardWidgetId[];
+  const order = orderWithoutLegacyReadiness as DashboardWidgetId[];
   return {
     version: 2,
     desktop: packWidgetsInOrder(order, DASHBOARD_COLUMNS.desktop),

@@ -7,6 +7,8 @@ completed a production security review.
 ## Current defaults
 
 - FastAPI binds to `127.0.0.1:8765` unless LAN dashboard access is explicitly enabled.
+- Browser dashboard access requires a PIN by default; replace the initial
+  `1234` PIN before enabling LAN access.
 - Demo mode is enabled and needs no external credentials.
 - Local environment and configuration files are ignored by Git.
 - The Tauri window receives only `core:default`; shell execution and broad file
@@ -38,9 +40,15 @@ is convenient for development, not a production secret vault.
 ## Remote access
 
 Remote and LAN access are disabled by default. The general settings panel offers
-an explicit LAN mode for trusted private production networks. It serves the
-dashboard and control API without a separate login or TLS, so every device on
-that network must be treated as trusted. Do not enable it on public Wi-Fi.
+an explicit LAN mode for trusted private production networks. Browser access is
+protected by an HTTP-only session cookie after PIN verification; API and
+WebSocket requests are rejected until authentication succeeds. The PIN is
+stored as a salted PBKDF2 hash and is never returned by the settings API.
+Protection can be disabled explicitly.
+
+LAN mode still has no TLS, so every device on that network must be treated as
+trusted and the PIN must not be reused for another account or service. Do not
+enable it on public Wi-Fi or expose its port to the internet.
 
 Internet-facing access is unsupported. Before listening beyond a trusted LAN,
 the project needs an explicit threat model and tested controls for:

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -130,6 +130,40 @@ function renderPanel({ onTest = vi.fn(), onSave = vi.fn() } = {}) {
 }
 
 describe("PlanningCenterSetupPanel", () => {
+  it("shows PAT instructions after a one-second hover and keeps the linked panel interactive", () => {
+    vi.useFakeTimers();
+    try {
+      renderPanel();
+
+      const helpButton = screen.getByRole("button", {
+        name: "How to get a Planning Center Personal Access Token",
+      });
+      const hoverArea = helpButton.parentElement!;
+      const tooltip = screen.getByRole("tooltip");
+
+      fireEvent.mouseEnter(hoverArea);
+      act(() => vi.advanceTimersByTime(499));
+      expect(tooltip).toHaveClass("invisible");
+      act(() => vi.advanceTimersByTime(1));
+      expect(tooltip).toHaveClass("visible");
+
+      const link = screen.getByRole("link", { name: "Personal Access Tokens page" });
+      expect(link).toHaveAttribute(
+        "href",
+        "https://api.planningcenteronline.com/personal_access_tokens",
+      );
+      fireEvent.mouseEnter(tooltip);
+      expect(tooltip).toHaveClass("visible");
+
+      fireEvent.mouseLeave(hoverArea);
+      expect(tooltip).toHaveClass("invisible");
+      fireEvent.click(helpButton);
+      expect(tooltip).toHaveClass("visible");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("populates saved public settings while keeping the credential masked", () => {
     renderPanel();
 

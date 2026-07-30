@@ -5,6 +5,7 @@ import type {
   LightingCue,
   LightsSettingsInput,
   LightsStatusResponse,
+  ConnectionStatus,
   SettingsResponse,
   Song,
 } from "../types";
@@ -46,6 +47,7 @@ const newCueId = () => {
 const songKey = (song: Song) => song.source_song_id ?? song.id;
 
 export function LightsSetupPanel({
+  connectionStatus,
   lights,
   settings,
   state,
@@ -59,6 +61,7 @@ export function LightsSetupPanel({
   onSaveCues,
   onClearAllCues,
 }: {
+  connectionStatus?: ConnectionStatus;
   lights: LightsStatusResponse | null;
   settings: SettingsResponse | null;
   state: ApplicationState;
@@ -174,7 +177,7 @@ export function LightsSetupPanel({
         closeLabel="Close Lights configuration"
         description="Send elapsed-time MIDI Note On/Off pulses to Lightkey or another lighting application."
         onClose={onClose}
-        status={lights?.connection_status ?? "loading"}
+        status={connectionStatus ?? lights?.connection_status ?? "loading"}
         title="Lighting configuration"
       />
 

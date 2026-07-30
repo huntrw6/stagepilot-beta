@@ -34,6 +34,8 @@ export function BackendSetupPanel({
   const [logLevel, setLogLevel] = useState<GeneralSettingsInput["log_level"]>("INFO");
   const [serverPort, setServerPort] = useState("8765");
   const [lanAccess, setLanAccess] = useState(false);
+  const [pinEnabled, setPinEnabled] = useState(true);
+  const [dashboardPin, setDashboardPin] = useState("");
 
   useEffect(() => {
     if (!settings) return;
@@ -41,19 +43,24 @@ export function BackendSetupPanel({
     setLogLevel(settings.settings.log_level);
     setServerPort(String(settings.settings.server_port));
     setLanAccess(settings.settings.lan_access ?? false);
+    setPinEnabled(settings.settings.web_dashboard_pin_enabled ?? true);
+    setDashboardPin("");
   }, [settings]);
 
   const parsedSettings = useMemo<GeneralSettingsInput | null>(() => {
     const parsedPort = Number(serverPort);
     if (!timezone.trim()) return null;
     if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) return null;
+    if (dashboardPin && dashboardPin.length < 4) return null;
     return {
       timezone: timezone.trim(),
       log_level: logLevel,
       server_port: parsedPort,
       lan_access: lanAccess,
+      web_dashboard_pin_enabled: pinEnabled,
+      ...(dashboardPin ? { web_dashboard_pin: dashboardPin } : {}),
     };
-  }, [lanAccess, logLevel, serverPort, timezone]);
+  }, [dashboardPin, lanAccess, logLevel, pinEnabled, serverPort, timezone]);
   const connectionStatus = live
     ? "connected"
     : state.application_status === "error" ? "error" : "disconnected";
@@ -109,23 +116,61 @@ export function BackendSetupPanel({
         </label>
       </div>
 
-      <label className="mt-4 flex max-w-2xl items-start gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300">
-        <input
-          checked={lanAccess}
-          className="mt-0.5 size-4 accent-rose-500"
-          disabled={pending}
-          onChange={(event) => setLanAccess(event.target.checked)}
-          type="checkbox"
-        />
-        <span>
-          <span className="block font-semibold text-slate-200">
-            Allow dashboard access from this local network
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300">
+          <input
+            checked={lanAccess}
+            className="mt-0.5 size-4 accent-rose-500"
+            disabled={pending}
+            onChange={(event) => setLanAccess(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <span className="block font-semibold text-slate-200">
+              Allow dashboard access from this local network
+            </span>
+            <span className="mt-1 block text-xs text-slate-400">
+              Other devices can open http://&lt;this-computer&apos;s-IP&gt;:{serverPort}.
+            </span>
           </span>
-          <span className="mt-1 block text-xs text-slate-400">
-            Other devices can open http://&lt;this-computer&apos;s-IP&gt;:{serverPort}. Use only on a trusted production network; remote controls do not require a separate login.
-          </span>
-        </span>
-      </label>
+        </label>
+        <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300">
+          <label className="flex items-start gap-3">
+            <input
+              checked={pinEnabled}
+              className="mt-0.5 size-4 accent-rose-500"
+              disabled={pending}
+              onChange={(event) => setPinEnabled(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <span className="block font-semibold text-slate-200">
+                Require a PIN for web dashboards
+              </span>
+              <span className="mt-1 block text-xs text-slate-400">
+                Enabled by default. The initial PIN is 1234.
+              </span>
+            </span>
+          </label>
+          {pinEnabled && (
+            <label className="mt-3 block text-xs font-bold uppercase tracking-wider text-slate-500">
+              Replace dashboard PIN
+              <input
+                autoComplete="new-password"
+                className="mt-1.5 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 font-mono text-slate-100 outline-none focus:border-rose-400/50"
+                disabled={pending}
+                inputMode="numeric"
+                maxLength={64}
+                minLength={4}
+                onChange={(event) => setDashboardPin(event.target.value)}
+                placeholder="Leave blank to keep the saved PIN"
+                type="password"
+                value={dashboardPin}
+              />
+            </label>
+          )}
+        </div>
+      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
@@ -137,7 +182,7 @@ export function BackendSetupPanel({
           {pending ? "Saving…" : "Save general settings"}
         </button>
         <p className="text-xs text-slate-500">
-          Timezone, logging, port, and network-access changes take effect after a backend restart.
+          Timezone, logging, port, and network-access changes take effect after a backend restart. PIN changes apply immediately.
         </p>
       </div>
 

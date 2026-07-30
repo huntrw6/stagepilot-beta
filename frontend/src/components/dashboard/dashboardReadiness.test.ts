@@ -226,6 +226,103 @@ describe("dashboard integration truthfulness", () => {
     expect(checks.find((check) => check.id === "propresenter-timer")).toMatchObject({
       label: "ProPresenter timer not found",
       passed: false,
+      status: "error",
     });
+  });
+
+  it("shows unconfigured Lights as optional without blocking readiness", () => {
+    const productionSettings = settings({
+      service_source: "planning_center",
+      midi_source: "real",
+      timer_output: "propresenter",
+    });
+    const readyState = state({
+      plan: {
+        ...state().plan!,
+        date: "2026-07-29",
+        duration_source: "Planning Center",
+      },
+      planning_center_status: "connected",
+      midi_status: "connected",
+      propresenter_status: "connected",
+      plugins: {},
+    });
+    productionSettings.settings.planning_center.app_id = "app";
+    productionSettings.settings.planning_center.service_type_id = "service";
+    productionSettings.planning_center_secret_saved = true;
+    productionSettings.settings.midi.enabled = true;
+    productionSettings.settings.midi.input_name = "Playback";
+    productionSettings.settings.propresenter.enabled = true;
+    const views = buildConnectionCardViews({
+      state: readyState,
+      settings: productionSettings,
+      midi: {
+        ...emptyMidi,
+        enabled: true,
+        selected_input_name: "Playback",
+        inputs: [{
+          id: "playback",
+          name: "Playback",
+          ambiguous: false,
+          selected: true,
+          connected: true,
+        }],
+      },
+      propresenter: {
+        enabled: true,
+        connection_status: "connected",
+        timer_found: true,
+      } as ProPresenterStatusResponse,
+      lights: null,
+    });
+    const checks = buildReadinessChecks({
+      state: readyState,
+      settings: productionSettings,
+      propresenter: {
+        enabled: true,
+        connection_status: "connected",
+        timer_found: true,
+      } as ProPresenterStatusResponse,
+      live: true,
+      views,
+    });
+
+    expect(checks.find((check) => check.id === "lights")).toMatchObject({
+      label: "Lights MIDI output disconnected",
+      required: false,
+      status: "disconnected",
+    });
+    expect(readinessPassed(checks)).toBe(true);
+  });
+
+  it("blocks readiness after a configured Lights output becomes unavailable", () => {
+    const configuredSettings = settings({
+      service_source: "demo",
+      midi_source: "simulated",
+      timer_output: "simulated",
+    });
+    configuredSettings.settings.lights.enabled = true;
+    configuredSettings.settings.lights.output_name = "StagePilot to Lightkey";
+    const currentState = state({ lights_status: "disconnected" });
+    const views = buildConnectionCardViews({
+      state: currentState,
+      settings: configuredSettings,
+      midi: emptyMidi,
+      propresenter: null,
+      lights: null,
+    });
+    const checks = buildReadinessChecks({
+      state: currentState,
+      settings: configuredSettings,
+      propresenter: null,
+      live: true,
+      views,
+    });
+
+    expect(checks.find((check) => check.id === "lights")).toMatchObject({
+      required: true,
+      status: "disconnected",
+    });
+    expect(readinessPassed(checks)).toBe(false);
   });
 });

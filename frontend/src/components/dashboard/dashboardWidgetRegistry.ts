@@ -11,8 +11,8 @@ export type DashboardWidgetDefinition = {
 export const DASHBOARD_WIDGETS: Record<DashboardWidgetId, DashboardWidgetDefinition> = {
   "service-plan": {
     title: "Service Plan",
-    desktop: { x: 0, y: 0, w: 7, h: 16, minW: 5, minH: 9, maxW: 12 },
-    tablet: { x: 0, y: 0, w: 6, h: 14, minW: 4, minH: 9, maxW: 6 },
+    desktop: { x: 0, y: 0, w: 7, h: 32, minW: 5, minH: 9, maxW: 12 },
+    tablet: { x: 0, y: 0, w: 6, h: 28, minW: 4, minH: 9, maxW: 6 },
   },
   "now-playing": {
     title: "Now Playing",
@@ -23,11 +23,6 @@ export const DASHBOARD_WIDGETS: Record<DashboardWidgetId, DashboardWidgetDefinit
     title: "Manual Controls",
     desktop: { x: 7, y: 13, w: 5, h: 10, minW: 3, minH: 7, maxW: 12 },
     tablet: { x: 0, y: 26, w: 3, h: 12, minW: 3, minH: 8, maxW: 6 },
-  },
-  readiness: {
-    title: "Readiness Check",
-    desktop: { x: 0, y: 16, w: 7, h: 11, minW: 4, minH: 8, maxW: 12 },
-    tablet: { x: 3, y: 26, w: 3, h: 12, minW: 3, minH: 8, maxW: 6 },
   },
   events: {
     title: "Recent Event Stream",

@@ -20,6 +20,7 @@ export type ReadinessCheck = {
   passed: boolean;
   required: boolean;
   severity: "info" | "warning" | "blocking";
+  status: "connected" | "disconnected" | "error";
   detail?: string;
 };
 
@@ -204,6 +205,7 @@ export function buildReadinessChecks({
       passed: views.planningCenter.status === "connected",
       required: true,
       severity: "blocking",
+      status: views.planningCenter.status === "error" ? "error" : views.planningCenter.status === "connected" ? "connected" : "disconnected",
       detail: views.planningCenter.detail,
     },
     {
@@ -212,6 +214,7 @@ export function buildReadinessChecks({
       passed: servicePlanReady,
       required: true,
       severity: "blocking",
+      status: servicePlanReady ? "connected" : "disconnected",
       detail: productionPlan ? undefined : "Demo service plan is available for testing.",
     },
     {
@@ -220,6 +223,11 @@ export function buildReadinessChecks({
       passed: durationReady,
       required: true,
       severity: "blocking",
+      status: durationReady
+        ? "connected"
+        : servicePlanReady && Boolean(plan?.songs.length)
+          ? "error"
+          : "disconnected",
     },
     {
       id: "midi",
@@ -227,6 +235,7 @@ export function buildReadinessChecks({
       passed: views.midi.status === "connected",
       required: true,
       severity: "blocking",
+      status: views.midi.status === "error" ? "error" : views.midi.status === "connected" ? "connected" : "disconnected",
       detail: views.midi.detail,
     },
     {
@@ -237,6 +246,7 @@ export function buildReadinessChecks({
       passed: views.propresenter.status === "connected",
       required: true,
       severity: "blocking",
+      status: views.propresenter.status === "error" ? "error" : views.propresenter.status === "connected" ? "connected" : "disconnected",
       detail: views.propresenter.detail,
     },
   ];
@@ -247,29 +257,43 @@ export function buildReadinessChecks({
       passed: Boolean(propresenter?.timer_found),
       required: true,
       severity: "blocking",
+      status: propresenter?.timer_found
+        ? "connected"
+        : views.propresenter.status === "connected"
+          ? "error"
+          : "disconnected",
     });
   }
-  if (settings?.settings.lights.enabled) {
-    checks.push({
-      id: "lights",
-      label: views.lights.status === "connected"
-        ? "Lights output connected"
-        : "Lights output disconnected",
-      passed: views.lights.status === "connected",
-      required: true,
-      severity: "blocking",
-      detail: views.lights.detail,
-    });
-  }
+  const lightsConfigured = views.lights.configured;
+  const lightsRequired = lightsConfigured || views.lights.status === "error";
+  checks.push({
+    id: "lights",
+    label: views.lights.status === "connected"
+      ? "Lights MIDI output connected"
+      : "Lights MIDI output disconnected",
+    passed: views.lights.status === "connected",
+    required: lightsRequired,
+    severity: lightsRequired ? "blocking" : "info",
+    status: views.lights.status === "error"
+      ? "error"
+      : views.lights.status === "connected"
+        ? "connected"
+        : "disconnected",
+    detail: views.lights.detail,
+  });
   checks.push({
     id: "backend",
     label: live ? "StagePilot backend connected" : "StagePilot backend disconnected",
     passed: live,
     required: true,
     severity: "blocking",
+    status: live ? "connected" : "disconnected",
   });
   return checks;
 }
 
 export const readinessPassed = (checks: ReadinessCheck[]) =>
   checks.filter((check) => check.required).every((check) => check.passed);
+
+export const readinessHasError = (checks: ReadinessCheck[]) =>
+  checks.some((check) => check.required && check.status === "error");

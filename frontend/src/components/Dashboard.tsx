@@ -6,6 +6,7 @@ import multitracksIcon from "../assets/multitracks-icon.png";
 import planningCenterIcon from "../assets/planning-center-icon.png";
 import propresenterIcon from "../assets/propresenter-icon.png";
 import stagepilotIcon from "../assets/stagepilot-icon.png";
+import { useDelayedHover } from "../hooks/useDelayedHover";
 import type {
   ActionName,
   ApplicationState,
@@ -32,9 +33,11 @@ import type {
 import type { UpdaterController } from "../hooks/useUpdater";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { DashboardGrid } from "./dashboard/DashboardGrid";
+import { latestActiveError } from "./dashboard/dashboardActiveError";
 import {
   buildConnectionCardViews,
   buildReadinessChecks,
+  readinessHasError,
   readinessPassed,
 } from "./dashboard/dashboardReadiness";
 import { LightsSetupPanel } from "./LightsSetupPanel";
@@ -280,6 +283,7 @@ export function Dashboard({
   const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
   const [notificationQueue, setNotificationQueue] = useState<HeaderNotification[]>([]);
+  const readinessHover = useDelayedHover();
   const notificationId = useRef(0);
   const updateButton = useRef<HTMLButtonElement>(null);
   const previousNotificationSources = useRef({
@@ -357,7 +361,9 @@ export function Dashboard({
     views: connectionViews,
   });
   const ready = readinessPassed(checks);
+  const systemError = readinessHasError(checks);
   const activity = [...state.recent_events].reverse().slice(0, 10);
+  const pinnedError = latestActiveError(state);
   const midiDetail = connectionViews.midi.detail;
   const timerDuration = state.timer.duration_seconds ?? state.current_song?.duration_seconds ?? 0;
   const elapsedMilliseconds = state.timer.status === "running" && state.timer.started_at
@@ -389,7 +395,7 @@ export function Dashboard({
     <main className="stagepilot-dashboard mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:gap-4">
         <div className="flex items-center">
-          <h1 className="relative z-10 origin-bottom-left scale-[1.8] font-brand text-4xl leading-none text-white">StagePilot</h1>
+          <h1 className="relative z-10 shrink-0 select-none font-brand text-[4.05rem] leading-[0.56] text-white">StagePilot</h1>
           {updater?.status === "available" && updater.availableVersion && (
             <UpdateAvailableButton
               onClick={updater.openConfirmation}
@@ -411,9 +417,48 @@ export function Dashboard({
             {notification?.message ?? "\u00A0"}
           </div>
         </div>
-        <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${ready ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-amber-400/30 bg-amber-400/10 text-amber-300"}`}>
-          <span className={`h-2 w-2 rounded-full ${ready ? "bg-emerald-400" : "bg-amber-400"}`} />
-          {ready ? "Ready" : "Check system"}
+        <div
+          className="relative z-40"
+          ref={readinessHover.containerRef}
+          {...readinessHover.hoverProps}
+        >
+          <button
+            aria-describedby="system-readiness-popover"
+            className={`flex cursor-help items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:brightness-125 hover:ring-1 hover:ring-white/25 hover:shadow-[0_0_18px_rgba(255,255,255,0.12)] ${ready ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : systemError ? "border-rose-400/30 bg-rose-400/10 text-rose-300" : "border-amber-400/30 bg-amber-400/10 text-amber-300"}`}
+            type="button"
+          >
+            <span className={`h-2 w-2 rounded-full ${ready ? "bg-emerald-400" : systemError ? "bg-rose-400" : "bg-amber-400"}`} />
+            {ready ? "Ready" : systemError ? "Error" : "Check system"}
+          </button>
+          <div
+            className={`absolute right-0 top-full w-[min(22rem,calc(100vw-2rem))] pt-2 transition ${readinessHover.open ? "visible translate-y-0 opacity-100" : "pointer-events-none invisible translate-y-1 opacity-0"}`}
+            id="system-readiness-popover"
+            role="tooltip"
+          >
+            <div className="rounded-xl border border-white/10 bg-slate-950/85 p-3 shadow-2xl shadow-black/40 backdrop-blur-xl">
+              <ul className="grid gap-1.5">
+                {checks.map((check) => (
+                  <li
+                    className="flex items-center gap-2 rounded-lg bg-white/[0.035] px-3 py-2 text-sm"
+                    key={check.id}
+                    title={check.detail}
+                  >
+                    <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[0.65rem] font-black ${check.status === "connected" ? "bg-emerald-400/15 text-emerald-300" : check.status === "error" ? "bg-rose-400/15 text-rose-300" : "bg-white/[0.07] text-slate-400"}`}>
+                      {check.status === "connected" ? "✓" : check.status === "error" ? "!" : "—"}
+                    </span>
+                    <span className={check.status === "connected" ? "text-emerald-200" : check.status === "error" ? "text-rose-200" : "text-slate-400"}>
+                      {check.label}
+                    </span>
+                    {!check.required && (
+                      <span className="ml-auto text-[0.6rem] font-bold uppercase tracking-wider text-slate-500">
+                        Optional
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -574,6 +619,7 @@ export function Dashboard({
 
       {activeConnection === "lights" && (
         <LightsSetupPanel
+          connectionStatus={connectionViews.lights.status}
           error={lightsError}
           lights={lights}
           message={lightsMessage}
@@ -669,19 +715,11 @@ export function Dashboard({
             </div>
           </section>
           ),
-          readiness: (
-        <section className="h-full min-h-0 overflow-auto rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
-          <div className="flex items-center justify-between"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Readiness check</p><span className={ready ? "text-emerald-300" : "text-amber-300"}>{ready ? "All systems ready" : "Attention required"}</span></div>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {checks.map((check) => <li key={check.id} className="flex items-center gap-2 rounded-lg bg-white/[0.025] px-3 py-2 text-sm"><span className={`grid h-5 w-5 place-items-center rounded-full text-[0.65rem] font-black ${check.passed ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{check.passed ? "✓" : "!"}</span><span className={check.passed ? "text-slate-300" : "text-rose-200"}>{check.label}</span></li>)}
-          </ul>
-        </section>
-          ),
           events: (
         <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
           <div className="flex items-center justify-between p-4"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Recent event stream</p><span className="text-xs text-slate-600">Latest {activity.length}</span></div>
           <div className="min-h-0 flex-1 overflow-auto border-t border-white/5">
-            {state.recent_errors.slice(-2).reverse().map((item) => <div key={`${item.timestamp}-${item.message}`} className="grid grid-cols-[4.5rem_1fr] gap-3 border-b border-rose-400/15 bg-rose-500/[0.08] px-4 py-2.5 text-xs"><time className="font-mono text-rose-300/70">{formatTime(item.timestamp)}</time><p className="text-rose-200"><span className="font-bold uppercase text-rose-300">{item.component}</span> · {item.message}</p></div>)}
+            {pinnedError && <div className="grid grid-cols-[4.5rem_1fr] gap-3 border-b border-rose-400/15 bg-rose-500/[0.08] px-4 py-2.5 text-xs"><time className="font-mono text-rose-300/70">{formatTime(pinnedError.timestamp)}</time><p className="text-rose-200"><span className="font-bold uppercase text-rose-300">{pinnedError.component}</span> · {pinnedError.message}</p></div>}
             {activity.map((event) => <div key={event.id} className="grid grid-cols-[4.5rem_1fr] gap-3 border-b border-emerald-400/10 bg-emerald-400/[0.035] px-4 py-2.5 text-xs"><time className="font-mono text-slate-600">{formatTime(event.timestamp)}</time><p className="truncate text-slate-300"><span className="font-semibold text-emerald-300">{event.type}</span> · {event.source}</p></div>)}
             {!activity.length && <p className="p-4 text-sm text-slate-500">Waiting for demo events…</p>}
           </div>

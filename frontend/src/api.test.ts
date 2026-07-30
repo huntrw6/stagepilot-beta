@@ -68,6 +68,7 @@ describe("Planning Center onboarding API", () => {
       `${apiOrigin}/api/v1/planning-center/test`,
       {
         method: "POST",
+        credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ app_id: "app-id", secret: "private-secret" }),
       },
@@ -75,7 +76,7 @@ describe("Planning Center onboarding API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       `${apiOrigin}/api/v1/planning-center/service-types`,
-      { headers: { Accept: "application/json" } },
+      { credentials: "include", headers: { Accept: "application/json" } },
     );
   });
 
@@ -103,6 +104,7 @@ describe("Planning Center onboarding API", () => {
       `${apiOrigin}/api/v1/planning-center/settings`,
       {
         method: "POST",
+        credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify(input),
       },
@@ -163,6 +165,7 @@ describe("selectPlanningCenterPlan", () => {
       `${apiOrigin}/api/v1/planning-center/plans/select`,
       {
         method: "POST",
+        credentials: "include",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
@@ -205,12 +208,16 @@ describe("MIDI API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       `${apiOrigin}/api/v1/midi/inputs`,
-      { headers: { Accept: "application/json" } },
+      { credentials: "include", headers: { Accept: "application/json" } },
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       `${apiOrigin}/api/v1/midi/inputs/refresh`,
-      { method: "POST", headers: { Accept: "application/json" } },
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      },
     );
   });
 
@@ -226,7 +233,7 @@ describe("MIDI API", () => {
     await expect(getMidiMessages()).resolves.toEqual(monitor);
     expect(fetchMock).toHaveBeenCalledWith(
       `${apiOrigin}/api/v1/midi/messages`,
-      { headers: { Accept: "application/json" } },
+      { credentials: "include", headers: { Accept: "application/json" } },
     );
   });
 
@@ -267,6 +274,7 @@ describe("MIDI API", () => {
       `${apiOrigin}/api/v1/midi/input-selection`,
       {
         method: "POST",
+        credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ input_id: inputId }),
       },
@@ -276,6 +284,7 @@ describe("MIDI API", () => {
       `${apiOrigin}/api/v1/midi/cue-simulation`,
       {
         method: "POST",
+        credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ cue: "start_next" }),
       },
@@ -330,6 +339,7 @@ describe("Lights API", () => {
       `${apiOrigin}/api/v1/lights/settings`,
       {
         method: "POST",
+        credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify(outputSettings),
       },
@@ -339,6 +349,7 @@ describe("Lights API", () => {
       `${apiOrigin}/api/v1/lights/cue-map`,
       {
         method: "PUT",
+        credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify(cueMap),
       },
@@ -348,6 +359,7 @@ describe("Lights API", () => {
       `${apiOrigin}/api/v1/lights/test`,
       {
         method: "POST",
+        credentials: "include",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ note: 72, velocity: 110 }),
       },
@@ -376,7 +388,7 @@ describe("Lights API", () => {
     await expect(getLightsStatus()).resolves.toEqual(lights);
     expect(fetchMock).toHaveBeenCalledWith(
       `${apiOrigin}/api/v1/lights`,
-      { headers: { Accept: "application/json" } },
+      { credentials: "include", headers: { Accept: "application/json" } },
     );
   });
 });

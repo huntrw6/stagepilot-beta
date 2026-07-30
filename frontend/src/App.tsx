@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Dashboard } from "./components/Dashboard";
 import { DesktopTitleBar } from "./components/DesktopTitleBar";
+import { WebDashboardPinGate } from "./components/WebDashboardPinGate";
 import {
   backendStartupTitle,
   desktopBackendStatus,
@@ -13,7 +14,7 @@ import { useStagePilot } from "./hooks/useStagePilot";
 import { useUpdater } from "./hooks/useUpdater";
 import { useStartupProgress } from "./startup/useStartupProgress";
 
-export default function App() {
+function StagePilotApp() {
   const stagePilot = useStagePilot();
   const {
     activateConfiguredServices,
@@ -116,7 +117,7 @@ export default function App() {
         <DesktopTitleBar />
         <main className="grid min-h-[calc(100vh-2.25rem)] place-items-center px-6 text-center">
           <div className="w-full max-w-4xl">
-            <h1 className="font-brand text-[11.25rem] leading-none text-white">StagePilot</h1>
+            <h1 className="select-none font-brand text-[11.25rem] leading-none text-white">StagePilot</h1>
             <div
               aria-label="StagePilot startup progress"
               aria-valuemax={100}
@@ -185,5 +186,13 @@ export default function App() {
       <DesktopTitleBar />
       <Dashboard {...stagePilot} state={stagePilot.state} updater={updater} />
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <WebDashboardPinGate>
+      <StagePilotApp />
+    </WebDashboardPinGate>
   );
 }

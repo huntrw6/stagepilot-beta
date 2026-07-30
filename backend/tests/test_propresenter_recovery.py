@@ -118,6 +118,65 @@ async def test_plugin_reconnects_when_propresenter_appears_after_startup() -> No
     assert client.closed is True
 
 
+@pytest.mark.asyncio
+async def test_unreachable_propresenter_is_disconnected_until_poll_recovers() -> None:
+    client = RecoveringClient(
+        results=deque(
+            [
+                ProPresenterConnectionError("ProPresenter is not open."),
+                ProPresenterConnectionError("ProPresenter is not open."),
+                [timer()],
+            ]
+        )
+    )
+    settings = Settings(
+        demo_mode=True,
+        demo=DemoSettings(simulate_propresenter=False),
+        propresenter=ProPresenterSettings(
+            enabled=True,
+            reconnect_initial_seconds=0.03,
+            reconnect_max_seconds=0.03,
+            health_check_interval_seconds=300,
+        ),
+    )
+    app = create_app(settings, propresenter_client_factory=lambda _settings: client)
+
+    async with app.router.lifespan_context(app):
+        initial = await app.state.runtime.state_store.snapshot()
+        assert initial.propresenter_status is ConnectionStatus.DISCONNECTED
+
+        deadline = asyncio.get_running_loop().time() + 1
+        while asyncio.get_running_loop().time() < deadline:
+            current = await app.state.runtime.state_store.snapshot()
+            if current.propresenter_status is ConnectionStatus.CONNECTED:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("ProPresenter polling did not detect recovery.")
+
+
+@pytest.mark.asyncio
+async def test_propresenter_api_response_failure_is_error() -> None:
+    client = RecoveringClient(
+        results=deque([ProPresenterResponseError("ProPresenter returned invalid data.")])
+    )
+    settings = Settings(
+        demo_mode=True,
+        demo=DemoSettings(simulate_propresenter=False),
+        propresenter=ProPresenterSettings(
+            enabled=True,
+            reconnect_initial_seconds=1,
+            reconnect_max_seconds=1,
+            health_check_interval_seconds=300,
+        ),
+    )
+    app = create_app(settings, propresenter_client_factory=lambda _settings: client)
+
+    async with app.router.lifespan_context(app):
+        current = await app.state.runtime.state_store.snapshot()
+        assert current.propresenter_status is ConnectionStatus.ERROR
+
+
 @dataclass
 class RecreatedTimerClient:
     list_calls: int = 0

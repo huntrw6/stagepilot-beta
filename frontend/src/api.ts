@@ -2,6 +2,7 @@ import type {
   ActionName,
   ActionResponse,
   ApplicationState,
+  DashboardAuthStatus,
   HealthResponse,
   LightsOperationResponse,
   LightsSettingsInput,
@@ -59,6 +60,7 @@ export const websocketUrl = `${apiOrigin.replace(/^http/, "ws")}/ws`;
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiOrigin}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...init?.headers,
@@ -76,6 +78,21 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return (await response.json()) as T;
 }
+
+export const getDashboardAuthStatus = () =>
+  requestJson<DashboardAuthStatus>("/api/v1/dashboard-auth/status");
+export const loginDashboard = (pin: string) =>
+  requestJson<DashboardAuthStatus>("/api/v1/dashboard-auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin }),
+  });
+export const updateDashboardAccess = (enabled: boolean, pin?: string) =>
+  requestJson<SettingsResponse>("/api/v1/dashboard-auth/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled, ...(pin ? { pin } : {}) }),
+  });
 
 export const getHealth = () => requestJson<HealthResponse>("/api/v1/health");
 export const getState = () => requestJson<ApplicationState>("/api/v1/state");

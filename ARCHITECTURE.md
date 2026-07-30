@@ -134,6 +134,10 @@ simulated timer, but it never publishes connection events for Planning Center,
 MIDI, or ProPresenter. Dashboard readiness derives production checks from the
 saved integration modes, real connection state, plan source/freshness, and
 timer availability; a demo plan cannot satisfy Planning Center readiness.
+The header system-status control exposes those checks on hover and keyboard
+focus. Lights always appears in that summary but remains optional until an
+output is configured; a configured output that becomes unavailable blocks
+readiness.
 
 Planning Center discovery treats the configured local date as a search anchor.
 Plans with service times on that date always take precedence. Only when none

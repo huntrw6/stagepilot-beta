@@ -295,14 +295,6 @@ export function DashboardGrid({
 
   return (
     <section aria-label="Customizable dashboard" className="mt-5">
-      <DashboardLayoutToolbar
-        editing={editing}
-        onAddSpacer={addSpacer}
-        onCompact={() => compactGrid(true)}
-        onDone={() => setEditing(false)}
-        onEdit={() => setEditing(true)}
-        onReset={() => setResetOpen(true)}
-      />
       <p aria-live="polite" className="sr-only">{announcement}</p>
       <div
         className={`grid-stack stagepilot-dashboard-grid ${editing ? "dashboard-layout-editing" : ""}`}
@@ -354,6 +346,14 @@ export function DashboardGrid({
           );
         })}
       </div>
+      <DashboardLayoutToolbar
+        editing={editing}
+        onAddSpacer={addSpacer}
+        onCompact={() => compactGrid(true)}
+        onDone={() => setEditing(false)}
+        onEdit={() => setEditing(true)}
+        onReset={() => setResetOpen(true)}
+      />
       <DashboardResetDialog
         onCancel={() => setResetOpen(false)}
         onConfirm={resetLayout}

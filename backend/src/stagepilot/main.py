@@ -14,6 +14,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from stagepilot.api.dashboard_auth import router as dashboard_auth_router
+from stagepilot.api.dashboard_auth_middleware import DashboardAuthMiddleware
 from stagepilot.api.routes import router as api_router
 from stagepilot.api.websocket import router as websocket_router
 from stagepilot.core.config import MidiSource, ServiceSource, Settings, TimerOutput, get_settings
@@ -39,6 +41,7 @@ from stagepilot.plugins.planning_center import (
     TodayProvider,
 )
 from stagepilot.plugins.propresenter import ProPresenterClientFactory, ProPresenterPlugin
+from stagepilot.services.dashboard_auth import DashboardSessionStore
 from stagepilot.services.planning_center_setup import PlanningCenterSetupService
 from stagepilot.services.startup_activation import StartupActivationService
 from stagepilot.services.state_service import StateService
@@ -74,6 +77,7 @@ def create_app(
     lights_backend_factory: MidiOutputBackendFactory | None = None,
     propresenter_client_factory: ProPresenterClientFactory | None = None,
     settings_service: SettingsService | None = None,
+    dashboard_auth_enforced: bool | None = None,
     plan_cache_store: PlanCacheStore | None = None,
     web_root: Path | None = None,
 ) -> FastAPI:
@@ -217,6 +221,11 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.runtime = runtime
+    application.state.dashboard_sessions = DashboardSessionStore()
+    application.state.dashboard_auth_enforced = (
+        settings is None if dashboard_auth_enforced is None else dashboard_auth_enforced
+    )
+    application.add_middleware(DashboardAuthMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -226,11 +235,12 @@ def create_app(
             "https://tauri.localhost",
             "tauri://localhost",
         ],
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Content-Type"],
     )
     application.include_router(api_router)
+    application.include_router(dashboard_auth_router)
     application.include_router(websocket_router)
     dashboard_root = web_root or default_web_root()
     if dashboard_root is not None and (dashboard_root / "index.html").is_file():

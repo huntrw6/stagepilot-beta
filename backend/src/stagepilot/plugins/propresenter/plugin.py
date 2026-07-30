@@ -31,6 +31,7 @@ from stagepilot.plugins.propresenter.client import (
     ProPresenterClientFactory,
 )
 from stagepilot.plugins.propresenter.errors import (
+    ProPresenterConnectionError,
     ProPresenterError,
     ProPresenterLookNotFoundError,
     ProPresenterTimerNotFoundError,
@@ -350,7 +351,12 @@ class ProPresenterPlugin(Plugin):
             self._current_look = None
             self._status = PluginStatus.STARTING
             self._last_error = detail
-            await self._set_connection(ConnectionStatus.ERROR, detail)
+            connection_status = (
+                ConnectionStatus.DISCONNECTED
+                if isinstance(exc, ProPresenterConnectionError)
+                else ConnectionStatus.ERROR
+            )
+            await self._set_connection(connection_status, detail)
             if raise_errors:
                 raise
             return False

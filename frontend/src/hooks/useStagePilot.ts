@@ -26,6 +26,7 @@ import {
   updateLightsSettings,
   updateProPresenterSettings,
   updateSettings,
+  updateDashboardAccess,
   websocketUrl,
 } from "../api";
 import type {
@@ -353,12 +354,26 @@ export function useStagePilot() {
       setSettingsError(null);
       setSettingsMessage(null);
       try {
+        const {
+          web_dashboard_pin,
+          web_dashboard_pin_enabled,
+          ...generalSettings
+        } = input;
         const response = await updateSettings({
           ...settings.settings,
-          ...input,
+          ...generalSettings,
+          ...(web_dashboard_pin_enabled !== undefined
+            ? { web_dashboard_pin_enabled }
+            : {}),
           onboarding: { general_completed: true },
         });
-        setSettings(response);
+        const accessResponse = await updateDashboardAccess(
+          web_dashboard_pin_enabled
+            ?? settings.settings.web_dashboard_pin_enabled
+            ?? true,
+          web_dashboard_pin,
+        );
+        setSettings(accessResponse);
         rememberServerPort(response.settings.server_port);
         setSettingsMessage(
           "General settings saved. Restart StagePilot and reload the dashboard to apply startup changes.",

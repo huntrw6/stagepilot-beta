@@ -49,9 +49,12 @@ export function StatusCard({
         </div>
         <span
           aria-hidden="true"
-          className="hidden h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-white/5 text-slate-400 transition-colors group-hover:text-slate-100 xl:grid"
+          className="hidden h-12 w-12 shrink-0 place-items-center rounded-xl bg-white/5 text-slate-400 transition-colors group-hover:text-slate-100 xl:grid"
+          data-status-icon-background
         >
-          {icon}
+          <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-lg">
+            {icon}
+          </span>
         </span>
       </div>
     </button>
