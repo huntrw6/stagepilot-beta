@@ -5,7 +5,7 @@
     "targets": ["app", "dmg"],
     "externalBin": ["binaries/stagepilot-backend"],
     "resources": {
-      "generated-help/StagePilot.help/**": "StagePilot.help/"
+      "generated-help/StagePilot.help/": "StagePilot.help/"
     },
     "macOS": {
       "signingIdentity": "-",

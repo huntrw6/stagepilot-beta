@@ -21,8 +21,13 @@ test("Tauri updater configuration preserves stable identity and trusted endpoint
   assert.equal(macOSConfig.bundle.macOS.minimumSystemVersion, "12.0");
   assert.deepEqual(macOSConfig.bundle.targets, ["app", "dmg"]);
   assert.equal(
-    macOSConfig.bundle.resources["generated-help/StagePilot.help/**"],
+    macOSConfig.bundle.resources["generated-help/StagePilot.help/"],
     "StagePilot.help/",
+  );
+  assert.equal(
+    macOSConfig.bundle.resources["generated-help/StagePilot.help/**"],
+    undefined,
+    "Tauri's trailing /** pattern matches directories rather than resource files",
   );
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
