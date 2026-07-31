@@ -6,11 +6,14 @@ From the repository root in PowerShell, run:
 .\create-new-release.ps1
 ```
 
-The command asks for the next version and release destination. The destination
-defaults to `main`; another branch may be selected when needed. It then:
+The command reads the latest StagePilot version tag from GitHub and suggests
+the next patch version. Existing tags from an unsuccessful release are included,
+so the suggested version is never already occupied. Press Enter to accept that
+version or type a different semantic version. The destination defaults to
+`main`; another branch may be selected when needed. It then:
 
 1. Shows the release title, source branch, destination branch, and current changes.
-2. Requires one typed confirmation such as `RELEASE v1.1.44 TO main`.
+2. Requires one final typed confirmation: `YES`.
 3. Updates every StagePilot application and lockfile version.
 4. Refreshes the Python, frontend, and desktop lockfiles.
 5. Runs backend, frontend, desktop/Rust, and MultiTracks CLI validation.

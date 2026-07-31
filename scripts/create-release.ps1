@@ -62,8 +62,38 @@ if ((git rev-parse --show-toplevel) -ne $Root.Replace("\", "/") -and
     throw "Run this command from the StagePilot repository."
 }
 
+Invoke-Checked "Verify GitHub authentication" { gh auth status }
+
+$RemoteTags = gh api repos/huntrw6/stagepilot/tags --paginate --jq '.[].name'
+if ($LASTEXITCODE -ne 0 -or -not $RemoteTags) {
+    throw "Could not identify the existing StagePilot version tags on GitHub."
+}
+$StableVersions = @(
+    $RemoteTags |
+        ForEach-Object {
+            if ($_ -match '^v(\d+)\.(\d+)\.(\d+)$') {
+                [pscustomobject]@{
+                    Tag = $_
+                    Version = [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])"
+                }
+            }
+        }
+)
+if (-not $StableVersions) {
+    throw "GitHub does not contain a stable StagePilot semantic-version tag."
+}
+$LatestGitHubVersion = $StableVersions |
+    Sort-Object -Property Version -Descending |
+    Select-Object -First 1
+$LatestTag = $LatestGitHubVersion.Tag
+$SuggestedTag = "v$($LatestGitHubVersion.Version.Major).$($LatestGitHubVersion.Version.Minor).$($LatestGitHubVersion.Version.Build + 1)"
+Write-Host "`nLatest GitHub version: StagePilot $LatestTag" -ForegroundColor Cyan
+
 if (-not $Version) {
-    $Version = Read-Host "New StagePilot version (for example 1.1.43)"
+    $Version = Read-Host "New StagePilot version (default $SuggestedTag)"
+    if (-not $Version) {
+        $Version = $SuggestedTag
+    }
 }
 $Version = $Version.Trim().TrimStart("v")
 if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
@@ -81,8 +111,6 @@ if (git tag --list $Tag) {
 if (git ls-remote --exit-code --tags origin "refs/tags/$Tag" 2>$null) {
     throw "Remote tag $Tag already exists."
 }
-
-Invoke-Checked "Verify GitHub authentication" { gh auth status }
 
 if (-not $TargetBranch) {
     if ($Yes) {
@@ -125,8 +153,8 @@ Write-Host "`nCurrent working changes:" -ForegroundColor Yellow
 git --no-pager status --short
 
 if (-not $Yes) {
-    $confirmation = Read-Host "Type RELEASE $Tag TO $TargetBranch to begin the unattended release"
-    if ($confirmation -cne "RELEASE $Tag TO $TargetBranch") {
+    $confirmation = Read-Host "Type YES to begin the unattended release"
+    if ($confirmation.Trim().ToUpperInvariant() -ne "YES") {
         throw "Release cancelled. No files, commit, tag, or remote branch were changed."
     }
 }

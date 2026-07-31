@@ -91,6 +91,9 @@ jobs:
           npm ci --prefix desktop
           rustup update stable
           rustup default stable
+      - name: Generate macOS Help Book
+        if: runner.os == 'macOS'
+        run: npm --prefix desktop run build:help
       - name: Validate application
         shell: bash
         run: |

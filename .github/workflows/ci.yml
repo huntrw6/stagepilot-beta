@@ -194,6 +194,9 @@ jobs:
       - name: Build packaged backend sidecar
         run: npm --prefix desktop run build:sidecar
 
+      - name: Generate macOS Help Book
+        run: npm --prefix desktop run build:help
+
       - name: Check Rust formatting
         run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
 

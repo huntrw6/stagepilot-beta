@@ -61,6 +61,14 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.match(workflow, /verify_macos_release_bundle\.sh --dmg/);
   assert.match(workflow, /verify_macos_release_bundle\.sh --archive/);
   assert.ok(
+    workflow.indexOf("Generate macOS Help Book") < workflow.indexOf("Validate application"),
+    "the release workflow must generate bundled Help before Cargo validates Tauri resources",
+  );
+  assert.match(
+    workflow,
+    /name: Generate macOS Help Book\s+if: runner\.os == 'macOS'\s+run: npm --prefix desktop run build:help/,
+  );
+  assert.ok(
     workflow.indexOf("verify_macos_release_bundle.sh --archive") <
       workflow.indexOf("Collect macOS release assets"),
   );
@@ -79,6 +87,37 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.ok(
     workflow.indexOf("release-assets/latest.json --clobber") < workflow.indexOf("--draft=false --latest"),
   );
+});
+
+test("macOS lifecycle CI generates bundled Help before Cargo compilation", () => {
+  const workflow = read(".github/workflows/ci.yml");
+  const macOSJob = workflow.slice(workflow.indexOf("desktop-macos-lifecycle:"));
+  assert.ok(macOSJob.includes("Generate macOS Help Book"));
+  assert.ok(
+    macOSJob.indexOf("Generate macOS Help Book") <
+      macOSJob.indexOf("Compile-check macOS desktop shell"),
+  );
+  assert.match(
+    macOSJob,
+    /name: Generate macOS Help Book\s+run: npm --prefix desktop run build:help/,
+  );
+});
+
+test("release automation suggests the next published patch and confirms with YES", () => {
+  const releaseScript = read("scripts/create-release.ps1");
+  assert.match(
+    releaseScript,
+    /gh api repos\/huntrw6\/stagepilot\/tags --paginate --jq '\.\[\]\.name'/,
+  );
+  assert.match(releaseScript, /Sort-Object -Property Version -Descending/);
+  assert.match(
+    releaseScript,
+    /\$LatestGitHubVersion\.Version\.Build \+ 1/,
+  );
+  assert.match(releaseScript, /New StagePilot version \(default \$SuggestedTag\)/);
+  assert.match(releaseScript, /Type YES to begin the unattended release/);
+  assert.match(releaseScript, /ToUpperInvariant\(\) -ne "YES"/);
+  assert.doesNotMatch(releaseScript, /Type RELEASE \$Tag TO \$TargetBranch/);
 });
 
 test("macOS final-artifact verifier rejects hardened sidecars and starts packaged backends", () => {
