@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- Register a searchable native macOS Help Book generated from StagePilot's
+  Markdown documentation so the system Help menu can return useful local
+  setup, operation, and troubleshooting topics.
+
 ## [1.1.41] - 2026-07-29
 
 ### Fixed

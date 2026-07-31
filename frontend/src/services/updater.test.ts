@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getVersion: vi.fn().mockResolvedValue("1.2.0"),
+  invoke: vi.fn().mockResolvedValue(undefined),
   isTauri: vi.fn(() => true),
+  check: vi.fn(),
   unminimize: vi.fn().mockResolvedValue(undefined),
   show: vi.fn().mockResolvedValue(undefined),
   setFocus: vi.fn().mockResolvedValue(undefined),
@@ -10,7 +12,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: mocks.getVersion }));
-vi.mock("@tauri-apps/api/core", () => ({ isTauri: mocks.isTauri }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: mocks.invoke,
+  isTauri: mocks.isTauri,
+}));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     unminimize: mocks.unminimize,
@@ -19,7 +24,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
 vi.mock("@tauri-apps/plugin-window-state", () => ({
   saveWindowState: mocks.saveWindowState,
   StateFlags: { ALL: 63 },
@@ -53,6 +58,44 @@ describe("Tauri updater adapter relaunch state", () => {
     expect(JSON.parse(localStorage.getItem(UPDATE_RELAUNCH_MARKER)!)).toMatchObject({
       targetVersion: "1.2.0",
       route: "#dashboard",
+    });
+  });
+
+  it("stops the managed backend after download and before launching the installer", async () => {
+    const download = vi.fn().mockImplementation(async (onEvent) => {
+      onEvent?.({ event: "Started", data: { contentLength: 100 } });
+      onEvent?.({ event: "Progress", data: { chunkLength: 100 } });
+      onEvent?.({ event: "Finished" });
+    });
+    const install = vi.fn().mockResolvedValue(undefined);
+    mocks.check.mockResolvedValue({
+      rid: 1,
+      currentVersion: "1.1.43",
+      version: "1.1.44",
+      body: null,
+      date: null,
+      download,
+      install,
+    });
+
+    const candidate = await tauriUpdaterAdapter.check();
+    const progress = vi.fn();
+    await candidate!.install(progress);
+
+    expect(download).toHaveBeenCalledOnce();
+    expect(mocks.invoke).toHaveBeenCalledWith("prepare_for_update");
+    expect(install).toHaveBeenCalledOnce();
+    expect(download.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.invoke.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.invoke.mock.invocationCallOrder[0]).toBeLessThan(
+      install.mock.invocationCallOrder[0]!,
+    );
+    expect(progress).toHaveBeenLastCalledWith({
+      downloadedBytes: 100,
+      totalBytes: 100,
+      percentage: 100,
+      stage: "installing",
     });
   });
 

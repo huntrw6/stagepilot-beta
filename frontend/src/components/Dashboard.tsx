@@ -395,7 +395,7 @@ export function Dashboard({
     <main className="stagepilot-dashboard mx-auto min-h-screen max-w-[1680px] px-4 py-5 sm:px-6 lg:px-8">
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:gap-4">
         <div className="flex items-center">
-          <h1 className="relative z-10 -translate-y-2 shrink-0 select-none font-brand text-[4.05rem] leading-[0.56] text-white">StagePilot</h1>
+          <h1 className="relative z-10 -translate-y-6 shrink-0 select-none font-brand text-[4.05rem] leading-[0.56] text-white">StagePilot</h1>
           {updater?.status === "available" && updater.availableVersion && (
             <UpdateAvailableButton
               onClick={updater.openConfirmation}

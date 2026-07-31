@@ -3,6 +3,8 @@ param(
     [Parameter(Position = 0)]
     [string]$Version,
 
+    [string]$TargetBranch,
+
     [switch]$Yes
 )
 
@@ -69,8 +71,8 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
 }
 
 $Tag = "v$Version"
-$Branch = (git branch --show-current).Trim()
-if (-not $Branch) {
+$CurrentBranch = (git branch --show-current).Trim()
+if (-not $CurrentBranch) {
     throw "Releases cannot be created from a detached HEAD."
 }
 if (git tag --list $Tag) {
@@ -81,6 +83,54 @@ if (git ls-remote --exit-code --tags origin "refs/tags/$Tag" 2>$null) {
 }
 
 Invoke-Checked "Verify GitHub authentication" { gh auth status }
+
+if (-not $TargetBranch) {
+    if ($Yes) {
+        $TargetBranch = "main"
+    }
+    else {
+        $destination = Read-Host "Push the release commit to main or another branch? (M/B, default M)"
+        if (-not $destination -or $destination -match '^(?i:m|main)$') {
+            $TargetBranch = "main"
+        }
+        elseif ($destination -match '^(?i:b|branch)$') {
+            $TargetBranch = (Read-Host "Branch name").Trim()
+        }
+        else {
+            throw "Choose M for main or B for another branch."
+        }
+    }
+}
+$TargetBranch = $TargetBranch.Trim()
+if (-not $TargetBranch) {
+    throw "The target branch cannot be empty."
+}
+Invoke-Checked "Validate target branch name" {
+    git check-ref-format --branch $TargetBranch
+}
+
+if ($TargetBranch -eq "main") {
+    Invoke-Checked "Fetch origin/main" { git fetch origin main }
+    git merge-base --is-ancestor origin/main HEAD
+    if ($LASTEXITCODE -ne 0) {
+        throw "The current checkout does not contain the latest origin/main. Reconcile it before releasing to main."
+    }
+}
+
+Write-Host "`nRelease plan" -ForegroundColor Yellow
+Write-Host "  Title:       StagePilot $Tag"
+Write-Host "  Source:      $CurrentBranch"
+Write-Host "  Destination: origin/$TargetBranch"
+Write-Host "`nCurrent working changes:" -ForegroundColor Yellow
+git --no-pager status --short
+
+if (-not $Yes) {
+    $confirmation = Read-Host "Type RELEASE $Tag TO $TargetBranch to begin the unattended release"
+    if ($confirmation -cne "RELEASE $Tag TO $TargetBranch") {
+        throw "Release cancelled. No files, commit, tag, or remote branch were changed."
+    }
+}
+
 Invoke-Checked "Update all StagePilot version sources" {
     node scripts/set-release-version.mjs $Version
 }
@@ -173,14 +223,8 @@ if (Test-Path "tools/multitracks-cues/package.json") {
 Invoke-Checked "Check the release diff" { git --no-pager diff --check }
 
 Write-Host "`nFiles that will be included:" -ForegroundColor Yellow
-git status --short
-
-if (-not $Yes) {
-    $confirmation = Read-Host "Type RELEASE $Tag to commit, push, tag, and publish"
-    if ($confirmation -ne "RELEASE $Tag") {
-        throw "Release cancelled. No commit, tag, or push was created."
-    }
-}
+git --no-pager diff --stat
+git --no-pager status --short
 
 Invoke-Checked "Stage all source changes" { git add --all }
 
@@ -198,7 +242,9 @@ Invoke-Checked "Check the staged release diff" { git --no-pager diff --cached --
 Invoke-Checked "Commit StagePilot $Tag" {
     git commit -m "Release StagePilot $Tag" -m "Include the validated backend, frontend, desktop, documentation, and tooling changes."
 }
-Invoke-Checked "Push branch $Branch" { git push -u origin $Branch }
+Invoke-Checked "Push release commit to origin/$TargetBranch" {
+    git push origin "HEAD:refs/heads/$TargetBranch"
+}
 Invoke-Checked "Create release tag $Tag" { git tag -a $Tag -m "StagePilot $Tag" }
 Invoke-Checked "Push release tag $Tag" { git push origin $Tag }
 

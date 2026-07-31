@@ -7,13 +7,13 @@ Production desktop builds check the signed
 stays unchanged when StagePilot is current; an **Update** button appears beside
 the logo only when a newer signed release is available.
 
-## Download StagePilot 1.1.43
+## Download StagePilot 1.1.44
 
-Download the installer for your computer from the [StagePilot v1.1.43 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.43):
+Download the installer for your computer from the [StagePilot v1.1.44 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.44):
 
-- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.43/StagePilot_1.1.43_x64-setup.exe)
-- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.43/StagePilot_1.1.43_x64.dmg)
-- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.43/StagePilot_1.1.43_aarch64.dmg)
+- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.44/StagePilot_1.1.44_x64-setup.exe)
+- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.44/StagePilot_1.1.44_x64.dmg)
+- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.44/StagePilot_1.1.44_aarch64.dmg)
 
 On **Windows**, run the installer and open StagePilot from the Start menu.
 
@@ -138,6 +138,11 @@ If something fails:
 2. Review **Recent Event Stream** for the specific operation that failed.
 3. Set the backend log level to `DEBUG`, restart StagePilot, and reproduce the issue once.
 4. Attach `stagepilot-backend.log` to a [GitHub issue](https://github.com/huntrw6/stagepilot/issues).
+
+On macOS, the native **Help** menu searches the StagePilot documentation that
+was bundled with the installed application. Enter a connection, setup, MIDI,
+timer, lighting, or troubleshooting term in the Help search field to find the
+matching local topics; an internet connection is not required.
 
 Packaged macOS logs are stored at `~/Library/Logs/org.stagepilot.desktop/stagepilot-backend.log`. More configuration and security information is available in the [configuration guide](docs/configuration.md) and [security notes](docs/security.md).
 

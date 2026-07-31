@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
@@ -90,7 +90,7 @@ const candidateFromUpdate = (update: Update): UpdateCandidate => ({
     let downloadedBytes = 0;
     let totalBytes: number | null = null;
     onProgress({ downloadedBytes, totalBytes, percentage: null, stage: "preparing" });
-    await update.downloadAndInstall((event) => {
+    await update.download((event) => {
       const normalized = normalizeProgress(event, downloadedBytes, totalBytes);
       downloadedBytes = normalized.downloadedBytes;
       totalBytes = normalized.totalBytes;
@@ -100,12 +100,14 @@ const candidateFromUpdate = (update: Update): UpdateCandidate => ({
         onProgress({ ...normalized, stage: "downloading" });
       }
     }, { timeout: 120_000 });
+    await invoke("prepare_for_update");
     onProgress({
       downloadedBytes,
       totalBytes,
       percentage: totalBytes ? 100 : null,
       stage: "installing",
     });
+    await update.install();
   },
 });
 

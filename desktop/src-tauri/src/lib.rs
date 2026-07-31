@@ -21,6 +21,9 @@ use tauri_plugin_shell::{
 };
 use tauri_plugin_window_state::{StateFlags, WindowExt};
 
+#[cfg(target_os = "windows")]
+mod windows_jump_list;
+
 const DEFAULT_PORT: u16 = 8765;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_INTERVAL: Duration = Duration::from_millis(250);
@@ -35,12 +38,38 @@ enum StagePilotMenuAction {
     ToggleFullscreen,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StagePilotLaunchAction {
+    Restart,
+    Quit,
+}
+
+fn stagepilot_launch_action<'a>(
+    arguments: impl IntoIterator<Item = &'a String>,
+) -> Option<StagePilotLaunchAction> {
+    arguments
+        .into_iter()
+        .find_map(|argument| match argument.as_str() {
+            "--stagepilot-restart" => Some(StagePilotLaunchAction::Restart),
+            "--stagepilot-quit" => Some(StagePilotLaunchAction::Quit),
+            _ => None,
+        })
+}
+
 fn stagepilot_menu_action(id: &str) -> Option<StagePilotMenuAction> {
     match id {
         "restart-stagepilot" => Some(StagePilotMenuAction::Restart),
         "minimize-stagepilot" => Some(StagePilotMenuAction::Minimize),
         "toggle-fullscreen-stagepilot" => Some(StagePilotMenuAction::ToggleFullscreen),
         _ => None,
+    }
+}
+
+fn perform_launch_action(app: &tauri::AppHandle, action: StagePilotLaunchAction) {
+    app.state::<BackendSupervisor>().stop(app);
+    match action {
+        StagePilotLaunchAction::Restart => app.request_restart(),
+        StagePilotLaunchAction::Quit => app.exit(0),
     }
 }
 
@@ -653,6 +682,42 @@ async fn restart_managed_backend(
 }
 
 #[tauri::command]
+async fn prepare_for_update(
+    app: tauri::AppHandle,
+    supervisor: tauri::State<'_, BackendSupervisor>,
+) -> Result<(), String> {
+    let managed = supervisor.snapshot().managed;
+    supervisor.update(
+        &app,
+        BackendState::Stopped,
+        "Stopping the StagePilot backend before installing the update.",
+        managed,
+    );
+    if !managed {
+        return Ok(());
+    }
+    supervisor.terminate_child()?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if probe_port(supervisor.snapshot().port) == PortProbe::Available {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        Err(
+            "The StagePilot backend did not release its executable before update installation."
+                .to_string(),
+        )
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    Ok(())
+}
+
+#[tauri::command]
 fn hide_application_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -760,6 +825,14 @@ fn install_tray(app: &tauri::App) -> Result<(), String> {
         None::<&str>,
     )
     .map_err(|error| error.to_string())?;
+    let restart = MenuItem::with_id(
+        app,
+        "restart-stagepilot",
+        "Restart StagePilot",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| error.to_string())?;
     let quit = MenuItem::with_id(
         app,
         "quit-stagepilot",
@@ -768,7 +841,8 @@ fn install_tray(app: &tauri::App) -> Result<(), String> {
         None::<&str>,
     )
     .map_err(|error| error.to_string())?;
-    let menu = Menu::with_items(app, &[&show, &quit]).map_err(|error| error.to_string())?;
+    let menu =
+        Menu::with_items(app, &[&show, &restart, &quit]).map_err(|error| error.to_string())?;
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -777,7 +851,12 @@ fn install_tray(app: &tauri::App) -> Result<(), String> {
             "show-stagepilot" => {
                 let _ = restore_main_window(app, false);
             }
-            "quit-stagepilot" => app.exit(0),
+            "restart-stagepilot" => {
+                perform_launch_action(app, StagePilotLaunchAction::Restart);
+            }
+            "quit-stagepilot" => {
+                perform_launch_action(app, StagePilotLaunchAction::Quit);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -800,10 +879,19 @@ fn install_tray(app: &tauri::App) -> Result<(), String> {
 /// Starts the StagePilot native shell and supervises its packaged backend.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let launch_arguments = env::args().collect::<Vec<_>>();
+    let initial_launch_action = stagepilot_launch_action(&launch_arguments);
     let port = configured_port();
     let supervisor = BackendSupervisor::new(port);
     let shutdown_supervisor = supervisor.clone();
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
+            if let Some(action) = stagepilot_launch_action(&arguments) {
+                perform_launch_action(app, action);
+            } else {
+                let _ = restore_main_window(app, false);
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -812,8 +900,7 @@ pub fn run() {
         .on_menu_event(
             |app, event| match stagepilot_menu_action(event.id().as_ref()) {
                 Some(StagePilotMenuAction::Restart) => {
-                    app.state::<BackendSupervisor>().stop(app);
-                    app.request_restart();
+                    perform_launch_action(app, StagePilotLaunchAction::Restart);
                 }
                 Some(StagePilotMenuAction::Minimize) => {
                     if let Some(window) = app.get_webview_window("main") {
@@ -834,11 +921,20 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_supervisor_status,
             restart_managed_backend,
+            prepare_for_update,
             hide_application_window
         ])
         .setup(move |app| {
+            if initial_launch_action == Some(StagePilotLaunchAction::Quit) {
+                app.handle().exit(0);
+                return Ok(());
+            }
             #[cfg(target_os = "macos")]
             install_application_menu(app.handle()).map_err(std::io::Error::other)?;
+            #[cfg(target_os = "windows")]
+            if let Err(message) = windows_jump_list::install() {
+                eprintln!("StagePilot could not install its Windows taskbar actions: {message}");
+            }
             restore_main_window(app.handle(), true).map_err(std::io::Error::other)?;
             install_tray(app).map_err(std::io::Error::other)?;
             if let Err(message) = start_backend(app.handle(), supervisor.clone()) {
@@ -972,6 +1068,28 @@ mod tests {
             Some(StagePilotMenuAction::ToggleFullscreen)
         );
         assert_eq!(stagepilot_menu_action("quit-stagepilot"), None);
+    }
+
+    #[test]
+    fn taskbar_launch_arguments_map_only_stagepilot_lifecycle_actions() {
+        let restart = vec![
+            "stagepilot.exe".to_string(),
+            "--stagepilot-restart".to_string(),
+        ];
+        let quit = vec![
+            "stagepilot.exe".to_string(),
+            "--stagepilot-quit".to_string(),
+        ];
+        let ordinary = vec!["stagepilot.exe".to_string(), "--unrelated".to_string()];
+        assert_eq!(
+            stagepilot_launch_action(&restart),
+            Some(StagePilotLaunchAction::Restart)
+        );
+        assert_eq!(
+            stagepilot_launch_action(&quit),
+            Some(StagePilotLaunchAction::Quit)
+        );
+        assert_eq!(stagepilot_launch_action(&ordinary), None);
     }
 
     #[test]

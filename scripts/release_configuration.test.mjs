@@ -20,10 +20,25 @@ test("Tauri updater configuration preserves stable identity and trusted endpoint
   assert.equal(macOSConfig.bundle.macOS.hardenedRuntime, false);
   assert.equal(macOSConfig.bundle.macOS.minimumSystemVersion, "12.0");
   assert.deepEqual(macOSConfig.bundle.targets, ["app", "dmg"]);
+  assert.equal(
+    macOSConfig.bundle.resources["generated-help/StagePilot.help/**"],
+    "StagePilot.help/",
+  );
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
   ]);
   assert.ok(config.plugins.updater.pubkey);
+});
+
+test("macOS bundle registers and builds searchable StagePilot Help", () => {
+  const infoPlist = read("desktop/src-tauri/Info.plist");
+  const desktopPackage = JSON.parse(read("desktop/package.json"));
+  assert.match(infoPlist, /CFBundleHelpBookFolder/);
+  assert.match(infoPlist, /<string>StagePilot\.help<\/string>/);
+  assert.match(infoPlist, /CFBundleHelpBookName/);
+  assert.match(infoPlist, /<string>org\.stagepilot\.desktop\.help<\/string>/);
+  assert.match(desktopPackage.scripts["build:mac"], /build:help/);
+  assert.equal(desktopPackage.scripts["build:help"], "node ../scripts/build_macos_help.mjs");
 });
 test("desktop capability is narrow and contains updater lifecycle permissions", () => {
   const capability = JSON.parse(read("desktop/src-tauri/capabilities/default.json"));
@@ -76,6 +91,8 @@ test("macOS final-artifact verifier rejects hardened sidecars and starts package
   assert.match(verifier, /otool -l/);
   assert.match(verifier, /api\/v1\/health/);
   assert.match(verifier, /api\/v1\/dashboard-auth\/login/);
+  assert.match(verifier, /CFBundleHelpBookFolder/);
+  assert.match(verifier, /StagePilot\.helpindex/);
   assert.match(verifier, /--cookie-jar/);
   assert.match(verifier, /api\/v1\/state/);
   assert.match(verifier, /hdiutil attach/);

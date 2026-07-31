@@ -66,6 +66,17 @@ SIDECAR="$(find "$APP/Contents/MacOS" -maxdepth 1 -type f -name 'stagepilot-back
 MAIN_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
 MAIN="$APP/Contents/MacOS/$MAIN_NAME"
 [[ -x "$MAIN" ]] || { echo "Missing StagePilot application executable." >&2; exit 1; }
+HELP_FOLDER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleHelpBookFolder' "$APP/Contents/Info.plist")"
+HELP_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleHelpBookName' "$APP/Contents/Info.plist")"
+[[ "$HELP_FOLDER" == "StagePilot.help" ]] || { echo "StagePilot Help folder is not registered." >&2; exit 1; }
+[[ "$HELP_NAME" == "org.stagepilot.desktop.help" ]] || { echo "StagePilot Help identifier is not registered." >&2; exit 1; }
+HELP_ROOT="$APP/Contents/Resources/$HELP_FOLDER/Contents/Resources/English.lproj"
+[[ -s "$HELP_ROOT/index.html" ]] || { echo "StagePilot Help landing page is missing." >&2; exit 1; }
+[[ -s "$HELP_ROOT/StagePilot.helpindex" ]] || { echo "StagePilot Help search index is missing." >&2; exit 1; }
+find "$HELP_ROOT/pages" -type f -name '*.html' -print -quit | grep -q . || {
+  echo "StagePilot Help contains no searchable documentation pages." >&2
+  exit 1
+}
 
 echo "Application: $APP"
 echo "Backend: $SIDECAR"
