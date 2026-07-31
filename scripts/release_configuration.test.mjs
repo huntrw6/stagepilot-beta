@@ -33,6 +33,21 @@ test("Tauri updater configuration preserves stable identity and trusted endpoint
     "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
   ]);
   assert.ok(config.plugins.updater.pubkey);
+  assert.equal(
+    config.bundle.windows.nsis.installerHooks,
+    "windows/installer-hooks.nsh",
+  );
+});
+
+test("Windows installer stops the backend before install and uninstall file operations", () => {
+  const hooks = read("desktop/src-tauri/windows/installer-hooks.nsh");
+  assert.match(hooks, /NSIS_HOOK_PREINSTALL/);
+  assert.match(hooks, /NSIS_HOOK_PREUNINSTALL/);
+  assert.match(
+    hooks,
+    /taskkill\.exe" \/F \/T \/IM "stagepilot-backend\.exe"/,
+  );
+  assert.match(hooks, /Sleep 1000/);
 });
 
 test("macOS bundle registers and builds searchable StagePilot Help", () => {

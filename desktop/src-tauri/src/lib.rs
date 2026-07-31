@@ -101,6 +101,37 @@ fn managed_exit_should_fail(state: &BackendState) -> bool {
     matches!(state, BackendState::Starting | BackendState::Ready)
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn tasklist_has_stagepilot_backend(output: &[u8]) -> bool {
+    String::from_utf8_lossy(output)
+        .to_ascii_lowercase()
+        .contains("stagepilot-backend.exe")
+}
+
+#[cfg(target_os = "windows")]
+fn windows_backend_process_running() -> Result<bool, String> {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let output = std::process::Command::new("tasklist.exe")
+        .args([
+            "/FI",
+            "IMAGENAME eq stagepilot-backend.exe",
+            "/FO",
+            "CSV",
+            "/NH",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|error| {
+            format!("Unable to verify that the StagePilot backend stopped: {error}")
+        })?;
+    if !output.status.success() {
+        return Err("Windows could not verify that the StagePilot backend stopped.".to_string());
+    }
+    Ok(tasklist_has_stagepilot_backend(&output.stdout))
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct BackendSupervisorStatus {
     state: BackendState,
@@ -700,9 +731,15 @@ async fn prepare_for_update(
 
     #[cfg(target_os = "windows")]
     {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
-            if probe_port(supervisor.snapshot().port) == PortProbe::Available {
+            let port_available = probe_port(supervisor.snapshot().port) == PortProbe::Available;
+            let process_stopped = !windows_backend_process_running()?;
+            if port_available && process_stopped {
+                // Windows can retain the executable mapping briefly after the process
+                // disappears. Give the loader time to release the sidecar before NSIS
+                // attempts to replace it.
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -963,6 +1000,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_stagepilot_backend_in_windows_task_list_output() {
+        assert!(tasklist_has_stagepilot_backend(
+            br#""stagepilot-backend.exe","8420","Console","1","72,000 K""#,
+        ));
+        assert!(!tasklist_has_stagepilot_backend(
+            b"INFO: No tasks are running which match the specified criteria.",
+        ));
+    }
 
     #[test]
     fn saved_server_port_is_validated() {
