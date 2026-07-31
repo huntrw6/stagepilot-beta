@@ -1,7 +1,7 @@
 use std::{mem::ManuallyDrop, path::Path};
 
 use windows::{
-    core::{Interface, GUID, PCWSTR, PWSTR},
+    core::{Interface, GUID, PCWSTR},
     Win32::{
         Foundation::PROPERTYKEY,
         System::Com::{
@@ -14,7 +14,7 @@ use windows::{
             Common::{IObjectArray, IObjectCollection},
             DestinationList, EnumerableObjectCollection, ICustomDestinationList, IShellLinkW,
             PropertiesSystem::IPropertyStore,
-            ShellLink,
+            SHStrDupW, ShellLink,
         },
     },
 };
@@ -37,12 +37,16 @@ unsafe fn task_link(
     let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
     let executable = wide(&executable.to_string_lossy());
     let argument = wide(argument);
-    let mut title = wide(title);
+    let title = wide(title);
     link.SetPath(PCWSTR(executable.as_ptr()))?;
     link.SetArguments(PCWSTR(argument.as_ptr()))?;
     link.SetDescription(PCWSTR(title.as_ptr()))?;
     link.SetIconLocation(PCWSTR(executable.as_ptr()), 0)?;
     let property_store: IPropertyStore = link.cast()?;
+    // PROPVARIANT::drop calls PropVariantClear, so an LPWSTR stored inside it must
+    // be allocated with the COM allocator. Pointing it at a Rust Vec causes Windows
+    // to free foreign memory and terminates StagePilot with heap corruption.
+    let owned_title = SHStrDupW(PCWSTR(title.as_ptr()))?;
     let title_value = PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
@@ -51,7 +55,7 @@ unsafe fn task_link(
                 wReserved2: 0,
                 wReserved3: 0,
                 Anonymous: PROPVARIANT_0_0_0 {
-                    pwszVal: PWSTR(title.as_mut_ptr()),
+                    pwszVal: owned_title,
                 },
             }),
         },

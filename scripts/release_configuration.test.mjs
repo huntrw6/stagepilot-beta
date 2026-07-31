@@ -50,6 +50,13 @@ test("Windows installer stops the backend before install and uninstall file oper
   assert.match(hooks, /Sleep 1000/);
 });
 
+test("Windows Jump List stores titles in COM-owned memory", () => {
+  const jumpList = read("desktop/src-tauri/src/windows_jump_list.rs");
+  assert.match(jumpList, /SHStrDupW\(PCWSTR\(title\.as_ptr\(\)\)\)/);
+  assert.match(jumpList, /pwszVal: owned_title/);
+  assert.doesNotMatch(jumpList, /pwszVal: PWSTR\(title\.as_mut_ptr\(\)\)/);
+});
+
 test("macOS bundle registers and builds searchable StagePilot Help", () => {
   const infoPlist = read("desktop/src-tauri/Info.plist");
   const desktopPackage = JSON.parse(read("desktop/package.json"));
