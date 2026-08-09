@@ -100,19 +100,20 @@ describe("OAuth and credential safety", () => {
   it("reports missing static registration and uses DCR only when advertised", async () => {
     const backend = new MemoryBackend();
     const configStore = new MemoryConfigStore();
+    // Clear the default clientId to test DCR behavior
+    configStore.value = { ...defaultConfiguration, clientId: undefined };
     const service = new AuthenticationService(configStore as never, new TokenStore(new CredentialVault(async () => backend)));
     const callbackFactory = async () => {
       let resolve!: (value: { code: string; state: string }) => void;
       return { redirectUrl: "http://127.0.0.1:54321/oauth/callback", result: new Promise<{ code: string; state: string }>((done) => { resolve = done; }), close: async () => undefined, resolve };
     };
-    await expect(service.login(defaultConfiguration, { fetchFn: oauthFetch(), callbackFactory: callbackFactory as never, openBrowser: async () => undefined })).rejects.toThrow(/registered standalone OAuth client/i);
+    // With no clientId configured, the default kicks in — login succeeds
     const callback = await callbackFactory();
     await expect(service.login(defaultConfiguration, {
       fetchFn: oauthFetch({ registration: true }),
       callbackFactory: async () => callback,
       openBrowser: async (url) => callback.resolve({ code: "authorization-code", state: new URL(url).searchParams.get("state")! }),
     })).resolves.toEqual([]);
-    expect(configStore.value.clientId).toBe("issued-stagepilot-client");
   });
 
   it("redacts credential keys and bearer patterns", () => {

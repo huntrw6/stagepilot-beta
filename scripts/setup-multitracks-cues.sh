@@ -59,5 +59,20 @@ fi
 "${NPM[@]}" --prefix "$PACKAGE" test -- --run
 "${NPM[@]}" --prefix "$PACKAGE" run lint
 "${NPM[@]}" --prefix "$PACKAGE" run build
+CODEX="$PACKAGE/node_modules/.bin/codex"
+[ -x "$CODEX" ] || { echo "Pinned Codex executable was not installed." >&2; exit 2; }
+CODEX_VERSION="$("$CODEX" --version)"
+case "$CODEX_VERSION" in
+  *"0.146.0") ;;
+  *) echo "Codex version mismatch: expected 0.146.0, received $CODEX_VERSION" >&2; exit 2 ;;
+esac
+SCHEMA_TMP="$(mktemp -d "$TOOLS/codex-schema.XXXXXX")"
+trap 'rm -rf "$SCHEMA_TMP"' EXIT INT TERM
+"$CODEX" app-server generate-json-schema --out "$SCHEMA_TMP/json"
+"$CODEX" app-server generate-ts --out "$SCHEMA_TMP/types"
+grep -R -q '"account/login/start"' "$SCHEMA_TMP" || { echo "Codex schema lacks account/login/start." >&2; exit 2; }
+grep -R -q 'item/tool/call' "$SCHEMA_TMP" || { echo "Codex schema lacks dynamic tool calls." >&2; exit 2; }
+rm -rf "$SCHEMA_TMP"
+trap - EXIT INT TERM
 chmod +x "$ROOT/bin/stagepilot-cues"
-echo "Ready: $ROOT/bin/stagepilot-cues"
+echo "Ready: $ROOT/bin/stagepilot-cues (Codex $CODEX_VERSION)"

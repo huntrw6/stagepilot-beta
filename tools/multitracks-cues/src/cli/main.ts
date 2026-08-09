@@ -19,6 +19,10 @@ import {
 } from "../services.js";
 import { StagePilotCuesError } from "../errors.js";
 import { ask, askSecret, confirmApply, print, renderPlan } from "./io.js";
+import { PrivacyStore } from "../codex/privacy.js";
+import { ensurePrivacy, runAgentRequest, withCodex } from "../agent/runner.js";
+import { SessionStore } from "../agent/sessions.js";
+import { createMultitracksCommand, shutdownMultitracks } from "../chatgpt/commands.js";
 
 interface GlobalOptions {
   json?: boolean;
@@ -68,7 +72,10 @@ async function withConnection<T>(operation: (services: Awaited<ReturnType<typeof
 }
 
 const auth = program.command("auth").description("Manage MultiTracks OAuth authentication.");
-auth.command("login").description("Log in through the system browser using PKCE.").action(async () => {
+const multitracksAuth = auth.command("multitracks").description("Manage the separate MultiTracks OAuth connection.");
+const chatgptAuth = auth.command("chatgpt").description("Manage the StagePilot-scoped ChatGPT account via OpenAI OAuth.");
+
+async function multiTracksLogin(): Promise<void> {
   const { configStore, auth: service } = createAuthentication();
   let configuration = await configStore.load();
   const organizations = await service.login(configuration);
@@ -83,22 +90,114 @@ auth.command("login").description("Log in through the system browser using PKCE.
     const selection = positiveInteger(await ask("Select the organization number: "));
     const candidate = organizations[selection - 1];
     if (!candidate) throw new StagePilotCuesError("Organization selection is out of range.", EXIT.AMBIGUOUS);
-    const confirmation = await ask(`Confirm '${candidate.name}'? [y/N] `);
-    if (!/^y(?:es)?$/i.test(confirmation)) throw new StagePilotCuesError("Organization selection was not confirmed.", EXIT.AMBIGUOUS);
+    if (!/^y(?:es)?$/i.test(await ask(`Confirm '${candidate.name}'? [y/N] `))) throw new StagePilotCuesError("Organization selection was not confirmed.", EXIT.AMBIGUOUS);
     configuration = await service.selectOrganization(configuration, candidate);
   }
   print({ authenticated: true, organization: configuration.organization ?? "not exposed by OAuth userinfo" }, globals());
+}
+
+auth.command("login").description("Log in through the system browser using PKCE.").action(async () => {
+  process.stderr.write("Warning: 'auth login' is deprecated; use 'auth multitracks login'.\n");
+  await multiTracksLogin();
 });
 
 auth.command("status").description("Show authentication state without exposing tokens.").action(async () => {
+  process.stderr.write("Warning: 'auth status' is deprecated; use 'auth multitracks status'.\n");
   const { configStore, auth: service } = createAuthentication();
   print(await service.status(await configStore.load()), globals());
 });
 
 auth.command("logout").description("Revoke tokens when supported and remove local credentials.").action(async () => {
+  process.stderr.write("Warning: 'auth logout' is deprecated; use 'auth multitracks logout'.\n");
   const { configStore, auth: service } = createAuthentication();
   await service.logout(await configStore.load());
   print("Logged out; local tokens and cached organization identity were removed.", globals());
+});
+
+multitracksAuth.command("login").action(multiTracksLogin);
+multitracksAuth.command("status").action(async () => {
+  const { configStore, auth: service } = createAuthentication();
+  print(await service.status(await configStore.load()), globals());
+});
+multitracksAuth.command("logout").action(async () => {
+  const { configStore, auth: service } = createAuthentication();
+  await service.logout(await configStore.load());
+  print("MultiTracks logout completed.", globals());
+});
+
+chatgptAuth.command("login").action(async () => {
+  await withCodex(async ({ account }) => print(await account.login(), globals()));
+});
+chatgptAuth.command("status").action(async () => {
+  await withCodex(async ({ account }) => print(await account.status(), globals()));
+});
+chatgptAuth.command("logout").action(async () => {
+  await withCodex(async ({ account }) => account.logout());
+  print("StagePilot-scoped ChatGPT logout confirmed.", globals());
+});
+
+program.command("ask")
+  .argument("<request>")
+  .option("--model <model>")
+  .option("--accept-ai-data-sharing")
+  .action(async (request: string, options: { model?: string; acceptAiDataSharing?: boolean }) => {
+    await runAgentRequest(request, options);
+  });
+
+program.command("chat")
+  .option("--model <model>")
+  .option("--accept-ai-data-sharing")
+  .action(async (options: { model?: string; acceptAiDataSharing?: boolean }) => {
+    await ensurePrivacy(options.acceptAiDataSharing);
+    await withCodex(async ({ account, threads }) => {
+      if (!(await account.status()).authenticated) throw new Error("ChatGPT authentication is required.");
+      let threadId = await threads.start(options.model);
+      print("StagePilot agent chat. Commands: /status /new /sessions /logout /exit", globals());
+      while (true) {
+        const line = await ask("> ");
+        if (line === "/exit") break;
+        if (line === "/new") { threadId = await threads.start(options.model); print("New StagePilot agent session started.", globals()); continue; }
+        if (line === "/status") { print(JSON.stringify(await account.status(), null, 2)); continue; }
+        if (line === "/sessions") { print(JSON.stringify(await threads.sessions.list(), null, 2)); continue; }
+        if (line === "/logout") { await account.logout(); print("Logged out.", globals()); break; }
+        if (!line) continue;
+        await threads.turn(threadId, line, (delta) => process.stdout.write(delta));
+        process.stdout.write("\n");
+      }
+    });
+  });
+
+const agentCommand = program.command("agent").description("Manage optional agent mode.");
+agentCommand.command("status").action(async () => {
+  const privacy = await new PrivacyStore().status();
+  await withCodex(async ({ account }) => print({ privacy, account: await account.status() }, globals()));
+});
+const privacy = agentCommand.command("privacy");
+privacy.command("status").action(async () => print(await new PrivacyStore().status(), globals()));
+privacy.command("reset").action(async () => { await new PrivacyStore().reset(); print("AI data-sharing consent reset.", globals()); });
+const sessions = agentCommand.command("sessions");
+sessions.command("list").action(async () => print(await new SessionStore().list(), globals()));
+sessions.command("resume").argument("<thread-id>").argument("[request]").action(async (threadId: string, request?: string) => {
+  if (request) await runAgentRequest(request, { resumeThreadId: threadId });
+  else print(`Resume with: stagepilot-cues agent sessions resume ${threadId} "your request"`, globals());
+});
+sessions.command("delete").argument("<thread-id>").action(async (threadId: string) => {
+  await new SessionStore().remove(threadId);
+  print("StagePilot session deleted.", globals());
+});
+
+program.command("setup").description("Guide ChatGPT, MultiTracks, MIDI, and read-only validation.").action(async () => {
+  print(`StagePilot setup\n\n[1/5] Runtime\n✓ Node ${process.versions.node}\n✓ StagePilot CLI built`, globals());
+  print("\n[2/5] ChatGPT", globals());
+  await withCodex(async ({ account }) => print(await account.status(), globals()));
+  print("\n[3/5] MultiTracks", globals());
+  const { configStore, auth: mtAuth } = createAuthentication();
+  print(await mtAuth.status(await configStore.load()), globals());
+  print("\n[4/5] MIDI\nRun 'stagepilot-cues configure' to select an exact dedicated bus.", globals());
+  print("\n[5/5] Validation", globals());
+  const checks = await runDoctor();
+  print(checks.map((check) => `${check.status.toUpperCase()} ${check.name}: ${check.message}`).join("\n"), globals());
+  print("No remote write was performed.", globals());
 });
 
 program.command("doctor").description("Run read-only environment, OAuth, MCP capability, and MIDI bus checks.").action(async () => {
@@ -140,7 +239,9 @@ program.command("configure").description("Configure OAuth client, cue defaults, 
   let current = await configStore.load();
   const clientId = await ask(`MultiTracks-issued OAuth client ID [${current.clientId ?? "not configured"}]: `);
   const clientSecret = clientId ? await askSecret("Optional MultiTracks-issued client secret (leave blank for none): ") : "";
+  const redirectUri = await ask(`OAuth redirect URI [${current.redirectUri ?? "auto (dynamic port)"}]: `);
   if (clientId) current = await service.configureClient(current, clientId, clientSecret || undefined);
+  if (redirectUri) current = { ...current, redirectUri };
   const channel = await ask(`MIDI channel [${current.channel}]: `);
   const note = await ask(`MIDI note [${current.note} / E7]: `);
   const reportDirectoryValue = await ask(`Report directory [${current.reportDirectory}]: `);
@@ -332,6 +433,8 @@ async function runPlanCommand(command: "inspect" | "prepare", options: { setlist
   });
 }
 
+program.addCommand(createMultitracksCommand());
+
 program.exitOverride();
 program.configureOutput({ writeErr: (text) => process.stderr.write(text) });
 
@@ -342,4 +445,6 @@ program.parseAsync(process.argv).catch((error: unknown) => {
   if (globals().json) process.stderr.write(`${JSON.stringify({ error: message })}\n`);
   else process.stderr.write(`Error: ${message}\n`);
   process.exitCode = error instanceof StagePilotCuesError ? error.exitCode : EXIT.INVALID;
+}).finally(async () => {
+  await shutdownMultitracks();
 });

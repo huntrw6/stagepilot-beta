@@ -30,10 +30,10 @@ export function DashboardLayoutToolbar({
   return (
     <div
       aria-label="Dashboard layout tools"
-      className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-xl border border-sky-300/20 bg-slate-950/70 p-3 shadow-panel"
+      className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-xl border border-[#ff6238]/25 bg-slate-950/80 p-3 shadow-panel"
       role="toolbar"
     >
-      <span className="mr-auto text-xs font-bold uppercase tracking-[0.18em] text-sky-200">
+      <span className="mr-auto text-xs font-bold uppercase tracking-[0.18em] text-[#ff9b7e]">
         Layout editing
       </span>
       <button className="rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10" onClick={onAddSpacer} type="button">
@@ -45,7 +45,7 @@ export function DashboardLayoutToolbar({
       <button className="rounded-lg border border-rose-400/30 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-400/20" onClick={onReset} type="button">
         Reset layout
       </button>
-      <button className="rounded-lg bg-sky-300 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-sky-200" onClick={onDone} type="button">
+      <button className="rounded-lg bg-[#ff6238] px-3 py-2 text-xs font-bold text-slate-950 hover:bg-[#ff805e]" onClick={onDone} type="button">
         Done
       </button>
     </div>

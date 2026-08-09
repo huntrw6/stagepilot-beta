@@ -57,9 +57,21 @@ foreach ($command in @("git", "gh", "node", "npm", "uv", "cargo")) {
     Require-Command $command
 }
 
-if ((git rev-parse --show-toplevel) -ne $Root.Replace("\", "/") -and
-    (git rev-parse --show-toplevel) -ne $Root) {
+$GitTopLevel = git rev-parse --show-toplevel 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $GitTopLevel) {
     throw "Run this command from the StagePilot repository."
+}
+
+# Comparing absolute paths is unreliable for mapped network drives because Git
+# canonicalizes them to UNC paths while PowerShell can retain the drive letter.
+$GitPrefix = git rev-parse --show-prefix 2>$null
+if ($LASTEXITCODE -ne 0 -or $GitPrefix) {
+    throw "Run this command from the StagePilot repository."
+}
+
+if (-not $env:CARGO_TARGET_DIR -and $GitTopLevel.StartsWith("//")) {
+    $env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA "StagePilot\cargo-target"
+    Write-Host "Using local Cargo cache for NAS checkout: $env:CARGO_TARGET_DIR" -ForegroundColor Cyan
 }
 
 Invoke-Checked "Verify GitHub authentication" { gh auth status }

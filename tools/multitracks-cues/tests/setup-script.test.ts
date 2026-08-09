@@ -14,6 +14,12 @@ describe("macOS repository-local setup", () => {
     expect(script).toContain("SHASUMS256.txt");
     expect(script).toContain('EXPECTED" = "$ACTUAL');
     expect(script).toContain("multitracks-cues-lock.sha256");
+    expect(script).toContain("0.146.0");
+    expect(script).toContain("app-server generate-json-schema");
+    expect(script).toContain("app-server generate-ts");
+    expect(script).toContain("item/tool/call");
+    expect(script).not.toContain("npm install -g");
+    expect(script).not.toContain("curl |");
   });
 
   it("launches without npm link and falls back to the verified local runtime", async () => {

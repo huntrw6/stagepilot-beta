@@ -28,10 +28,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
+    "@openai-oauth/local": "^2.0.0",
+    "@openai-oauth/openai-client": "^2.0.0",
     "ajv": "8.20.0",
     "commander": "14.0.2",
     "cross-keychain": "1.1.0",
     "open": "11.0.0",
+    "playwright": "^1.50.0",
     "zod": "4.3.6"
   },
   "devDependencies": {

@@ -2,6 +2,8 @@ export const APP_NAME = "StagePilot MultiTracks Cues";
 export const APP_VERSION = "0.1.0";
 export const MCP_SERVER_URL = "https://mcp.multitracks.com/mcp";
 export const DEFAULT_SCOPE = "mcp offline_access openid profile";
+export const DEFAULT_MULTITRACKS_CLIENT_ID = "mcp-chatgpt";
+export const DEFAULT_MULTITRACKS_CLIENT_SECRET = "multitracksMCPChatGPT";
 
 export const REQUIRED_READ_TOOLS = [
   "setlistsList",

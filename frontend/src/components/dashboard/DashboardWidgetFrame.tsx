@@ -20,7 +20,7 @@ export function DashboardWidgetFrame({
   onMove: (id: DashboardItemId, offset: -1 | 1) => void;
 }) {
   return (
-    <div className={`dashboard-widget-frame relative h-full min-h-0 ${editing ? "rounded-xl ring-1 ring-sky-300/30" : ""}`}>
+    <div className={`dashboard-widget-frame relative h-full min-h-0 ${editing ? "rounded-xl ring-1 ring-[#ff6238]/40" : ""}`}>
       {editing && (
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-lg border border-white/10 bg-slate-950/90 p-1 shadow-lg">
           <button
@@ -35,7 +35,7 @@ export function DashboardWidgetFrame({
           </button>
           <button
             aria-label={`Drag ${label} to a new dashboard position`}
-            className="dashboard-widget-handle flex h-7 cursor-grab touch-none select-none items-center gap-1 rounded px-2 text-[0.65rem] font-bold uppercase tracking-wider text-sky-200 hover:bg-white/10 active:cursor-grabbing"
+            className="dashboard-widget-handle flex h-7 cursor-grab touch-none select-none items-center gap-1 rounded px-2 text-[0.65rem] font-bold uppercase tracking-wider text-[#ff9b7e] hover:bg-white/10 active:cursor-grabbing"
             title={`Drag ${label} to a new dashboard position`}
             type="button"
           >

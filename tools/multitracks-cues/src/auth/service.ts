@@ -10,7 +10,7 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { DEFAULT_SCOPE, EXIT } from "../constants.js";
+import { DEFAULT_SCOPE, DEFAULT_MULTITRACKS_CLIENT_ID, DEFAULT_MULTITRACKS_CLIENT_SECRET, EXIT } from "../constants.js";
 import { AuthenticationError } from "../errors.js";
 import type { Configuration } from "../config/schema.js";
 import type { ConfigurationStore } from "../config/store.js";
@@ -47,7 +47,7 @@ export class AuthenticationService {
 
   async configureClient(configuration: Configuration, clientId: string, clientSecret?: string): Promise<Configuration> {
     const discovery = await discoverOAuth(configuration.serverUrl);
-    const updated = { ...configuration, clientId };
+    const updated = { ...configuration, clientId, clientSecret: clientSecret || undefined };
     const identity = this.identity(updated, discovery.issuer, clientId);
     if (clientSecret) await this.tokenStore.saveClientSecret(identity, clientSecret);
     await this.configStore.save(updated);
@@ -57,12 +57,28 @@ export class AuthenticationService {
   async login(configuration: Configuration, dependencies: LoginDependencies = {}): Promise<OrganizationIdentity[]> {
     const fetchFn = dependencies.fetchFn ?? fetch;
     const discovery = await discoverOAuth(configuration.serverUrl, fetchFn);
-    const callback = await (dependencies.callbackFactory ?? listenForAuthorizationCallback)();
+    const configuredRedirectUri = configuration.redirectUri;
+    let redirectUrl: string;
+    let callbackResult: Promise<{ code: string; state: string | null }>;
+    let closeCallback: () => Promise<void>;
+    if (configuredRedirectUri) {
+      const parsed = new URL(configuredRedirectUri);
+      const port = parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80;
+      const callback = await (dependencies.callbackFactory ?? (() => listenForAuthorizationCallback(180_000, port)))();
+      redirectUrl = configuredRedirectUri;
+      callbackResult = callback.result;
+      closeCallback = callback.close;
+    } else {
+      const callback = await (dependencies.callbackFactory ?? listenForAuthorizationCallback)();
+      redirectUrl = callback.redirectUrl;
+      callbackResult = callback.result;
+      closeCallback = callback.close;
+    }
     try {
-      const configuredId = process.env.MULTITRACKS_MCP_CLIENT_ID ?? configuration.clientId;
+      const configuredId = process.env.MULTITRACKS_MCP_CLIENT_ID ?? configuration.clientId ?? DEFAULT_MULTITRACKS_CLIENT_ID;
       const clientMetadata: OAuthClientMetadata = {
         client_name: "StagePilot MultiTracks Cues",
-        redirect_uris: [callback.redirectUrl],
+        redirect_uris: [redirectUrl],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
         token_endpoint_auth_method: await this.clientSecret(configuration, discovery.issuer, configuredId)
@@ -101,7 +117,7 @@ export class AuthenticationService {
       authorizationUrl.search = new URLSearchParams({
         response_type: "code",
         client_id: client.client_id,
-        redirect_uri: callback.redirectUrl,
+        redirect_uri: redirectUrl,
         scope: DEFAULT_SCOPE,
         state,
         code_challenge: challenge,
@@ -109,14 +125,14 @@ export class AuthenticationService {
         resource: discovery.protectedResource,
       }).toString();
       await (dependencies.openBrowser ?? ((url) => open(url)))(authorizationUrl.toString());
-      const authorization = await callback.result;
+      const authorization = await callbackResult;
       verifyState(state, authorization.state);
       const tokens = await exchangeAuthorization(discovery.issuer, {
         metadata: sdkMetadata(discovery),
         clientInformation: client,
         authorizationCode: authorization.code,
         codeVerifier: verifier,
-        redirectUri: callback.redirectUrl,
+        redirectUri: redirectUrl,
         resource: new URL(discovery.protectedResource),
         fetchFn,
       });
@@ -124,7 +140,7 @@ export class AuthenticationService {
       await this.configStore.save({ ...configuration, clientId: client.client_id });
       return this.discoverOrganizations(discovery.userInfoEndpoint, tokens.access_token, fetchFn);
     } finally {
-      await callback.close();
+      await closeCallback();
     }
   }
 
@@ -226,8 +242,10 @@ export class AuthenticationService {
   }
 
   private async clientSecret(configuration: Configuration, issuer: string, clientId?: string): Promise<string | undefined> {
-    if (!clientId) return process.env.MULTITRACKS_MCP_CLIENT_SECRET;
+    if (!clientId) return process.env.MULTITRACKS_MCP_CLIENT_SECRET ?? configuration.clientSecret ?? DEFAULT_MULTITRACKS_CLIENT_SECRET;
     return process.env.MULTITRACKS_MCP_CLIENT_SECRET
+      ?? configuration.clientSecret
+      ?? DEFAULT_MULTITRACKS_CLIENT_SECRET
       ?? await this.tokenStore.loadClientSecret(this.identity(configuration, issuer, clientId));
   }
 

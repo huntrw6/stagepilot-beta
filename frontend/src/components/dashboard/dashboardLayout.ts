@@ -20,7 +20,7 @@ export const isDashboardSpacerId = (value: unknown): value is DashboardSpacerId 
   typeof value === "string" && /^spacer-[a-zA-Z0-9_-]+$/.test(value);
 
 export const dashboardModeForWidth = (width: number): DashboardLayoutMode =>
-  width < 640 ? "mobile" : width < 1024 ? "tablet" : "desktop";
+  width < 1024 ? "mobile" : "desktop";
 
 const widgetItem = (
   id: DashboardWidgetId,
@@ -35,7 +35,7 @@ export const createDefaultDashboardLayout = (): DashboardLayoutState => ({
   version: 2,
   desktop: DASHBOARD_WIDGET_IDS.map((id) => widgetItem(id, "desktop")),
   tablet: DASHBOARD_WIDGET_IDS.map((id) => widgetItem(id, "tablet")),
-  mobileOrder: [...DASHBOARD_WIDGET_IDS],
+  mobileOrder: ["now-playing", "service-plan", "manual-controls", "events"],
 });
 
 const validInteger = (value: unknown, minimum = 0): value is number =>

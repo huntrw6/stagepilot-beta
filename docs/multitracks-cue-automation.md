@@ -2,6 +2,8 @@
 
 StagePilot includes an independent TypeScript MCP client at `tools/multitracks-cues`. The explicit `setlist-ordinal-test` profile validates cue creation without changing StagePilot’s production E7/velocity-100 runtime behavior.
 
+The deterministic workflow remains fully usable without ChatGPT or OpenAI. An optional [ChatGPT/Codex agent interface](chatgpt-agent-cli.md) translates natural-language requests into narrowly scoped StagePilot read and proposal tools. It does not replace MultiTracks OAuth, and it cannot directly create, update, or delete MIDI data.
+
 The profile assigns velocity from the complete, position-sorted setlist: qualifying song 1 receives velocity 1, song 2 receives 2, and so on. Non-song, ambiguous, and unsupported items do not consume ordinals. The CLI fails before writing if more than 127 songs qualify.
 
 The cue is placed exactly one schema-proven musical beat after song start. The adapter accepts nested or flat measure/bar, beat, and tick coordinates only when their start values and the beat increment are unambiguous. It never substitutes milliseconds or guesses tempo, time signature, PPQ, or pickup behavior.

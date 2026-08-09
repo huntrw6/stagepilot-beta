@@ -1,6 +1,8 @@
 # StagePilot MultiTracks Cues
 
-`stagepilot-cues` is a standalone, fail-closed MCP client for the official MultiTracks endpoint. It does not use ChatGPT, OpenAI, Claude, an AI model, Playback UI automation, or undocumented MultiTracks APIs.
+`stagepilot-cues` is a standalone, fail-closed MCP client for the official MultiTracks endpoint.
+
+Deterministic mode does not require ChatGPT or OpenAI. Optional agent mode uses Codex App Server and the user’s authenticated ChatGPT account for natural-language interaction. All MultiTracks writes remain controlled by StagePilot’s deterministic planner, confirmation, applier, and verifier.
 
 ## One-command macOS setup
 
@@ -12,7 +14,46 @@ From the StagePilot repository root:
 ./bin/stagepilot-cues doctor
 ```
 
-The idempotent setup accepts a supported system Node.js 22 or 24. Otherwise it downloads pinned Node.js 22.23.1 for Intel or Apple Silicon directly from `nodejs.org`, verifies the archive against the official `SHASUMS256.txt`, installs it under ignored `.tools/node/`, installs locked dependencies, and runs typecheck, tests, lint, and build. It never uses `sudo`, `npm link`, a global package install, or PATH changes.
+The idempotent setup accepts a supported system Node.js 22 or 24. Otherwise it downloads pinned Node.js 22.23.1 for Intel or Apple Silicon directly from `nodejs.org`, verifies the archive against the official `SHASUMS256.txt`, installs it under ignored `.tools/node/`, installs locked dependencies, and runs typecheck, tests, lint, and build. It also installs the official, lockfile-verified `@openai/codex` 0.146.0 package locally, checks its version, and generates temporary App Server JSON/TypeScript schemas to verify the protocol surface. It never uses `sudo`, `npm link`, a global package install, floating `npx`, or PATH changes.
+
+## Optional ChatGPT agent
+
+ChatGPT and MultiTracks are separate connections:
+
+```sh
+./bin/stagepilot-cues auth chatgpt login --browser
+# or: ./bin/stagepilot-cues auth chatgpt login --device-code
+./bin/stagepilot-cues auth chatgpt status
+
+./bin/stagepilot-cues auth multitracks login
+./bin/stagepilot-cues auth multitracks status
+```
+
+The ChatGPT session is owned by Codex under StagePilot’s application-data directory, not the user’s normal global Codex home. StagePilot never parses or copies Codex credentials. Logging out through `auth chatgpt logout` affects only this StagePilot-scoped session.
+
+Agent mode requires a one-time privacy disclosure because normalized setlist names, song titles, dates, cue plans, and sanitized errors may be sent to OpenAI:
+
+```sh
+./bin/stagepilot-cues ask \
+  "Show my upcoming setlists. Do not make changes."
+
+./bin/stagepilot-cues chat
+```
+
+The agent can list, inspect, prepare, verify, and create an in-memory proposal. No model-callable tool performs a write. A proposal contains a random ID, short expiry, canonical plan digest, exact positions, and typed confirmation. StagePilot re-runs the deterministic plan before confirmation and invalidates changed plans. Only the existing applier performs an approved write, and success is reported only after read-back verification.
+
+Manage agent state with:
+
+```sh
+./bin/stagepilot-cues agent status
+./bin/stagepilot-cues agent privacy status
+./bin/stagepilot-cues agent privacy reset
+./bin/stagepilot-cues agent sessions list
+./bin/stagepilot-cues agent sessions resume THREAD_ID "continue the inspection"
+./bin/stagepilot-cues agent sessions delete THREAD_ID
+```
+
+Agent sessions are Codex App Server threads created for StagePilot. They are not normal ChatGPT web conversations and do not provide access to ChatGPT history, memories, projects, files, connectors, or another app’s tokens. See [the agent architecture](../../docs/chatgpt-agent-cli.md).
 
 ## OAuth
 
@@ -21,8 +62,8 @@ Set the issued OAuth values only in the current shell or through the secure `con
 ```sh
 export MULTITRACKS_MCP_CLIENT_ID='YOUR_CLIENT_ID'
 export MULTITRACKS_MCP_CLIENT_SECRET='YOUR_CLIENT_SECRET'
-./bin/stagepilot-cues auth login
-./bin/stagepilot-cues auth status
+./bin/stagepilot-cues auth multitracks login
+./bin/stagepilot-cues auth multitracks status
 ```
 
 Tokens and configured secrets are stored in macOS Keychain or Windows Credential Manager. They are redacted from logs, errors, reports, and tests. If the registered client rejects the dynamically selected `127.0.0.1` callback, the CLI stops; it does not reuse another application’s tokens or bypass OAuth.
@@ -120,7 +161,7 @@ Reports are written under the configured application-data report directory. They
 If the Default bank, target, setlist, bus, organization, position semantics, or existing cue state is ambiguous, stop and resolve it manually. Logout revokes tokens when supported and removes local credentials:
 
 ```sh
-./bin/stagepilot-cues auth logout
+./bin/stagepilot-cues auth multitracks logout
 ```
 
 If OAuth reports that the loopback `redirect_uri` is not valid for the client application, that registered client cannot be used by this standalone CLI. Request a StagePilot/native client registration that permits dynamic `http://127.0.0.1:{port}/oauth/callback` redirects. Do not substitute another application’s tokens.

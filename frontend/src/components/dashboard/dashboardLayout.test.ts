@@ -28,6 +28,10 @@ describe("dashboard layout model", () => {
     }
   });
 
+  it("puts the live state first for new mobile layouts", () => {
+    expect(createDefaultDashboardLayout().mobileOrder[0]).toBe("now-playing");
+  });
+
   it("defines usable constraints for every widget", () => {
     for (const definition of Object.values(DASHBOARD_WIDGETS)) {
       for (const mode of ["desktop", "tablet"] as const) {
@@ -102,7 +106,7 @@ describe("dashboard layout model", () => {
 
   it("selects stable desktop, tablet, and mobile breakpoints", () => {
     expect(dashboardModeForWidth(1200)).toBe("desktop");
-    expect(dashboardModeForWidth(800)).toBe("tablet");
+    expect(dashboardModeForWidth(800)).toBe("mobile");
     expect(dashboardModeForWidth(500)).toBe("mobile");
   });
 });

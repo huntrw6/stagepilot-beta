@@ -6,7 +6,7 @@ export interface AuthorizationCallback {
   state: string | null;
 }
 
-export async function listenForAuthorizationCallback(timeoutMs = 180_000): Promise<{
+export async function listenForAuthorizationCallback(timeoutMs = 180_000, port = 0): Promise<{
   redirectUrl: string;
   result: Promise<AuthorizationCallback>;
   close: () => Promise<void>;
@@ -35,7 +35,7 @@ export async function listenForAuthorizationCallback(timeoutMs = 180_000): Promi
     response.end("StagePilot authorization completed. You may close this window.");
     resolveResult({ code, state: url.searchParams.get("state") });
   });
-  server.listen(0, "127.0.0.1");
+  server.listen(port, "127.0.0.1");
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);
     server.once("error", reject);

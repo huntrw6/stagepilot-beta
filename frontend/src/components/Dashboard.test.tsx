@@ -760,24 +760,22 @@ describe("Dashboard connection configuration panels", () => {
     expect(screen.queryByRole("heading", { name: "MIDI playback input" })).not.toBeInTheDocument();
   });
 
-  it("keeps all connection cards in one row and hides their icons at narrow widths", () => {
+  it("keeps all connection cards in one row with persistent icons", () => {
     renderDashboard(loadedServiceState, {
       state: applicationState(loadedServiceState, { plugins: {} }),
     });
 
     const connections = screen.getByRole("region", { name: "Connections" });
     expect(connections).toHaveClass("grid-cols-5");
-    expect(connections).not.toHaveClass("sm:grid-cols-2");
 
     for (const icon of ["planning-center", "multitracks", "propresenter", "lights", "stagepilot"]) {
       const image = document.querySelector(`[data-status-icon="${icon}"]`);
       expect(image).toBeInTheDocument();
       expect(image?.parentElement).toHaveClass("h-9", "w-9");
       expect(image?.parentElement?.parentElement).toHaveClass(
-        "hidden",
+        "grid",
         "h-12",
         "w-12",
-        "xl:grid",
       );
     }
   });
@@ -844,7 +842,7 @@ describe("Dashboard connection configuration panels", () => {
 
       expect(screen.getByText("Time remaining")).toBeInTheDocument();
       expect(screen.getByText("05:06")).toBeInTheDocument();
-      expect(screen.getByText("Elapsed")).toBeInTheDocument();
+      expect(screen.getByText("Elapsed time")).toBeInTheDocument();
       expect(screen.getByText("00:30")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();

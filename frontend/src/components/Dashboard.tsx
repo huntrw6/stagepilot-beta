@@ -1,7 +1,7 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import lightsIcon from "../assets/lights-icon-cyan.png";
+import lightsIcon from "../assets/lights-icon-purple.png";
 import multitracksIcon from "../assets/multitracks-icon.png";
 import planningCenterIcon from "../assets/planning-center-icon.png";
 import propresenterIcon from "../assets/propresenter-icon.png";
@@ -89,7 +89,7 @@ const formatPlanCurrentAsOf = (value: string | null | undefined) => {
 const connectionIcon = (source: string, name: string, compact = false) => (
   <img
     alt=""
-    className={`h-9 w-9 max-w-none object-cover ${compact ? "scale-110" : "scale-[1.35]"}`}
+    className={`status-card-icon-image h-9 w-9 max-w-none object-cover ${compact ? "scale-110" : "scale-[1.35]"}`}
     data-status-icon={name}
     src={source}
   />
@@ -129,14 +129,14 @@ function ActionButton({
 
 function SongRow({ song, current, next }: { song: Song; current: boolean; next: boolean }) {
   return (
-    <li className={`grid grid-cols-[2rem_1fr_auto] items-center gap-3 border-t border-white/5 px-4 py-3 ${current ? "bg-emerald-400/10" : ""}`}>
-      <span className={`grid h-7 w-7 place-items-center rounded text-xs font-bold ${current ? "bg-emerald-600 text-white" : "bg-white/5 text-slate-500"}`}>
+    <li className={`grid grid-cols-[2rem_1fr_auto] items-center gap-3 border-t border-white/5 px-4 py-3 ${current ? "current-song-row" : ""}`}>
+      <span className={`grid h-7 w-7 place-items-center rounded text-xs font-bold ${current ? "bg-[#ff6238] text-slate-950" : "bg-white/5 text-slate-500"}`}>
         {song.order}
       </span>
       <div className="min-w-0">
         <p className="truncate font-medium text-slate-100">{song.title}</p>
         <div className="mt-0.5 flex gap-2 text-[0.68rem] font-bold uppercase tracking-wider">
-          {current && <span className="text-emerald-500">Current</span>}
+          {current && <span className="text-[#ff805e]">Current · live</span>}
           {next && <span className="text-amber-300">Up next</span>}
           {song.is_generic && <span className="text-amber-300">Generic item</span>}
           {!song.duration_seconds && <span className="text-rose-300">Missing duration</span>}
@@ -283,9 +283,17 @@ export function Dashboard({
   const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
   const [notificationQueue, setNotificationQueue] = useState<HeaderNotification[]>([]);
+  const [statusCompact, setStatusCompact] = useState(() => window.innerWidth <= 1_000);
+  const [statusMotionPhase, setStatusMotionPhase] = useState<"idle" | "preparing" | "moving">("idle");
   const readinessHover = useDelayedHover();
   const notificationId = useRef(0);
   const updateButton = useRef<HTMLButtonElement>(null);
+  const connectionsRow = useRef<HTMLElement>(null);
+  const statusCompactRef = useRef(statusCompact);
+  const statusMotionPhaseRef = useRef(statusMotionPhase);
+  const statusMotionRects = useRef(new Map<string, DOMRect>());
+  const statusMotionTimers = useRef<number[]>([]);
+  const statusPreparationAnimations = useRef<Animation[]>([]);
   const previousNotificationSources = useRef({
     action: null as string | null,
     error: null as string | null,
@@ -298,6 +306,119 @@ export function Dashboard({
     const timer = window.setInterval(() => setClockNow(Date.now()), 250);
     return () => window.clearInterval(timer);
   }, [state.timer.started_at, state.timer.status]);
+  useEffect(() => {
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        connectionsRow.current?.classList.add("status-motion-ready");
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, []);
+  useEffect(() => {
+    statusMotionPhaseRef.current = statusMotionPhase;
+  }, [statusMotionPhase]);
+  useEffect(() => {
+    const clearMotionTimers = () => {
+      for (const timer of statusMotionTimers.current) window.clearTimeout(timer);
+      statusMotionTimers.current = [];
+      for (const animation of statusPreparationAnimations.current) animation.cancel();
+      statusPreparationAnimations.current = [];
+    };
+    const captureMotionRects = () => {
+      const next = new Map<string, DOMRect>();
+      connectionsRow.current?.querySelectorAll<HTMLElement>("[data-status-motion-part]").forEach((element, index) => {
+        next.set(`${index}:${element.dataset.statusMotionPart}`, element.getBoundingClientRect());
+      });
+      statusMotionRects.current = next;
+    };
+    const finishMotion = () => {
+      statusMotionPhaseRef.current = "idle";
+      setStatusMotionPhase("idle");
+    };
+    const applyMode = (compact: boolean) => {
+      captureMotionRects();
+      statusCompactRef.current = compact;
+      statusMotionPhaseRef.current = "moving";
+      setStatusMotionPhase("moving");
+      setStatusCompact(compact);
+      statusMotionTimers.current.push(window.setTimeout(finishMotion, 295));
+    };
+    const handleResize = () => {
+      const compact = window.innerWidth <= 1_000;
+      if (compact && statusMotionPhaseRef.current === "preparing") return;
+      if (compact === statusCompactRef.current) {
+        if (statusMotionPhaseRef.current === "preparing") {
+          clearMotionTimers();
+          finishMotion();
+        }
+        return;
+      }
+      clearMotionTimers();
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false) {
+        statusCompactRef.current = compact;
+        setStatusCompact(compact);
+        finishMotion();
+        return;
+      }
+      if (compact) {
+        statusMotionPhaseRef.current = "preparing";
+        setStatusMotionPhase("preparing");
+        const labels = connectionsRow.current?.querySelectorAll<HTMLElement>(
+          ".status-card-title, .status-card-detail",
+        ) ?? [];
+        if (![...labels].every((label) => typeof label.animate === "function")) {
+          statusMotionTimers.current.push(window.setTimeout(() => applyMode(true), 75));
+          return;
+        }
+        const animations = [...labels].map((label) => label.animate(
+          [{ opacity: 1 }, { opacity: 0 }],
+          { duration: 75, easing: "linear", fill: "forwards" },
+        ));
+        statusPreparationAnimations.current = animations;
+        void Promise.all(animations.map((animation) => animation.finished)).then(() => {
+          for (const animation of animations) animation.cancel();
+          statusPreparationAnimations.current = [];
+          if (statusMotionPhaseRef.current === "preparing" && window.innerWidth <= 1_000) {
+            applyMode(true);
+          }
+        }).catch(() => undefined);
+      } else {
+        applyMode(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      clearMotionTimers();
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const previous = statusMotionRects.current;
+    if (!previous.size) return;
+    connectionsRow.current?.querySelectorAll<HTMLElement>("[data-status-motion-part]").forEach((element, index) => {
+      const before = previous.get(`${index}:${element.dataset.statusMotionPart}`);
+      if (!before) return;
+      const after = element.getBoundingClientRect();
+      const scaleX = after.width ? before.width / after.width : 1;
+      const scaleY = after.height ? before.height / after.height : 1;
+      element.getAnimations().forEach((animation) => animation.cancel());
+      const isSurface = element.dataset.statusMotionPart === "surface";
+      if (typeof element.animate !== "function") return;
+      element.animate([
+        {
+          opacity: isSurface ? 1 : 0.55,
+          transform: `translate(${before.left - after.left}px, ${before.top - after.top}px) scale(${scaleX}, ${scaleY})`,
+          transformOrigin: "top left",
+        },
+        { opacity: 1, transform: "none", transformOrigin: "top left" },
+      ], { duration: 275, easing: "linear" });
+    });
+    statusMotionRects.current = new Map();
+  }, [statusCompact]);
   const backendStatus: ConnectionStatus = state.application_status === "running" && live
     ? "connected"
     : state.application_status === "error" ? "error" : live ? "connecting" : "disconnected";
@@ -407,7 +528,7 @@ export function Dashboard({
         <div
           aria-atomic="true"
           aria-live="polite"
-          className="col-span-2 row-start-2 min-w-0 justify-self-end sm:col-span-1 sm:col-start-2 sm:row-start-1"
+          className={`col-span-2 row-start-2 min-w-0 justify-self-end sm:col-span-1 sm:col-start-2 sm:row-start-1 ${notification ? "" : "hidden sm:block"}`}
         >
           <div
             className={`ml-auto h-9 w-fit max-w-full truncate rounded-lg border px-4 py-2 text-center text-sm transition-opacity ${notification ? `opacity-100 ${notification.tone === "error" ? "border-rose-400/25 bg-rose-400/10 text-rose-200" : "border-sky-400/20 bg-sky-400/10 text-sky-200"}` : "invisible border-transparent opacity-0"}`}
@@ -424,7 +545,8 @@ export function Dashboard({
         >
           <button
             aria-describedby="system-readiness-popover"
-            className={`flex cursor-help items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:brightness-125 hover:ring-1 hover:ring-white/25 hover:shadow-[0_0_18px_rgba(255,255,255,0.12)] ${ready ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : systemError ? "border-rose-400/30 bg-rose-400/10 text-rose-300" : "border-amber-400/30 bg-amber-400/10 text-amber-300"}`}
+            aria-expanded={readinessHover.open}
+            className={`flex shrink-0 cursor-help items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:brightness-125 hover:ring-1 hover:ring-white/25 hover:shadow-[0_0_18px_rgba(255,255,255,0.12)] ${ready ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : systemError ? "border-rose-400/30 bg-rose-400/10 text-rose-300" : "border-amber-400/30 bg-amber-400/10 text-amber-300"}`}
             type="button"
           >
             <span className={`h-2 w-2 rounded-full ${ready ? "bg-emerald-400" : systemError ? "bg-rose-400" : "bg-amber-400"}`} />
@@ -515,33 +637,40 @@ export function Dashboard({
         </section>
       )}
 
-      <section aria-label="Connections" className="grid grid-cols-5 gap-1.5 sm:gap-3">
+      <section
+        aria-label="Connections"
+        className={`connections-status grid grid-cols-5 gap-1.5 sm:gap-3 ${statusCompact ? "status-compact" : ""} ${statusMotionPhase === "preparing" ? "status-preparing" : statusMotionPhase === "moving" ? "status-moving" : ""}`}
+        ref={connectionsRow}
+      >
         <StatusCard
+          accessibleTitle="Planning Center"
           active={activeConnection === "planning-center"}
           controls="planning-center-configuration"
           detail={connectionViews.planningCenter.detail}
           icon={connectionIcon(planningCenterIcon, "planning-center")}
           onClick={() => toggleConnection("planning-center")}
           status={connectionViews.planningCenter.status}
-          title="Planning Center"
+          title="Services"
         />
         <StatusCard
+          accessibleTitle="MIDI / Playback"
           active={activeConnection === "midi"}
           controls="midi-configuration"
           detail={midiDetail}
           icon={connectionIcon(multitracksIcon, "multitracks")}
           onClick={() => toggleConnection("midi")}
           status={connectionViews.midi.status}
-          title="MIDI / Playback"
+          title="Playback"
         />
         <StatusCard
+          accessibleTitle="ProPresenter"
           active={activeConnection === "propresenter"}
           controls="propresenter-configuration"
           detail={connectionViews.propresenter.detail}
           icon={connectionIcon(propresenterIcon, "propresenter", true)}
           onClick={() => toggleConnection("propresenter")}
           status={connectionViews.propresenter.status}
-          title="ProPresenter"
+          title="Presentation"
         />
         <StatusCard
           active={activeConnection === "lights"}
@@ -553,13 +682,14 @@ export function Dashboard({
           title="Lights"
         />
         <StatusCard
+          accessibleTitle="StagePilot backend"
           active={activeConnection === "backend"}
           controls="backend-configuration"
           detail={health ? `v${health.version} · state revision ${state.revision}` : "Connecting to local API"}
           icon={connectionIcon(stagepilotIcon, "stagepilot", true)}
           onClick={() => toggleConnection("backend")}
           status={backendStatus}
-          title="StagePilot backend"
+          title="Backend"
         />
       </section>
 
@@ -652,10 +782,10 @@ export function Dashboard({
       <DashboardGrid
         widgets={{
           "service-plan": (
-        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
+        <section className="stage-panel widget-autosize-target flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
           <div className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div>
-              <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Service plan</p>
+              <p className="section-kicker">Service plan</p>
               <h2 className="mt-1 text-lg font-bold text-white">{plan?.title ?? "No service loaded"}</h2>
               <p className="mt-1 text-xs text-slate-500">
                 {plan ? `${plan.service_type} · ${plan.date} · ${plan.service_times.join(", ")}` : "Waiting for a current or upcoming service plan."}
@@ -668,7 +798,7 @@ export function Dashboard({
               </p>
             </div>
           </div>
-          <ol aria-label="Service plan order" className="min-h-0 flex-1 overflow-auto">
+          <ol aria-label="Service plan order" className="min-h-0 flex-1 overflow-hidden" data-autosize-content>
             {servicePlanEntries.map((entry) => entry.kind === "song"
               ? <SongRow key={`song-${entry.song.id}`} song={entry.song} current={entry.song.id === state.current_song?.id} next={entry.song.id === state.next_song?.id} />
               : <ReferenceItemRow key={`reference-${entry.item.item_id}`} item={entry.item} />)}
@@ -676,35 +806,35 @@ export function Dashboard({
         </section>
           ),
           "now-playing": (
-          <section className="now-playing-panel h-full min-h-0 overflow-auto rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20">
+          <section className="now-playing-panel widget-autosize-target h-full min-h-0 overflow-hidden rounded-2xl border p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[0.68rem] font-black uppercase tracking-[0.2em] text-orange-700">Now playing</p>
+              <p className="live-kicker text-[0.68rem] font-black uppercase tracking-[0.2em]">Now playing · live signal</p>
               <span className={`rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider ${state.timer.status === "running" ? "bg-emerald-400/15 text-emerald-300" : state.timer.status === "error" ? "bg-rose-400/15 text-rose-300" : "bg-white/5 text-slate-400"}`}>Timer {state.timer.status}</span>
             </div>
-            <h2 className="mt-7 min-h-9 text-3xl font-bold tracking-tight text-white">{state.current_song?.title ?? "Waiting for first cue"}</h2>
+            <h2 className="live-title-transition mt-7 min-h-9 text-[clamp(2rem,3.2vw,3.65rem)] font-black leading-[0.96] tracking-[-0.045em] text-white" key={state.current_song?.id ?? "idle"}>{state.current_song?.title ?? "Waiting for first cue"}</h2>
             <div className="mt-2 flex items-end justify-between gap-5">
               <div>
                 <p className="text-sm text-slate-500">Time remaining</p>
-                <p className="mt-1 font-mono text-5xl font-light tabular-nums tracking-tight text-slate-100">{formatDuration(timerRemaining)}</p>
+                <p className="operational-timer mt-1 font-mono text-[clamp(3rem,5vw,5.4rem)] font-light leading-none">{formatDuration(timerRemaining)}</p>
               </div>
-              <div className="pb-1 text-right">
-                <p className="text-xs text-slate-500">Elapsed</p>
-                <p className="mt-1 font-mono text-xl font-semibold tabular-nums text-sky-200">{formatDuration(timerElapsed)}</p>
-                <p className="mt-1 text-[0.65rem] text-slate-600">of {formatDuration(state.current_song?.duration_seconds)}</p>
+              <div className="elapsed-time-block pb-1 text-right">
+                <p className="text-sm font-semibold text-slate-400 sm:text-base">Elapsed time</p>
+                <p className="mt-1 font-mono text-[clamp(1.5rem,2.4cqw,2rem)] font-semibold leading-none tabular-nums text-[#ff9b7e]">{formatDuration(timerElapsed)}</p>
+                <p className="mt-1 text-xs font-medium text-slate-400 sm:text-sm">of {formatDuration(state.current_song?.duration_seconds)}</p>
               </div>
             </div>
-            <div className="mt-7 grid grid-cols-2 gap-4 border-t border-white/7 pt-4 text-sm">
+            <div className="now-playing-metadata mt-7 grid grid-cols-2 gap-4 border-t border-white/7 pt-4 text-sm">
               <div><p className="text-xs text-slate-500">Position</p><p className="mt-1 font-semibold text-slate-200">{state.current_song_index == null ? "Not started" : `${state.current_song_index + 1} of ${plan?.songs.length ?? 0}`}</p></div>
-              <div><p className="text-xs text-slate-500">Up next</p><p className="mt-1 truncate font-semibold text-slate-200">{state.next_song?.title ?? "End of service"}</p></div>
+              <div><p className="text-xs text-slate-500">Up next</p><p className="mt-1 line-clamp-2 font-semibold text-slate-100">{state.next_song?.title ?? "End of service"}</p></div>
               <div><p className="text-xs text-slate-500">Countdown started</p><p className="mt-1 font-semibold text-slate-200">{formatTime(state.timer.started_at)}</p></div>
               <div><p className="text-xs text-slate-500">Last action</p><p className="mt-1 font-semibold capitalize text-slate-200">{state.last_action?.replaceAll("_", " ") ?? "None"}</p></div>
             </div>
           </section>
           ),
           "manual-controls": (
-          <section className="h-full min-h-0 overflow-auto rounded-xl border border-white/7 bg-stage-850 p-4 shadow-panel">
-            <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Manual controls</p>
-            <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2">
+          <section className="stage-panel widget-autosize-target manual-controls-panel h-full min-h-0 overflow-hidden rounded-xl p-4">
+            <p className="section-kicker">Manual controls</p>
+            <div className="manual-controls-grid mt-3 grid gap-2">
               <ActionButton action="start_next" label="Start next" tone="green" disabled={pendingAction !== null} onAction={dispatch} />
               <ActionButton action="restart_current" label="Restart current" tone="green" disabled={pendingAction !== null || !state.current_song} onAction={dispatch} />
               <ActionButton action="previous" label="Previous" tone="orange" disabled={pendingAction !== null} onAction={dispatch} />
@@ -716,11 +846,11 @@ export function Dashboard({
           </section>
           ),
           events: (
-        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-white/7 bg-stage-850 shadow-panel">
-          <div className="flex items-center justify-between p-4"><p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-slate-500">Recent event stream</p><span className="text-xs text-slate-600">Latest {activity.length}</span></div>
+        <section className="stage-panel flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
+          <div className="flex items-center justify-between p-4"><p className="section-kicker">Recent event stream</p><span className="text-xs text-slate-600">Latest {activity.length}</span></div>
           <div className="min-h-0 flex-1 overflow-auto border-t border-white/5">
             {pinnedError && <div className="grid grid-cols-[4.5rem_1fr] gap-3 border-b border-rose-400/15 bg-rose-500/[0.08] px-4 py-2.5 text-xs"><time className="font-mono text-rose-300/70">{formatTime(pinnedError.timestamp)}</time><p className="text-rose-200"><span className="font-bold uppercase text-rose-300">{pinnedError.component}</span> · {pinnedError.message}</p></div>}
-            {activity.map((event) => <div key={event.id} className="grid grid-cols-[4.5rem_1fr] gap-3 border-b border-emerald-400/10 bg-emerald-400/[0.035] px-4 py-2.5 text-xs"><time className="font-mono text-slate-600">{formatTime(event.timestamp)}</time><p className="truncate text-slate-300"><span className="font-semibold text-emerald-300">{event.type}</span> · {event.source}</p></div>)}
+            {activity.map((event) => <div key={event.id} className="event-row grid grid-cols-[4.5rem_1fr] gap-3 border-b border-white/[0.055] px-4 py-2.5 text-xs"><time className="font-mono text-slate-600">{formatTime(event.timestamp)}</time><p className="truncate text-slate-300"><span className="font-semibold text-slate-200">{event.type}</span> · {event.source}</p></div>)}
             {!activity.length && <p className="p-4 text-sm text-slate-500">Waiting for demo events…</p>}
           </div>
         </section>

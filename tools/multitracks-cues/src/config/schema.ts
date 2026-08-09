@@ -3,6 +3,8 @@ import { z } from "zod";
 export const configurationSchema = z.object({
   serverUrl: z.url().default("https://mcp.multitracks.com/mcp"),
   clientId: z.string().min(1).optional(),
+  clientSecret: z.string().min(1).optional(),
+  redirectUri: z.string().min(1).optional(),
   organization: z
     .object({ id: z.string().min(1), name: z.string().min(1) })
     .optional(),

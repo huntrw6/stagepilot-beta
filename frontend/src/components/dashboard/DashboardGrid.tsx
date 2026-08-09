@@ -37,6 +37,36 @@ import { DashboardSpacer } from "./DashboardSpacer";
 import { DashboardWidgetFrame } from "./DashboardWidgetFrame";
 
 const CELL_HEIGHT = 28;
+const GRID_ITEM_VERTICAL_INSET = 10;
+
+const contentRows = (
+  target: HTMLElement,
+  constraints: { minH?: number; maxH?: number },
+) => {
+  const previousHeight = target.style.height;
+  const previousMaxHeight = target.style.maxHeight;
+  const previousOverflow = target.style.overflow;
+  target.style.height = "auto";
+  target.style.maxHeight = "none";
+  target.style.overflow = "visible";
+
+  let naturalHeight = target.scrollHeight;
+  for (const child of target.querySelectorAll<HTMLElement>(
+    ".overflow-auto, [data-autosize-content]",
+  )) {
+    naturalHeight += Math.max(0, child.scrollHeight - child.clientHeight);
+  }
+
+  target.style.height = previousHeight;
+  target.style.maxHeight = previousMaxHeight;
+  target.style.overflow = previousOverflow;
+
+  const rows = Math.max(
+    constraints.minH ?? 1,
+    Math.ceil((naturalHeight + GRID_ITEM_VERTICAL_INSET) / CELL_HEIGHT),
+  );
+  return constraints.maxH ? Math.min(rows, constraints.maxH) : rows;
+};
 
 const bottom = (items: DashboardLayoutItem[]) =>
   items.reduce((maximum, item) => Math.max(maximum, item.y + item.h), 0);
@@ -99,6 +129,7 @@ export function DashboardGrid({
   const [resetOpen, setResetOpen] = useState(false);
   const gridElement = useRef<HTMLDivElement>(null);
   const gridRef = useRef<GridStack | null>(null);
+  const initialSizingDone = useRef(new Set<DashboardLayoutMode>());
   const layoutRef = useRef(layout);
   const modeRef = useRef(mode);
   const editingRef = useRef(editing);
@@ -222,6 +253,115 @@ export function DashboardGrid({
     }
     grid.batchUpdate(false);
   }, [items, mode]);
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || initialSizingDone.current.has(mode)) return;
+    let cancelled = false;
+
+    const sizeLoadedWidgets = () => {
+      if (cancelled || !gridRef.current || initialSizingDone.current.has(mode)) return;
+      initialSizingDone.current.add(mode);
+      const activeGrid = gridRef.current;
+      activeGrid.batchUpdate();
+      for (const element of activeGrid.getGridItems()) {
+        const id = element.getAttribute("gs-id") as DashboardItemId | null;
+        if (!id || id === "events" || id.startsWith("spacer-")) continue;
+        const target = element.querySelector<HTMLElement>(".widget-autosize-target");
+        const node = element.gridstackNode;
+        if (!target || !node) continue;
+
+        activeGrid.update(element, { h: contentRows(target, node) });
+      }
+      activeGrid.batchUpdate(false);
+      activeGrid.compact("compact");
+      if (mode !== "mobile") saveGridResult();
+    };
+
+    const timer = window.setTimeout(() => {
+      const fontsReady = document.fonts?.ready ?? Promise.resolve();
+      void fontsReady.then(sizeLoadedWidgets);
+    }, 360);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [items, mode, saveGridResult]);
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (
+      !grid || typeof ResizeObserver === "undefined"
+      || typeof MutationObserver === "undefined"
+    ) return;
+
+    const timers = new Map<HTMLElement, number>();
+    const widths = new Map<HTMLElement, number>();
+    const observed = grid.getGridItems().flatMap((element) => {
+      const id = element.getAttribute("gs-id") as DashboardItemId | null;
+      const target = element.querySelector<HTMLElement>(".widget-autosize-target");
+      if (!id || id === "events" || id.startsWith("spacer-") || !target) return [];
+      widths.set(target, target.getBoundingClientRect().width);
+      return [{ element, target }];
+    });
+
+    const fit = (element: GridItemHTMLElement, target: HTMLElement) => {
+      timers.delete(target);
+      const activeGrid = gridRef.current;
+      const node = element.gridstackNode;
+      if (!activeGrid || !node || interactingId === element.getAttribute("gs-id")) return;
+      const rows = contentRows(target, node);
+      if (rows === node.h) return;
+      activeGrid.update(element, { h: rows });
+      activeGrid.compact("compact");
+      if (modeRef.current !== "mobile") saveGridResult();
+    };
+    const scheduleFit = (
+      element: GridItemHTMLElement,
+      target: HTMLElement,
+      delay = 80,
+    ) => {
+      const timer = timers.get(target);
+      if (timer !== undefined) window.clearTimeout(timer);
+      timers.set(target, window.setTimeout(() => fit(element, target), delay));
+    };
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const target = entry.target as HTMLElement;
+        const observedWidget = observed.find((item) => item.target === target);
+        if (!observedWidget) continue;
+        const nextWidth = entry.contentRect.width;
+        const previousWidth = widths.get(target) ?? nextWidth;
+        if (Math.abs(nextWidth - previousWidth) < 1) continue;
+        widths.set(target, nextWidth);
+        scheduleFit(observedWidget.element, target, 180);
+      }
+    });
+    const mutationObserver = new MutationObserver((mutations) => {
+      const changedTargets = new Set(
+        mutations.flatMap((mutation) => observed
+          .filter(({ target }) => target.contains(mutation.target))
+          .map(({ target }) => target)),
+      );
+      for (const target of changedTargets) {
+        const observedWidget = observed.find((item) => item.target === target);
+        if (observedWidget) scheduleFit(observedWidget.element, target);
+      }
+    });
+    for (const { target } of observed) resizeObserver.observe(target);
+    mutationObserver.observe(gridElement.current!, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [interactingId, mode, saveGridResult]);
 
   useEffect(() => {
     const grid = gridRef.current;
