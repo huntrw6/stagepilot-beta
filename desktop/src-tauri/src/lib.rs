@@ -1042,7 +1042,7 @@ mod tests {
         assert_eq!(macos["bundle"]["macOS"]["minimumSystemVersion"], "12.0");
         assert_eq!(
             config["plugins"]["updater"]["endpoints"][0],
-            "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json"
+            "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json"
         );
         assert!(config["plugins"]["updater"]["pubkey"]
             .as_str()
