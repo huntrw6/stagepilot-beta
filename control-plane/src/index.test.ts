@@ -62,7 +62,22 @@ class FakeCloudflare {
       }
     } else if (url.pathname.endsWith('/configurations')) {
       const tunnelId = parts.at(-2) ?? '';
-      if (method === 'PUT') this.configurations.set(tunnelId, payload);
+      if (method === 'PUT') {
+        const config = payload?.config as {
+          ingress: Array<{ hostname?: string; service: string }>;
+          'warp-routing': { enabled: boolean };
+        };
+        this.configurations.set(tunnelId, {
+          config: {
+            // Cloudflare's real read-back orders object keys differently from
+            // the submitted JSON. Semantic equality must not depend on key order.
+            ingress: config.ingress.map((row) => row.hostname
+              ? { service: row.service, hostname: row.hostname }
+              : { service: row.service }),
+            'warp-routing': config['warp-routing'],
+          },
+        });
+      }
       result = this.configurations.get(tunnelId);
     } else if (url.pathname.endsWith('/token')) {
       result = `installation-only-token-${parts.at(-2)}`;
