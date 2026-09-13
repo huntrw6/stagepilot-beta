@@ -130,8 +130,9 @@ export class Registry {
       // response bodies, request headers, or credential values.
       console.error('control-plane request failed', error instanceof Error ? error.message : 'unknown');
       const response: Record<string, string> = { error: 'operation incomplete; retry reconciliation' };
-      const diagnostic = await this.adminDiagnostic(request, error);
-      if (diagnostic) response.diagnostic = diagnostic;
+      if (error instanceof Error && error.message.startsWith('provider ')) {
+        response.diagnostic = error.message;
+      }
       return reply(response, 503);
     }
   }
@@ -158,11 +159,6 @@ export class Registry {
     return token.length >= 32 && equalSecret(token, this.env.ADMIN_API_TOKEN);
   }
 
-  private async adminDiagnostic(request: Request, error: unknown): Promise<string | undefined> {
-    const token = request.headers.get('x-stagepilot-admin-diagnostic') ?? '';
-    if (token.length < 32 || !(await equalSecret(token, this.env.ADMIN_API_TOKEN))) return undefined;
-    return error instanceof Error ? error.message : 'unknown operation failure';
-  }
 
   private async credential(id: string): Promise<string> {
     const key = await crypto.subtle.importKey(
