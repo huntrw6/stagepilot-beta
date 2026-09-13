@@ -44,6 +44,7 @@ jobs:
           umask 077
           tail_log="$RUNNER_TEMP/control-plane-tail.jsonl"
           enrollment="$RUNNER_TEMP/enrollment.json"
+          reconcile="$RUNNER_TEMP/reconcile.json"
           npx --yes wrangler@4.100.0 tail stagepilot-beta-control-plane --format json >"$tail_log" 2>/dev/null &
           tail_pid=$!
           trap 'kill "$tail_pid" 2>/dev/null || true; rm -f "$enrollment"' EXIT
@@ -54,12 +55,14 @@ jobs:
             --data '{"idempotencyKey":"live-a-34756660793","label":"Disposable live acceptance A"}' \
             "$CONTROL_PLANE_ORIGIN/v1/admin/installations" >"$enrollment"
           credential=$(jq -er .installationCredential "$enrollment")
-          reconcile_http=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            --request POST --header "Authorization: Bearer $credential" --header 'Content-Type: application/json' \
+          reconcile_http=$(curl --silent --show-error --output "$reconcile" --write-out '%{http_code}' \
+            --request POST --header "Authorization: Bearer $credential" \
+            --header "X-StagePilot-Admin-Diagnostic: $ADMIN_API_TOKEN" --header 'Content-Type: application/json' \
             --data '{}' "$CONTROL_PLANE_ORIGIN/v1/installations/c85e14c70d25df528eee82c1f2e45931/reconcile")
           sleep 8
           kill "$tail_pid" 2>/dev/null || true
           wait "$tail_pid" 2>/dev/null || true
           printf 'reconcile_http=%s\n' "$reconcile_http"
+          jq '{error,diagnostic}' "$reconcile"
           printf 'tail_events=%s\n' "$(wc -l < "$tail_log")"
           jq -c '{logs:[.logs[]? | {level,message}],exceptions:[.exceptions[]? | {name,message}]}' "$tail_log"
