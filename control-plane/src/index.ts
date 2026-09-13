@@ -128,10 +128,24 @@ export class Registry {
     } catch (error) {
       // Internal messages are deliberately generic and never include provider
       // response bodies, request headers, or credential values.
-      console.error('control-plane request failed', error instanceof Error ? error.message : 'unknown');
+      const message = error instanceof Error ? error.message : 'unknown';
+      console.error('control-plane request failed', message);
       const response: Record<string, string> = { error: 'operation incomplete; retry reconciliation' };
-      if (error instanceof Error && error.message.startsWith('provider ')) {
-        response.diagnostic = error.message;
+      const safeDiagnostics = new Set([
+        'missing generation',
+        'hostname ownership conflict',
+        'tunnel creation not confirmed',
+        'hostname route not confirmed',
+        'installation credential unavailable',
+        'hostname removal not confirmed',
+        'tunnel revocation not confirmed',
+        'ambiguous tunnel ownership',
+        'invalid tunnel ownership',
+        'ambiguous hostname ownership',
+        'tunnel configuration not confirmed',
+      ]);
+      if (message.startsWith('provider ') || safeDiagnostics.has(message)) {
+        response.diagnostic = message;
       }
       return reply(response, 503);
     }
