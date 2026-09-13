@@ -424,8 +424,15 @@ export class Registry {
     const config = { ingress, 'warp-routing': { enabled: false } };
     await this.cf('PUT', path, { config });
     const actual = await this.cf<{ config?: { ingress?: unknown; 'warp-routing'?: { enabled?: unknown } } }>('GET', path);
-    if (JSON.stringify(actual.config?.ingress) !== JSON.stringify(ingress)
-      || actual.config?.['warp-routing']?.enabled !== false) {
+    const actualIngress = actual.config?.ingress;
+    const sameIngress = Array.isArray(actualIngress) && actualIngress.length === ingress.length
+      && ingress.every((expected, index) => {
+        const received = actualIngress[index];
+        return received !== null && typeof received === 'object' && !Array.isArray(received)
+          && Object.keys(received).length === Object.keys(expected).length
+          && Object.entries(expected).every(([key, value]) => (received as Record<string, unknown>)[key] === value);
+      });
+    if (!sameIngress || actual.config?.['warp-routing']?.enabled !== false) {
       throw new Error('tunnel configuration not confirmed');
     }
   }
