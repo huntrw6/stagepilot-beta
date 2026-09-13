@@ -61,4 +61,5 @@ jobs:
           kill "$tail_pid" 2>/dev/null || true
           wait "$tail_pid" 2>/dev/null || true
           printf 'reconcile_http=%s\n' "$reconcile_http"
-          jq -r '.logs[]?.message[]? // empty' "$tail_log"
+          printf 'tail_events=%s\n' "$(wc -l < "$tail_log")"
+          jq -c '{logs:[.logs[]? | {level,message}],exceptions:[.exceptions[]? | {name,message}]}' "$tail_log"
