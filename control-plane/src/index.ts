@@ -126,7 +126,9 @@ export class Registry {
       if (action === 'reconcile') return await this.reconcile(installation);
       return reply({ error: 'method not allowed' }, 405);
     } catch (error) {
-      console.error('control-plane request failed', error instanceof Error ? error.name : 'unknown');
+      // Internal messages are deliberately generic and never include provider
+      // response bodies, request headers, or credential values.
+      console.error('control-plane request failed', error instanceof Error ? error.message : 'unknown');
       return reply({ error: 'operation incomplete; retry reconciliation' }, 503);
     }
   }
