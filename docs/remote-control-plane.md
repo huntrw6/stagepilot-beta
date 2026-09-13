@@ -9,10 +9,10 @@ Durable Object are the only account-management tier; no owner's home server is i
 the path.
 
 This repository contains a locally verified implementation and manual deployment
-workflow. It has not been deployed by this milestone. A real deployment requires
-an approved Cloudflare account, zone, Worker route, Durable Object migration, and
-secrets. Do not claim live multi-installation acceptance until the operations gate
-at the end of this document has been run against two disposable enrolled installs.
+workflow. The private-beta control plane was deployed and the live two-installation
+gate passed on 2026-09-13 using disposable installations that were permanently
+revoked afterward. Repeat the operations gate at the end of this document after a
+deployment or provider change that could affect lifecycle or isolation behavior.
 
 ## Trust boundaries
 
@@ -279,5 +279,69 @@ existing browser proof:
 - provider outage/lost response stays fail-closed and authenticated reconciliation
   finishes without duplicate or cross-owned resources.
 
-Record redacted resource IDs and timestamps in `remote-provisioning.md`. Never
-record any account, admin, signing, installation, session, or tunnel token.
+Record redacted resource IDs and timestamps in the live-acceptance section below
+or in `remote-provisioning.md`. Never record any account, admin, signing,
+installation, session, or tunnel token.
+
+## Live Cloudflare acceptance — passed 2026-09-13
+
+The manual deployment workflow succeeded on private repository commit
+`afb22ae17fa283f12f10ef3915042e4749e5e820` in GitHub Actions run
+[`34758169395`](https://github.com/tage-ilot/stagepilot-beta/actions/runs/34758169395).
+Provider read-back identified deployment `7f4cbdb5-36ce-4bc9-8ff7-ebe302a71dfe`,
+Worker version `56e32495-7914-4e82-b93c-190916c54024`, and `REGISTRY` Durable
+Object namespace `23b5ad932938433490d6d197c5968366`. The four protected variables
+matched the authorized account, zone, `illuminary.studio`, and port `18766`; the
+runtime exposed only the names of the three required secrets. The retained route is:
+
+```text
+https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev
+```
+
+`GET /health` returned `{"status":"ok"}` after deployment and again after cleanup.
+
+Two admin-enrolled disposable installations were simultaneously provisioned with
+different IDs, credentials, hostnames, generations, connector credentials, local
+state roots, identity databases, listener/metrics ports, and Remote sessions:
+
+| Install | Installation ID | Stable hostname | Local LAN/Remote/metrics ports |
+| --- | --- | --- | --- |
+| A | `c85e14c70d25df528eee82c1f2e45931` | `sp-c85e14c70d25df528eee82c1f2e45931.illuminary.studio` | `18865/18866/18867` |
+| B | `17366e5e772309b14936150b12afa76e` | `sp-17366e5e772309b14936150b12afa76e.illuminary.studio` | `18965/18966/18967` |
+
+While both were live, independent real Chromium runs at 12:53–12:54 UTC passed
+HTTPS-only behavior, anonymous and LAN-PIN rejection, secure Viewer and Operator
+login cookies, role policy, CSRF rejection, authenticated WSS plus reconnect,
+logout revocation, and state access. The identity database, installation-credential,
+and session files were all mode `0600` and pairwise distinct. A connector-only
+restart changed the connector child PID while preserving B generation
+`0dd5021e-b674-4b6e-ae79-f19ffa123cb8`; the full browser gate passed again.
+
+A's final reconciled tunnel was
+`9765db85-7ff0-4fa1-ae78-16061e9cd945` for generation
+`bb74a7f5-88de-4119-bd03-9a18103a01c5`. Permanent administrative revoke removed
+its tunnel and DNS route and made its installation credential unauthorized. B's
+pre-existing authenticated session still returned HTTP 200, its tunnel remained
+healthy, and the full Chromium gate passed again at 17:58 UTC, proving no
+cross-installation impact.
+
+B was then disabled locally. Its listener closed, connector token was removed, old
+session stopped reaching the installation, and provider read-back found no A or B
+active tunnel or DNS record. A new B enable deliberately used a one-second response
+timeout. The client retained phase `enabling` and no connector token while Cloudflare
+had already created exactly one tunnel
+`6fdcd99f-dc7a-4599-a36a-f902f1e1621d` and DNS record
+`f466340dd9d29f5974974a38c6c5e984` for generation
+`254989c7-89d0-4bb4-8ca9-31fb9328025d`. Authenticated reconciliation converged
+without a duplicate, restored the private connector credential and listener, and
+the full Chromium gate passed at 18:09 UTC.
+
+Finally, both installations were permanently revoked. B revoke run
+[`34773740484`](https://github.com/tage-ilot/stagepilot-beta/actions/runs/34773740484)
+succeeded at 18:09 UTC. Cloudflare read-back returned zero active matching tunnels
+and zero matching DNS records; the four observed tunnel IDs were present only as
+deleted resources. Both installation credentials returned HTTP 401. All bootstrap
+bundles, connector credentials, identity/session stores, proof files, and local test
+processes were then removed. No purchase or paid-plan change was made; recorded
+incremental direct cost was `$0`, with ordinary usage still governed by the existing
+Cloudflare account plan.
