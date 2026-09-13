@@ -129,7 +129,10 @@ export class Registry {
       // Internal messages are deliberately generic and never include provider
       // response bodies, request headers, or credential values.
       console.error('control-plane request failed', error instanceof Error ? error.message : 'unknown');
-      return reply({ error: 'operation incomplete; retry reconciliation' }, 503);
+      const response: Record<string, string> = { error: 'operation incomplete; retry reconciliation' };
+      const diagnostic = await this.adminDiagnostic(request, error);
+      if (diagnostic) response.diagnostic = diagnostic;
+      return reply(response, 503);
     }
   }
 
@@ -153,6 +156,12 @@ export class Registry {
   private async isAdmin(request: Request): Promise<boolean> {
     const token = bearer(request);
     return token.length >= 32 && equalSecret(token, this.env.ADMIN_API_TOKEN);
+  }
+
+  private async adminDiagnostic(request: Request, error: unknown): Promise<string | undefined> {
+    const token = request.headers.get('x-stagepilot-admin-diagnostic') ?? '';
+    if (token.length < 32 || !(await equalSecret(token, this.env.ADMIN_API_TOKEN))) return undefined;
+    return error instanceof Error ? error.message : 'unknown operation failure';
   }
 
   private async credential(id: string): Promise<string> {
@@ -353,9 +362,18 @@ export class Registry {
       },
       body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
     });
-    if (!response.ok) throw new Error('provider request failed');
+    const operation = path.includes('/dns_records')
+      ? 'DNS'
+      : path.endsWith('/token')
+        ? 'tunnel-token'
+        : path.endsWith('/configurations')
+          ? 'tunnel-configuration'
+          : 'tunnel-lifecycle';
+    if (!response.ok) throw new Error(`provider ${operation} request failed (HTTP ${response.status})`);
     const envelope = (await response.json()) as CloudflareEnvelope<T>;
-    if (envelope.success !== true || !('result' in envelope)) throw new Error('provider rejected request');
+    if (envelope.success !== true || !('result' in envelope)) {
+      throw new Error(`provider rejected ${operation} request`);
+    }
     return envelope.result;
   }
 
