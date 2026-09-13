@@ -1,0 +1,24 @@
+name = "stagepilot-beta-control-plane"
+main = "src/index.ts"
+compatibility_date = "2026-09-12"
+
+[durable_objects]
+bindings = [
+  { name = "REGISTRY", class_name = "Registry" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Registry"]
+
+# The protected manual deployment workflow supplies CLOUDFLARE_ACCOUNT_ID,
+# CLOUDFLARE_ZONE_ID, REMOTE_HOST_SUFFIX, and REMOTE_PORT as deployment vars.
+# It also installs and reads back the names of these Worker secrets:
+# CLOUDFLARE_API_TOKEN, ADMIN_API_TOKEN, INSTALLATION_SIGNING_KEY.
+# Do not add deployment-specific placeholders or secret values to this file.
+
+[observability]
+enabled = true
+
+[build]
+command = "npm run build"
