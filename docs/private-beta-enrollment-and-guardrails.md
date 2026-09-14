@@ -14,14 +14,14 @@ A public endpoint cannot prove private-repository possession. The binary is not 
 - Installation API: 120 status requests and 20 lifecycle mutations per installation per 60 seconds. Status never invokes Cloudflare. Confirmed provision responses are cached in memory for 30 seconds so rapid reconcile/provision replay is provider-free.
 - Provider API: all requests are serialized in the singleton Durable Object. The total ceiling is 600 calls per 5 minutes; ordinary provisioning stops at 480, reserving 120 calls for disable, revoke, and recovery. This is below Cloudflare's documented 1,200 calls per 5 minutes and 200 calls per second per IP.
 - Client: enrollment and lifecycle requests make at most three attempts for 429/503 responses, honor bounded `Retry-After` values, and add exponential backoff with jitter.
-- Edge: exactly one `http_ratelimit` rule with ref `stagepilot_remote_beta_rate_limit_v1`, expression `(http.host wildcard "sp-*.illuminary.studio")`, 120 requests per source IP/colo per 60 seconds, and 60-second block. WSS messages are not counted as HTTP requests; initial upgrades and reconnects are.
+- Edge: exactly one Free-plan `http_ratelimit` rule with ref `stagepilot_remote_beta_rate_limit_v1`, expression `(http.host wildcard "sp-*.illuminary.studio")`, 60 requests per source IP/colo per 10 seconds, and a 10-second block. WSS messages are not counted as HTTP requests; initial upgrades and reconnects are.
 - Observability: the administrator metrics route exposes only aggregate active/enrollment and denial counters. It emits no raw IP, keyed source hash, installation ID, hostname, provider body, or credential.
 
 Quota and capacity denials return sanitized 429 or 503 responses plus `Retry-After`. They create no installation identity, tunnel, DNS record, or Cloudflare provider state. Managed DDoS remains in its separate Cloudflare phases, and the WAF deployment helper refuses to replace an unrelated rate-limit rule.
 
 ## Operations and rollback
 
-The manual protected deployment workflow supplies `ENROLLMENT_ENABLED` and `BETA_INSTALLATION_LIMIT`, deploys the Worker, then applies and reads back the exact WAF rule. Monitor `GET /v1/admin/metrics` with the administrator credential and Cloudflare Security Events. Tune only after measuring ordinary HTTPS polling and WSS upgrade/reconnect rates.
+The manual protected deployment workflow supplies `ENROLLMENT_ENABLED` and `BETA_INSTALLATION_LIMIT` and deploys the Worker. An independently authorized zone-WAF operator runs `node control-plane/scripts/waf-rate-limit.mjs apply` and reads back the exact rule; the narrower Worker/tunnel token intentionally cannot edit WAF. Monitor `GET /v1/admin/metrics` with the administrator credential and Cloudflare Security Events. Tune only after measuring ordinary HTTPS polling and WSS upgrade/reconnect rates.
 
 Emergency enrollment rollback is `ENROLLMENT_ENABLED=false` followed by a manual Worker deployment; existing authenticated lifecycle and cleanup continue. WAF rollback deletes only the exact StagePilot rule/ruleset in the zone `http_ratelimit` phase and verifies that managed DDoS and all other phases and hosts remain unchanged. Code rollback must preserve the existing Durable Object class/binding and forward-only migration history.
 
