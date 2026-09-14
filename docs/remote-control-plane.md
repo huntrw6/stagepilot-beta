@@ -18,7 +18,7 @@ at the end of this document has been run against two disposable enrolled install
 
 ```text
 Private beta administrator
-  ADMIN_API_TOKEN -> authenticated enrollment/revocation endpoints
+  ADMIN_API_TOKEN -> authenticated aggregate metrics/revocation endpoints
 
 Cloudflare Worker + singleton Registry Durable Object
   server-only account/zone IDs, CLOUDFLARE_API_TOKEN,
@@ -38,9 +38,10 @@ The Worker never returns its account token, admin token, or signing key. It does
 not store cloudflared run tokens: it retrieves the exact tunnel token only after
 route read-back and returns it to that authenticated installation. Installation
 credentials are deterministic HMAC capabilities bound to random 128-bit IDs; only
-the server-side signing key can derive them. Enrollment is admin-authenticated and
-idempotent. There is no endpoint through which an arbitrary Internet client can
-select a hostname or create an installation.
+the server-side signing key can derive them. The public enrollment endpoint accepts
+only an app-generated nonce and creates the random identity and hostname itself.
+Possession of the private beta is sufficient: there is no account, GitHub check,
+OAuth, invite code, administrator-created bundle, or private bundle delivery.
 
 No CORS policy is emitted. CORS is not authentication, and browsers are not a
 supported provisioning client. Request bodies are capped at 4 KiB, all state and
@@ -49,17 +50,49 @@ resource details.
 
 ## Durable identity and ownership
 
-The singleton `Registry` Durable Object serializes enrollment and resource
-mutation. Its storage contains installation metadata, desired lifecycle state,
-and enrollment idempotency mappings. An enrollment key of 8–128 safe characters
+The singleton `Registry` Durable Object serializes enrollment, resource mutation,
+and the global provider budget. Its storage contains installation metadata,
+desired lifecycle state, aggregate counters, and enrollment nonce mappings. A
+nonce of 8–128 safe characters
 returns the same random ID, generated hostname, and installation credential when
-replayed. Different keys produce different identities and credentials.
+replayed without consuming quota. Different nonces produce different identities
+and credentials. Raw source addresses are never stored: IPv4 is canonicalized,
+IPv6 is canonicalized to /64, and the result is HMAC-hashed with server-only key
+material. Source quota records expire after 24 hours and are bounded by the
+installation ceiling.
 
 Hostnames are generated as:
 
 ```text
 sp-<32 lowercase hex installation ID>.<REMOTE_HOST_SUFFIX>
 ```
+
+## Finite beta guardrails
+
+The measured beta defaults are intentionally generous for ordinary UI polling and
+reconnect behavior:
+
+- 3 new installations per canonical source IPv4 or IPv6 /64 per 24 hours;
+- 500 active installations globally (`BETA_INSTALLATION_LIMIT`), with new
+  enrollment controlled independently by `ENROLLMENT_ENABLED`;
+- 120 authenticated status requests per installation per 60 seconds;
+- 20 authenticated lifecycle mutations per installation per 60 seconds;
+- a 30-second in-memory reconcile/token cache after confirmed provider read-back;
+- 600 serialized Cloudflare API calls per 5 minutes, with normal provision work
+  stopped at 480 so 120 calls remain for disable, revoke, and recovery.
+
+Quota and capacity denials return a sanitized 429 or 503 with `Retry-After`. They
+create no installation, Durable Object identity, tunnel, DNS record, or provider
+resource. The desktop retries bounded transient responses with `Retry-After`,
+exponential backoff, and jitter. Admin metrics expose only active/enrollment and
+denial totals; raw addresses, keyed hashes, IDs, and credentials are omitted.
+
+The zone has exactly one StagePilot-owned `http_ratelimit` rule: 120 requests per
+source IP and Cloudflare colo per 60 seconds, followed by a 60-second block. Its
+expression is `(http.host wildcard "sp-*.illuminary.studio")`, so unrelated
+`illuminary.studio` hosts and other ruleset phases are untouched. A WebSocket
+connection contributes its HTTP upgrade/reconnect request, not each WSS message.
+Managed DDoS protection remains in Cloudflare's separate managed phases.
 
 Clients cannot submit a hostname. Each tunnel name includes both the installation
 ID and a client-generated UUID generation. DNS ownership requires an exact CNAME,
@@ -91,75 +124,30 @@ the existing backend and are not reimplemented by this service.
 
 ## API
 
-All non-health routes require `Authorization: Bearer ...`.
+All routes except health and enrollment require an authorization bearer.
 
 | Method and path | Principal | Behavior |
 | --- | --- | --- |
 | `GET /health` | public | Secret-free liveness only |
-| `POST /v1/admin/installations` | administrator | Idempotent enrollment; body `{idempotencyKey,label}` |
+| `POST /v1/installations/enroll` | public beta app | Idempotent transparent enrollment; body `{nonce}` |
+| `GET /v1/admin/metrics` | administrator | Sanitized aggregate counters only |
 | `POST /v1/admin/installations/:id/revoke` | administrator | Permanent credential and resource revocation |
 | `GET /v1/installations/:id/status` | matching installation | Sanitized lifecycle state |
 | `POST /v1/installations/:id/provision` | matching installation | Idempotent exact-generation provision; body `{generation}` |
 | `POST /v1/installations/:id/disable` | matching installation | Fail-closed cleanup |
 | `POST /v1/installations/:id/reconcile` | matching installation | Resume persisted desired lifecycle |
-
-The raw enrollment response is accepted only by the administrator export utility;
-it is not an installer input. The strict bootstrap artifact is JSON with exactly:
-
-```json
-{
-  "schema": "org.stagepilot.private-beta-bootstrap",
-  "version": 1,
-  "bundleId": "UUIDv4",
-  "controlPlaneOrigin": "https://exact-worker-origin.example",
-  "installationId": "32 lowercase hex characters",
-  "hostname": "sp-<same-installation-id>.<configured-suffix>",
-  "remotePort": 18766,
-  "installationCredential": "spi_<same-installation-id>.<signature>",
-  "issuedAt": "ISO-8601 timestamp"
-}
-```
-
-There are no optional or extension fields in version 1. The bundle contains no
-Cloudflare account identifier/token, administrator token, signing key,
-idempotency key, or tunnel run token. It is friend- and installation-specific,
-not signup, an invite code, or reusable enrollment capability.
-
-Generate it only after the Worker is live. Put the administrator token in a
-private regular file readable only by its owner, choose a new non-secret
-idempotency key for the friend, and select an absolute output path in a private
-out-of-band transfer location:
-
-```sh
-npm --prefix control-plane run enroll:bootstrap -- \
-  --origin https://exact-worker-origin.example \
-  --idempotency-key friend-specific-operation-0001 \
-  --label "Friend label" \
-  --remote-port 18766 \
-  --output /absolute/private/friend.bootstrap.json \
-  --admin-token-file /absolute/private/admin-token
-```
-
-The utility calls the live admin enrollment endpoint, validates that hostname and
-credential are bound to the returned installation ID, creates the selected file
-exclusively at mode 0600, and prints only redacted status. Repeating the same
-idempotency key and output path validates and preserves a matching file; a
-different live result or binding conflict fails without replacement. If a prior
-response was lost, rerun the same command. If the artifact itself was lost,
-re-export deliberately to a new selected path with the same enrollment key.
+| `POST /v1/installations/:id/revoke` | matching installation | Permanent self-revocation and cleanup |
 
 ## Installation-side operation
 
-Milestone B must expose an explicit one-time import action. It must reject unknown
-or missing fields, unsupported versions, non-HTTPS or non-exact origins, a
-hostname or credential not bound to the declared installation ID, an origin/
-installation/hostname conflicting with existing configuration, and an already
-recorded bundle ID or installation import. On success it stores only the
-installation credential in Windows Credential Manager or macOS Keychain and
-persists only the exact origin, installation ID, hostname, port, schema version,
-and consumed bundle ID as non-secret configuration. It must never copy the admin
-token or any Cloudflare account capability. Import is not implemented by this
-control-plane milestone.
+On first local enable, the packaged desktop persists a random non-secret nonce,
+calls the fixed HTTPS enrollment origin, validates the returned identity,
+hostname, and credential binding, and stores only the unique installation
+credential in Windows Credential Manager or macOS Keychain. It persists only the
+origin, installation ID, hostname, port, and nonce as non-secret recovery
+metadata. Lost responses replay the same nonce. Later lifecycle requests read the
+credential through the authenticated native Tauri broker; the frontend never
+receives it.
 
 For the current backend-only validation path, create a private
 `BetaControlConfig` JSON outside the connector export with the exact HTTPS Worker
@@ -167,10 +155,6 @@ origin, enrolled ID/hostname, absolute credential/state/export paths, and the
 dedicated Remote port. Store the installation credential in the configured
 credential file at mode 0600. The credential and state directory must not be
 under the connector export.
-
-After successful import, warn the administrator and friend to delete every source
-and transfer copy. Do not claim secure erasure: ordinary file deletion may leave
-recoverable data on snapshots, backups, journaling file systems, or flash media.
 
 Run from the installed backend environment:
 
@@ -200,7 +184,8 @@ deployment branch while that limitation exists. Set these environment values (no
 repository placeholders):
 
 - variables: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`,
-  `REMOTE_HOST_SUFFIX`, `REMOTE_PORT`;
+  `REMOTE_HOST_SUFFIX`, `REMOTE_PORT`, `ENROLLMENT_ENABLED`,
+  `BETA_INSTALLATION_LIMIT`;
 - secrets: `CLOUDFLARE_API_TOKEN`, `ADMIN_API_TOKEN`,
   `INSTALLATION_SIGNING_KEY`.
 
@@ -208,20 +193,29 @@ The account and zone IDs are 32 lowercase hexadecimal characters. The suffix is
 the DNS suffix under which generated installation hostnames may be created. The
 dedicated port is 1024-65535 and must not be local port 8765. The provider token
 must have Worker Scripts deployment for the target account plus Account
-Cloudflare Tunnel Edit and Zone DNS Edit for only the chosen zone. The admin token
+Cloudflare Tunnel Edit, Zone DNS Edit, and Zone WAF Edit for only the chosen zone. The admin token
 and signing key are independent random values of at least 32 bytes.
 
 Dispatch the workflow manually and approve the protected environment when an
 environment reviewer is configured. It runs
 tests and TypeScript build, validates every value without printing secrets, builds
-a Wrangler dry-run preview, supplies all four vars on the command line, installs
+a Wrangler dry-run preview, supplies all six vars on the command line, installs
 all three Worker runtime secrets through Wrangler, deploys the tracked Durable
 Object migration/binding, then reads `wrangler secret list --format json` and
 fails unless all three secret names are present. No secret value is printed. Read
-back the deployed Worker version, `REGISTRY` binding, four vars, secret names,
+back the deployed Worker version, `REGISTRY` binding, six vars, secret names,
 custom HTTPS origin, and `/health` before enrollment. Configure the custom Worker
 hostname narrowly in Cloudflare if it is not already attached; do not alter
 unrelated DNS records.
+
+The final workflow step creates or replaces only the rule with ref
+`stagepilot_remote_beta_rate_limit_v1`, refuses to overwrite any unrelated rate
+rule, and reads back its ruleset ID, rule ID, expression, threshold, period, and
+mitigation duration. To roll back the edge rule, delete that exact rule/ruleset in
+the `http_ratelimit` phase through the Cloudflare dashboard/API, verify the phase
+has no StagePilot rule, and leave managed DDoS and every other phase unchanged.
+For emergency enrollment rollback, set `ENROLLMENT_ENABLED=false` and redeploy;
+existing authenticated installations and revocation remain available.
 
 For provider/admin rotation, replace the matching protected environment secret,
 manually rerun and approve the workflow, verify the secret-name read-back and live

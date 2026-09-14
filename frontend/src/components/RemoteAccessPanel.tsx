@@ -3,10 +3,10 @@ import { useDashboardAccess } from "../access/AccessContext";
 import { invalidateAccess } from "../access/accessState";
 import {
   ApiError, bootstrapRemote, createRemoteUser, deleteRemoteUser, getRemoteStatus,
-  getRemoteUsers, importRemoteBundle, setRemoteEnabled, updateRemoteUser,
+  getRemoteUsers, setRemoteEnabled, updateRemoteUser,
   type RemoteStatus, type RemoteUser,
 } from "../api";
-import { chooseRemoteBootstrapBundle, setRemoteAutostart } from "../desktop";
+import { setRemoteAutostart } from "../desktop";
 
 const button = "rounded-lg border border-white/20 px-3 py-2 text-sm text-slate-100 disabled:opacity-40";
 const input = "rounded-lg border border-white/20 bg-slate-950 p-2 text-white";
@@ -120,18 +120,10 @@ export function RemoteAccessPanel({ onClose }: { onClose: () => void }) {
       <p className="text-sm text-amber-200">Temporary Remote link: the address changes after reconnection or restart. This preview is not a permanent remote address.</p> :
       <p className="text-sm text-sky-200">Stable Remote link: this installation keeps the same address after reconnecting.</p>}
     {status && !status.available && <p className="text-sm text-slate-300">Remote Access is unavailable on this installation. Local StagePilot is unaffected.</p>}
-    {status?.provisioned && !status.credential_available && <p className="text-sm text-amber-200">The installation enrollment is unavailable or revoked. Import a new administrator-provided friend bundle to recover.</p>}
+    {status?.provisioned && !status.credential_available && <p className="text-sm text-amber-200">The installation credential is unavailable or revoked. Remote remains off; contact beta support to recover this installation.</p>}
     {status?.state === "error" && <p className="text-sm text-slate-300">Check your Internet connection. You can disable Remote and try enabling it again.</p>}
     {status?.state === "reconnecting" && <p className="text-sm text-slate-300">Reconnecting. Check here for the current link once connected.</p>}
-    {status && !status.credential_available && local && <div className="space-y-2">
-      <p className="text-sm text-slate-300">Import the private friend bundle once before enabling Remote Access.</p>
-      <button className={button} disabled={busy} type="button" onClick={() => {
-        void chooseRemoteBootstrapBundle().then((path) => {
-          if (path) void run(() => importRemoteBundle(path));
-        }).catch((cause) => setError(friendlyError(cause)));
-      }}>Import friend bundle</button>
-      <p className="text-xs text-slate-400">After a successful import, delete the source and transfer copies normally. Secure erasure is not claimed.</p>
-    </div>}
+
     {url && <div className="flex flex-wrap items-center gap-3">
       <output aria-label="Remote URL" className="break-all text-sm text-sky-200">{url}</output>
       <button className={button} type="button" onClick={() => {
@@ -140,7 +132,7 @@ export function RemoteAccessPanel({ onClose }: { onClose: () => void }) {
       }}>Copy link</button>
       <a className={button} href={url} target="_blank" rel="noopener noreferrer">Open Remote</a>
     </div>}
-    {!status?.enabled ? <button className={button} disabled={busy || !status?.available || !status?.provisioned || !status?.credential_available} type="button" onClick={() => {
+    {!status?.enabled ? <button className={button} disabled={busy || !status?.available || Boolean(status?.provisioned && !status?.credential_available)} type="button" onClick={() => {
       if (status?.needs_operator) { if (local) setBootstrap(true); }
       else void run(async () => { await setRemoteEnabled(true); await setRemoteAutostart(true); });
     }}>Enable Remote Access</button> : <button className={button} disabled={busy} type="button" onClick={() => setConfirmDisable(true)}>Disable Remote Access</button>}

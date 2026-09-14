@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -71,10 +73,14 @@ class BetaRemoteControl:
         client: httpx.Client,
         *,
         credential_provider: Callable[[], str] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        random_value: Callable[[], float] = random.random,
     ) -> None:
         self.config = config
         self.client = client
         self.credential_provider = credential_provider
+        self.sleep = sleep
+        self.random_value = random_value
         self.connector_token: str | None = None
         self.state_path = config.state_dir / "state.json"
         self.desired_path = config.installation_dir / "remote.json"
@@ -233,12 +239,27 @@ class BetaRemoteControl:
 
     def _request(self, method: str, path: str, payload: dict[str, object]) -> dict[str, object]:
         try:
-            response = self.client.request(
-                method,
-                path,
-                headers={"Authorization": f"Bearer {self._credential()}"},
-                json=payload,
-            )
+            response: httpx.Response | None = None
+            for attempt in range(3):
+                response = self.client.request(
+                    method,
+                    path,
+                    headers={"Authorization": f"Bearer {self._credential()}"},
+                    json=payload,
+                )
+                if response.status_code not in {429, 503} or attempt == 2:
+                    break
+                try:
+                    retry_after = max(0, min(300, int(response.headers.get("Retry-After", "0"))))
+                except ValueError:
+                    retry_after = 0
+                self.sleep(
+                    max(
+                        float(retry_after),
+                        min(0.5 * (2**attempt) + self.random_value() * 0.25, 5.0),
+                    )
+                )
+            assert response is not None
             if response.status_code in {401, 403}:
                 raise InstallationRevokedError("Installation enrollment is expired or revoked")
             if not response.is_success:

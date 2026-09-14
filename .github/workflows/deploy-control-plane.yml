@@ -32,6 +32,8 @@ jobs:
       CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
       REMOTE_HOST_SUFFIX: ${{ vars.REMOTE_HOST_SUFFIX }}
       REMOTE_PORT: ${{ vars.REMOTE_PORT }}
+      ENROLLMENT_ENABLED: ${{ vars.ENROLLMENT_ENABLED }}
+      BETA_INSTALLATION_LIMIT: ${{ vars.BETA_INSTALLATION_LIMIT }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       INSTALLATION_SIGNING_KEY: ${{ secrets.INSTALLATION_SIGNING_KEY }}
@@ -58,6 +60,8 @@ jobs:
             --var CLOUDFLARE_ZONE_ID:${{ vars.CLOUDFLARE_ZONE_ID }}
             --var REMOTE_HOST_SUFFIX:${{ vars.REMOTE_HOST_SUFFIX }}
             --var REMOTE_PORT:${{ vars.REMOTE_PORT }}
+            --var ENROLLMENT_ENABLED:${{ vars.ENROLLMENT_ENABLED }}
+            --var BETA_INSTALLATION_LIMIT:${{ vars.BETA_INSTALLATION_LIMIT }}
       - name: Deploy and install Worker runtime secrets
         uses: cloudflare/wrangler-action@v4
         with:
@@ -71,6 +75,8 @@ jobs:
             --var CLOUDFLARE_ZONE_ID:${{ vars.CLOUDFLARE_ZONE_ID }}
             --var REMOTE_HOST_SUFFIX:${{ vars.REMOTE_HOST_SUFFIX }}
             --var REMOTE_PORT:${{ vars.REMOTE_PORT }}
+            --var ENROLLMENT_ENABLED:${{ vars.ENROLLMENT_ENABLED }}
+            --var BETA_INSTALLATION_LIMIT:${{ vars.BETA_INSTALLATION_LIMIT }}
           secrets: |
             CLOUDFLARE_API_TOKEN
             ADMIN_API_TOKEN
@@ -88,3 +94,5 @@ jobs:
         env:
           WRANGLER_SECRET_LIST: ${{ steps.runtime-secrets.outputs.command-output }}
         run: node control-plane/scripts/deployment-config.mjs verify-secrets
+      - name: Apply and read back the one Remote-host-only WAF rate-limit rule
+        run: node control-plane/scripts/waf-rate-limit.mjs apply

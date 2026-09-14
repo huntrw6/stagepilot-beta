@@ -13,7 +13,12 @@ import httpx
 from fastapi import FastAPI
 
 from stagepilot.remote_beta_control import BetaRemoteControl, InstallationRevokedError
-from stagepilot.remote_bootstrap import BootstrapMetadata, DesktopBootstrapStore
+from stagepilot.remote_bootstrap import (
+    DEFAULT_CONTROL_PLANE_ORIGIN,
+    DEFAULT_REMOTE_PORT,
+    BootstrapMetadata,
+    DesktopBootstrapStore,
+)
 from stagepilot.remote_connector import Connector
 from stagepilot.remote_feature import RemoteFeature
 from stagepilot.remote_files import BetaControlConfig, read_desired, safe_status
@@ -31,6 +36,8 @@ class DesktopRemoteManager:
         revoke_sessions: Callable[[], None] | None = None,
         lan_port: int = 8765,
         transport: httpx.BaseTransport | None = None,
+        control_plane_origin: str = DEFAULT_CONTROL_PLANE_ORIGIN,
+        remote_port: int = DEFAULT_REMOTE_PORT,
     ) -> None:
         if not root.is_absolute() or not cloudflared_binary.is_absolute():
             raise ValueError("Desktop Remote paths must be absolute")
@@ -45,6 +52,8 @@ class DesktopRemoteManager:
         self.revoke_sessions = revoke_sessions
         self.lan_port = lan_port
         self.transport = transport
+        self.control_plane_origin = control_plane_origin
+        self.remote_port = remote_port
         self._connector_token: str | None = None
 
     def status(self) -> dict[str, object]:
@@ -74,20 +83,13 @@ class DesktopRemoteManager:
                     "state": "off",
                     "url": None,
                     "message": (
-                        "Import the private friend bootstrap bundle to enable Remote Access."
+                        "This private beta enrolls automatically when Remote Access is first "
+                        "enabled."
                     ),
                 }
             )
         return result
 
-    def import_bundle(self, source: Path) -> dict[str, object]:
-        self.feature.set_managed_enabled(False)
-        self._connector_token = None
-        (self.installation_dir / "connector.token").unlink(missing_ok=True)
-        (self.root / "run/connector.token").unlink(missing_ok=True)
-        self.bootstrap.import_path(source)
-        self._publish_off_status()
-        return self.status()
 
     def enable(self) -> dict[str, object]:
         metadata = self._active()
@@ -186,7 +188,11 @@ class DesktopRemoteManager:
     def _active(self) -> BootstrapMetadata:
         active = self.bootstrap.state().active
         if active is None:
-            raise ProviderError("Import the private friend bootstrap bundle first")
+            active = self.bootstrap.ensure_enrolled(
+                control_plane_origin=self.control_plane_origin,
+                remote_port=self.remote_port,
+                transport=self.transport,
+            )
         self.bootstrap.credential(active)
         return active
 
@@ -244,7 +250,7 @@ class DesktopRemoteManager:
 
     def _metrics_port(self) -> int:
         active = self.bootstrap.state().active
-        remote_port = active.remote_port if active is not None else 18766
+        remote_port = active.remote_port if active is not None else self.remote_port
         candidate = remote_port + 1 if remote_port < 65535 else remote_port - 1
         return 18767 if candidate in {self.lan_port, remote_port} else candidate
 

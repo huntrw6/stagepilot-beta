@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import httpx
 import pytest
 
-from stagepilot.remote_bootstrap import BootstrapBundle, DesktopBootstrapStore
+from stagepilot.remote_bootstrap import DesktopBootstrapStore
 from stagepilot.remote_desktop import DesktopRemoteManager
 from stagepilot.remote_files import read_desired
 from stagepilot.remote_provider import ProviderError
 
 TEST_ORIGINS = frozenset({"https://control.example.com"})
-TEST_NOW = datetime(2026, 9, 14, tzinfo=UTC)
+
 
 
 class MemoryCredentials:
@@ -38,117 +36,17 @@ def verified_store(path: Path, credentials: MemoryCredentials) -> DesktopBootstr
         path,
         credentials,
         trusted_origins=TEST_ORIGINS,
-        verify_enrollment=lambda _: None,
-        now=lambda: TEST_NOW,
     )
 
 
 def bundle_payload(
     installation_id: str = "a" * 32,
-    *,
-    bundle_id: str | None = None,
 ) -> dict[str, object]:
     return {
-        "schema": "org.stagepilot.private-beta-bootstrap",
-        "version": 1,
-        "bundleId": bundle_id or str(uuid4()),
-        "controlPlaneOrigin": "https://control.example.com",
         "installationId": installation_id,
         "hostname": f"sp-{installation_id}.remote.example.com",
-        "remotePort": 18766,
         "installationCredential": f"spi_{installation_id}.{'s' * 43}",
-        "issuedAt": "2026-09-13T20:00:00.000Z",
     }
-
-
-def private_bundle(tmp_path: Path, payload: dict[str, object]) -> Path:
-    path = tmp_path / "friend.bootstrap.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    path.chmod(0o600)
-    return path
-
-
-def test_import_persists_only_metadata_and_rejects_replay(tmp_path: Path) -> None:
-    credentials = MemoryCredentials()
-    store = verified_store(tmp_path / "state/bootstrap.json", credentials)
-    payload = bundle_payload()
-    source = private_bundle(tmp_path, payload)
-
-    metadata = store.import_path(source)
-
-    assert metadata.installation_id == payload["installationId"]
-    persisted = store.path.read_text(encoding="utf-8")
-    assert str(payload["installationCredential"]) not in persisted
-    assert credentials.get(str(payload["installationId"])) == payload["installationCredential"]
-    with pytest.raises(ProviderError, match=r"already imported|already provisioned"):
-        store.import_path(source)
-
-
-def test_import_rejects_unknown_fields_and_binding_mismatches(tmp_path: Path) -> None:
-    for update in (
-        {"unexpected": True},
-        {"controlPlaneOrigin": "http://control.example.com"},
-        {"hostname": "sp-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.remote.example.com"},
-        {"installationCredential": f"spi_{'b' * 32}.{'s' * 43}"},
-        {"remotePort": 8765},
-    ):
-        payload = {**bundle_payload(), **update}
-        with pytest.raises(ValueError):
-            BootstrapBundle.model_validate(payload)
-
-    store = DesktopBootstrapStore(
-        tmp_path / "state/bootstrap.json",
-        MemoryCredentials(),
-        verify_enrollment=lambda _: None,
-        now=lambda: TEST_NOW,
-    )
-    with pytest.raises(ProviderError, match="trusted control plane"):
-        store.import_bundle(BootstrapBundle.model_validate(bundle_payload()))
-
-
-def test_import_rejects_expired_future_and_unverified_enrollment(tmp_path: Path) -> None:
-    credentials = MemoryCredentials()
-    store = verified_store(tmp_path / "state/bootstrap.json", credentials)
-    expired = bundle_payload()
-    expired["issuedAt"] = (TEST_NOW - timedelta(days=8)).isoformat()
-    with pytest.raises(ProviderError, match="expired"):
-        store.import_bundle(BootstrapBundle.model_validate(expired))
-
-    future = bundle_payload()
-    future["issuedAt"] = (TEST_NOW + timedelta(minutes=6)).isoformat()
-    with pytest.raises(ProviderError, match="not yet valid"):
-        store.import_bundle(BootstrapBundle.model_validate(future))
-
-    rejected = DesktopBootstrapStore(
-        tmp_path / "other/bootstrap.json",
-        credentials,
-        trusted_origins=TEST_ORIGINS,
-        verify_enrollment=lambda _: (_ for _ in ()).throw(
-            ProviderError("The bootstrap enrollment is expired or revoked")
-        ),
-        now=lambda: TEST_NOW,
-    )
-    with pytest.raises(ProviderError, match="expired or revoked"):
-        rejected.import_bundle(BootstrapBundle.model_validate(bundle_payload()))
-    assert credentials.values == {}
-
-
-def test_revoke_keeps_replay_history_and_allows_new_installation(tmp_path: Path) -> None:
-    credentials = MemoryCredentials()
-    store = verified_store(tmp_path / "state/bootstrap.json", credentials)
-    first_payload = bundle_payload()
-    first = store.import_bundle(BootstrapBundle.model_validate(first_payload))
-    store.finish_revoke(first)
-
-    assert credentials.get(first.installation_id) is None
-    assert store.state().active is None
-    with pytest.raises(ProviderError, match="already imported"):
-        store.import_bundle(BootstrapBundle.model_validate(first_payload))
-
-    second_payload = bundle_payload("b" * 32)
-    second = store.import_bundle(BootstrapBundle.model_validate(second_payload))
-    assert second.installation_id == "b" * 32
-    assert len(store.state().consumed_bundle_ids) == 2
 
 
 class FakeControlPlane:
@@ -163,6 +61,8 @@ class FakeControlPlane:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if self.offline:
             raise httpx.ConnectError("test outage")
+        if request.url.path.endswith("/v1/installations/enroll"):
+            return httpx.Response(201, json=self.payload)
         if self.reject_credential:
             return httpx.Response(401, json={"error": "unauthorized"})
         expected = "Bear" + f"er {self.payload['installationCredential']}"
@@ -215,7 +115,32 @@ def manager_fixture(
     payload = bundle_payload()
     credentials = MemoryCredentials()
     store = verified_store(tmp_path / "remote/bootstrap.json", credentials)
-    store.import_bundle(BootstrapBundle.model_validate(payload))
+    fake = FakeControlPlane(payload)
+    store.ensure_enrolled(
+        control_plane_origin="https://control.example.com",
+        transport=httpx.MockTransport(fake),
+    )
+    binary = tmp_path / "resources/cloudflared"
+    binary.parent.mkdir()
+    binary.write_bytes(b"test binary")
+    manager = DesktopRemoteManager(
+        tmp_path / "remote",
+        binary,
+        bootstrap_store=store,
+        transport=httpx.MockTransport(fake),
+        control_plane_origin="https://control.example.com",
+    )
+    return manager, credentials, fake, payload
+
+
+def test_first_enable_transparently_enrolls_and_keeps_credential_native(tmp_path: Path) -> None:
+    payload = bundle_payload()
+    credentials = MemoryCredentials()
+    store = DesktopBootstrapStore(
+        tmp_path / "remote/bootstrap.json",
+        credentials,
+        trusted_origins=TEST_ORIGINS,
+    )
     binary = tmp_path / "resources/cloudflared"
     binary.parent.mkdir()
     binary.write_bytes(b"test binary")
@@ -225,8 +150,47 @@ def manager_fixture(
         binary,
         bootstrap_store=store,
         transport=httpx.MockTransport(fake),
+        control_plane_origin="https://control.example.com",
     )
-    return manager, credentials, fake, payload
+
+    enabled = manager.enable()
+
+    assert enabled["provisioned"] is True
+    active = store.state().active
+    assert active is not None
+    assert active.installation_id == payload["installationId"]
+    assert credentials.get(active.installation_id) == payload["installationCredential"]
+    assert str(payload["installationCredential"]) not in store.path.read_text(encoding="utf-8")
+
+
+def test_enrollment_honors_retry_after_with_backoff_and_jitter(tmp_path: Path) -> None:
+    payload = bundle_payload()
+    credentials = MemoryCredentials()
+    store = DesktopBootstrapStore(
+        tmp_path / "remote/bootstrap.json",
+        credentials,
+        trusted_origins=TEST_ORIGINS,
+    )
+    attempts = 0
+    sleeps: list[float] = []
+
+    def enrollment(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(429, headers={"Retry-After": "2"}, json={"error": "limited"})
+        return httpx.Response(201, json=payload)
+
+    metadata = store.ensure_enrolled(
+        control_plane_origin="https://control.example.com",
+        transport=httpx.MockTransport(enrollment),
+        sleep=sleeps.append,
+        random_value=lambda: 0.5,
+    )
+
+    assert metadata.installation_id == payload["installationId"]
+    assert attempts == 3
+    assert sleeps == [2.0, 2.0]
 
 
 def test_desktop_enable_restart_and_permanent_disable(tmp_path: Path) -> None:
@@ -258,9 +222,9 @@ def test_desktop_enable_restart_and_permanent_disable(tmp_path: Path) -> None:
     assert credentials.get(str(payload["installationId"])) is None
 
     replacement = bundle_payload("b" * 32)
-    restarted.bootstrap.import_bundle(BootstrapBundle.model_validate(replacement))
     replacement_control = FakeControlPlane(replacement)
     restarted.transport = httpx.MockTransport(replacement_control)
+    restarted.control_plane_origin = "https://control.example.com"
     reenabled = restarted.enable()
     assert reenabled["provisioned"] is True
     active_replacement = restarted.bootstrap.state().active
@@ -331,7 +295,7 @@ def test_revoked_or_expired_installation_is_retired_during_reconcile(tmp_path: P
     assert manager._connector_token is None
 
 
-def test_missing_native_credential_allows_safe_bundle_reimport(tmp_path: Path) -> None:
+def test_missing_native_credential_fails_closed_without_reenrollment(tmp_path: Path) -> None:
     manager, credentials, _, payload = manager_fixture(tmp_path)
     credentials.delete(str(payload["installationId"]))
 
@@ -339,9 +303,6 @@ def test_missing_native_credential_allows_safe_bundle_reimport(tmp_path: Path) -
 
     assert status["provisioned"] is True
     assert status["credential_available"] is False
-
-    replacement = bundle_payload("b" * 32)
-    manager.bootstrap.import_bundle(BootstrapBundle.model_validate(replacement))
-    active = manager.bootstrap.state().active
-    assert active is not None
-    assert active.installation_id == "b" * 32
+    with pytest.raises(ProviderError, match="credential is unavailable"):
+        manager.enable()
+    assert manager.bootstrap.state().active is not None

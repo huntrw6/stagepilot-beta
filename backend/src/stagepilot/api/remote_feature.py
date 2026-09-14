@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict
 
 from stagepilot.api.remote_auth import LoginRequest, RemoteRoute, _admin
 from stagepilot.api.remote_ingress import remote_context
@@ -16,13 +14,6 @@ from stagepilot.remote_provider import ProviderError
 from stagepilot.services.remote_auth import RemoteRole
 
 router = APIRouter(prefix="/api/v1/remote-access", route_class=RemoteRoute)
-
-
-class BootstrapImportRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    path: str
-
 
 def manager(request: Request) -> Any | None:
     return getattr(request.app.state, "remote_manager", None)
@@ -64,20 +55,6 @@ async def status(request: Request) -> dict[str, Any]:
     )
     return result
 
-
-@router.post("/import", status_code=201)
-async def import_bundle(body: BootstrapImportRequest, request: Request) -> dict[str, Any]:
-    access = _admin(request)
-    mutation(request)
-    if remote_context(request.scope) is not None:
-        raise HTTPException(403, "Import the friend bundle from local StagePilot.")
-    value = manager(request)
-    if value is None:
-        raise HTTPException(503, "Bundle import is available only in packaged StagePilot.")
-    try:
-        return await access.call(value.import_bundle, Path(body.path))
-    except ProviderError as exc:
-        raise HTTPException(409, "The friend bundle could not be imported.") from exc
 
 
 @router.post("/bootstrap", status_code=201)
