@@ -134,9 +134,8 @@ class BetaControlConfig(BaseModel):
         if self.credential_file is not None and not self.credential_file.is_absolute():
             raise ValueError("Remote paths must be absolute")
         install = self.installation_dir.resolve()
-        if (
-            self.credential_file is not None
-            and self.credential_file.resolve().is_relative_to(install)
+        if self.credential_file is not None and self.credential_file.resolve().is_relative_to(
+            install
         ):
             raise ValueError("Provisioning credential must not be in the connector export")
         if self.state_dir.resolve().is_relative_to(install):
