@@ -13,7 +13,6 @@ jobs:
     environment: stagepilot-control-plane
     env:
       CONTROL_PLANE_ORIGIN: https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev
-      CLOUDFLARED_BIN: ${{ runner.temp }}/cloudflared
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -24,6 +23,8 @@ jobs:
       - run: npm ci --prefix control-plane
       - name: Install checksummed Linux acceptance connector
         shell: bash
+        env:
+          CLOUDFLARED_BIN: ${{ runner.temp }}/cloudflared
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 \
@@ -35,4 +36,6 @@ jobs:
           chmod 700 "$CLOUDFLARED_BIN"
           "$CLOUDFLARED_BIN" --version
       - name: Exercise transparent enrollment, isolation, HTTPS, WSS, and cleanup
+        env:
+          CLOUDFLARED_BIN: ${{ runner.temp }}/cloudflared
         run: npm --prefix control-plane run acceptance:live
