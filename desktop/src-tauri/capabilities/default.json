@@ -18,6 +18,7 @@
     },
     "updater:default",
     "process:allow-restart",
+    "dialog:allow-open",
     "window-state:default"
   ]
 }

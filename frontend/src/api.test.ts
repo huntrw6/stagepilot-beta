@@ -392,3 +392,75 @@ describe("Lights API", () => {
     );
   });
 });
+
+// Remote sessions stay in HttpOnly cookies; only capabilities/CSRF live in memory.
+import { getAccess, getState, loginRemote, logoutRemote, performAction, resolveApiOrigin, ApiError } from "./api";
+import { NO_CAPABILITIES, LOCAL_CAPABILITIES, onAccessInvalidated, setApiAccess } from "./access/accessState";
+import type { DashboardAccess } from "./types";
+
+const operatorAccess: DashboardAccess = {
+  mode: "remote", authentication: "password", authenticated: true,
+  capabilities: { ...LOCAL_CAPABILITIES, canActivateServices: false },
+  user: { email: "operator@example.com", role: "Operator" }, expires_at: null, csrf_token: "csrf-test-only",
+};
+afterEach(() => setApiAccess(null));
+
+describe("remote access API", () => {
+  it("uses the page origin for HTTPS and custom-port LAN, while preserving desktop/development ports", () => {
+    const remote = { protocol: "https:", origin: "https://remote.example.com", hostname: "remote.example.com", port: "" };
+    expect(resolveApiOrigin(remote, false, false, undefined, 8765)).toBe(remote.origin);
+    const lan = { protocol: "http:", origin: "http://stagepilot.local:9001", hostname: "stagepilot.local", port: "9001" };
+    expect(resolveApiOrigin(lan, false, false, undefined, 8765)).toBe(lan.origin);
+    expect(resolveApiOrigin(remote, true, false, undefined, 9001)).toBe("http://127.0.0.1:9001");
+    expect(resolveApiOrigin({ ...lan, origin: "http://localhost:5173", hostname: "localhost", port: "5173" }, false, true, undefined, 8765)).toBe("http://127.0.0.1:8765");
+    expect(resolveApiOrigin(remote, false, false, "https://configured.example.com/", 8765)).toBe("https://configured.example.com");
+  });
+
+  it("gets backend capabilities without cache and logs in with the remote login header", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => operatorAccess });
+    vi.stubGlobal("fetch", fetchMock);
+    await getAccess();
+    expect(fetchMock).toHaveBeenLastCalledWith(`${apiOrigin}/api/v1/access`, expect.objectContaining({ cache: "no-store", credentials: "include" }));
+    await loginRemote("operator@example.com", "test-password");
+    expect(fetchMock).toHaveBeenLastCalledWith(`${apiOrigin}/api/v1/remote-auth/login`, expect.objectContaining({
+      credentials: "include", method: "POST",
+      headers: expect.objectContaining({ "X-StagePilot-Remote": "1" }),
+      body: JSON.stringify({ email: "operator@example.com", password: "test-password" }),
+    }));
+  });
+
+  it("attaches CSRF to Operator mutations and handles the 204 sign-out response", async () => {
+    setApiAccess(operatorAccess);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+    await performAction("start_next");
+    expect(fetchMock).toHaveBeenLastCalledWith(`${apiOrigin}/api/v1/actions/start_next`, expect.objectContaining({
+      credentials: "include", headers: { Accept: "application/json", "X-CSRF-Token": "csrf-test-only",
+        "Idempotency-Key": expect.stringMatching(/^[a-f0-9-]{36}$/) },
+    }));
+    await expect(logoutRemote()).resolves.toBeUndefined();
+  });
+
+  it("blocks Viewer configuration requests and commands before fetch but permits live state", async () => {
+    setApiAccess({ ...operatorAccess, capabilities: { ...NO_CAPABILITIES, canRead: true } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ revision: 9 }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getMidiInputs()).rejects.toBeInstanceOf(ApiError);
+    await expect(performAction("start_next")).rejects.toBeInstanceOf(ApiError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(getState()).resolves.toEqual({ revision: 9 });
+  });
+
+  it.each([401, 403])("invalidates access on API rejection (%s), without treating login failures as session expiry", async (status) => {
+    setApiAccess(operatorAccess);
+    const invalidated = vi.fn();
+    const unsubscribe = onAccessInvalidated(invalidated);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status, json: async () => ({ detail: "Access rejected" }) }));
+    try {
+      await expect(loginRemote("operator@example.com", "wrong-password")).rejects.toMatchObject({ status });
+      expect(invalidated).not.toHaveBeenCalled();
+      await expect(getState()).rejects.toMatchObject({ status });
+      expect(invalidated).toHaveBeenCalledOnce();
+    } finally { unsubscribe(); }
+  });
+});

@@ -160,8 +160,16 @@ jobs:
           if-no-files-found: error
 
   desktop-macos-lifecycle:
-    name: Desktop lifecycle — macOS
-    runs-on: macos-15
+    name: Desktop lifecycle — ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            runner: macos-15
+          - name: macOS Intel
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Check out repository

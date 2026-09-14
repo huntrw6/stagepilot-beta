@@ -25,6 +25,7 @@ export function StatusCard({
   active,
   controls,
   onClick,
+  interactive = true,
 }: {
   title: string;
   accessibleTitle?: string;
@@ -34,20 +35,22 @@ export function StatusCard({
   active: boolean;
   controls: string;
   onClick: () => void;
+  interactive?: boolean;
 }) {
+  const Element = interactive ? "button" : "div";
   return (
-    <button
+    <Element
       aria-label={`${accessibleTitle} ${status}. ${detail}`}
-      aria-controls={controls}
-      aria-expanded={active}
+      aria-controls={interactive ? controls : undefined}
+      aria-expanded={interactive ? active : undefined}
       data-status={status}
       className={`status-card group min-w-0 rounded-xl border bg-stage-850 p-3 text-left shadow-panel transition-all duration-150 sm:p-4 ${
         active
           ? "border-[#ff6238]/70 bg-[#ff6238]/[0.08] shadow-[inset_3px_0_0_#ff6238,0_18px_50px_rgba(0,0,0,0.22)]"
           : "border-white/7 hover:border-white/20 hover:bg-slate-950/70"
       }`}
-      onClick={onClick}
-      type="button"
+      onClick={interactive ? onClick : undefined}
+      type={interactive ? "button" : undefined}
     >
       <span aria-hidden="true" className="status-card-surface" data-status-motion-part="surface" />
       <div className="status-card-layout grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-1 xl:gap-x-3">
@@ -70,6 +73,6 @@ export function StatusCard({
         </span>
         <p className="status-card-detail col-span-2 mt-2 truncate text-xs text-slate-500 transition-all group-hover:text-slate-300" title={detail}>{detail}</p>
       </div>
-    </button>
+    </Element>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Dashboard } from "./components/Dashboard";
 import { DesktopTitleBar } from "./components/DesktopTitleBar";
-import { WebDashboardPinGate } from "./components/WebDashboardPinGate";
+import { DashboardAccessGate } from "./components/DashboardAccessGate";
 import {
   backendStartupTitle,
   desktopBackendStatus,
@@ -10,11 +10,13 @@ import {
   restartDesktopBackend,
   type BackendSupervisorStatus,
 } from "./desktop";
+import { useDashboardAccess } from "./access/AccessContext";
 import { useStagePilot } from "./hooks/useStagePilot";
 import { useUpdater } from "./hooks/useUpdater";
 import { useStartupProgress } from "./startup/useStartupProgress";
 
 function StagePilotApp() {
+  const access = useDashboardAccess();
   const stagePilot = useStagePilot();
   const {
     activateConfiguredServices,
@@ -73,13 +75,13 @@ function StagePilotApp() {
   }, [dashboardVisible, stagePilot.state, startupProgress.complete]);
 
   useEffect(() => {
-    if (!dashboardVisible || !stagePilotSettings || startupServicesActivated.current) return;
+    if (!access.capabilities.canActivateServices || !dashboardVisible || !stagePilotSettings || startupServicesActivated.current) return;
     const activate = window.setTimeout(() => {
       startupServicesActivated.current = true;
       void activateConfiguredServices();
     }, 1_000);
     return () => window.clearTimeout(activate);
-  }, [activateConfiguredServices, dashboardVisible, stagePilotSettings]);
+  }, [access.capabilities.canActivateServices, activateConfiguredServices, dashboardVisible, stagePilotSettings]);
 
   if (!stagePilot.state || !dashboardVisible) {
     const retryBackend = async () => {
@@ -178,15 +180,15 @@ function StagePilotApp() {
   return (
     <>
       <DesktopTitleBar />
-      <Dashboard {...stagePilot} state={stagePilot.state} updater={updater} />
+      <Dashboard {...stagePilot} capabilities={access.capabilities} state={stagePilot.state} updater={updater} />
     </>
   );
 }
 
 export default function App() {
   return (
-    <WebDashboardPinGate>
+    <DashboardAccessGate>
       <StagePilotApp />
-    </WebDashboardPinGate>
+    </DashboardAccessGate>
   );
 }

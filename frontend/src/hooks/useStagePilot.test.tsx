@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  getAccess,
   getHealth,
   getLightsStatus,
   getMidiInputs,
@@ -30,9 +31,13 @@ import type {
   PlanSelectionResponse,
   SettingsResponse,
 } from "../types";
+import { AccessContext } from "../access/AccessContext";
+import { NO_CAPABILITIES, setApiAccess, accessGeneration, invalidateAccess } from "../access/accessState";
+import type { DashboardAccess } from "../types";
 import { useStagePilot } from "./useStagePilot";
 
 vi.mock("../api", () => ({
+  getAccess: vi.fn(),
   getHealth: vi.fn(),
   getLightsStatus: vi.fn(),
   getMidiInputs: vi.fn(),
@@ -66,7 +71,7 @@ class MockWebSocket {
   onopen: (() => void) | null = null;
   onmessage: ((message: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event?: { code: number }) => void | Promise<void>) | null = null;
 
   constructor(readonly url: string) {
     MockWebSocket.instances.push(this);
@@ -270,9 +275,10 @@ afterEach(() => {
 describe("useStagePilot", () => {
   it("treats an initial WebSocket close as expected backend startup", async () => {
     const { result } = renderHook(() => useStagePilot());
+    await waitFor(() => expect(result.current.state?.revision).toBe(1));
     const socket = MockWebSocket.instances[0];
 
-    act(() => socket!.onclose?.());
+    await act(async () => { await socket!.onclose?.(); });
 
     expect(result.current.error).toBe("Waiting for the local backend.");
     expect(result.current.error).not.toContain("interrupted");
@@ -280,10 +286,11 @@ describe("useStagePilot", () => {
 
   it("reports an interruption only after a live connection was established", async () => {
     const { result } = renderHook(() => useStagePilot());
+    await waitFor(() => expect(result.current.state?.revision).toBe(1));
     const socket = MockWebSocket.instances[0];
 
-    act(() => socket!.onopen?.());
-    act(() => socket!.onclose?.());
+    await act(async () => { socket!.onopen?.(); });
+    await act(async () => { await socket!.onclose?.(); });
 
     expect(result.current.error).toBe("Live connection interrupted; reconnecting.");
   });
@@ -714,5 +721,88 @@ describe("useStagePilot", () => {
     expect(mockedUpdatePlanningCenterSettings).toHaveBeenCalledWith(
       configured.settings.planning_center,
     );
+  });
+});
+
+const viewerAccess: DashboardAccess = {
+  mode: "remote", authentication: "password", authenticated: true,
+  capabilities: { ...NO_CAPABILITIES, canRead: true }, user: { email: "viewer@example.com", role: "Viewer" },
+  expires_at: null, csrf_token: "test-csrf",
+};
+const viewerWrapper = ({ children }: { children: React.ReactNode }) =>
+  <AccessContext.Provider value={viewerAccess}>{children}</AccessContext.Provider>;
+
+describe("remote capability-aware state access", () => {
+  afterEach(() => { setApiAccess(null); });
+
+  it("loads live state/health for Viewers without any privileged fetch or startup mutation", async () => {
+    const { result } = renderHook(() => useStagePilot(), { wrapper: viewerWrapper });
+    await waitFor(() => expect(result.current.state?.revision).toBe(1));
+    expect(getHealth).toHaveBeenCalled();
+    for (const load of [getSettings, getMidiInputs, getMidiMessages, getLightsStatus, getPlanningCenterStatus]) {
+      expect(load).not.toHaveBeenCalled();
+    }
+    await act(async () => {
+      await result.current.dispatch("start_next");
+      await result.current.selectPlan("plan-id");
+      await result.current.activateConfiguredServices();
+      await result.current.refreshMidi();
+      await result.current.simulateMidi("start_next");
+      await result.current.loadPlanningCenterServiceTypes();
+    });
+    for (const operate of [performAction, selectPlanningCenterPlan, refreshMidiInputs, simulateMidiCue, getPlanningCenterServiceTypes, updateSettings]) {
+      expect(operate).not.toHaveBeenCalled();
+    }
+    const socket = MockWebSocket.instances.at(-1)!;
+    act(() => socket.sendState({ ...applicationState(9), midi_status: "disconnected", propresenter_status: "error" }));
+    expect(result.current.state?.revision).toBe(9);
+    expect(getMidiInputs).not.toHaveBeenCalled();
+    expect(result.current.settings).toBeNull();
+  });
+
+  it.each([4401, 4403])("stops reconnecting and clears state when WebSocket access is rejected (%s)", async (code) => {
+    const { result } = renderHook(() => useStagePilot(), { wrapper: viewerWrapper });
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    const count = MockWebSocket.instances.length;
+    vi.useFakeTimers();
+    await act(async () => { await MockWebSocket.instances.at(-1)!.onclose?.({ code }); });
+    expect(result.current.state).toBeNull();
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(MockWebSocket.instances).toHaveLength(count);
+    vi.useRealTimers();
+  });
+
+  it("probes backend access after an opaque rejected handshake instead of looping", async () => {
+    vi.mocked(getAccess).mockResolvedValue({ ...viewerAccess, authenticated: false, capabilities: NO_CAPABILITIES });
+    const { result } = renderHook(() => useStagePilot(), { wrapper: viewerWrapper });
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    await act(async () => { await MockWebSocket.instances.at(-1)!.onclose?.({ code: 1006 }); });
+    expect(getAccess).toHaveBeenCalledOnce();
+    expect(result.current.state).toBeNull();
+  });
+
+  it("keeps normal network backoff when the access probe is unavailable", async () => {
+    vi.mocked(getAccess).mockRejectedValue(new Error("Network unavailable"));
+    const { result } = renderHook(() => useStagePilot(), { wrapper: viewerWrapper });
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    const count = MockWebSocket.instances.length;
+    vi.useFakeTimers();
+    await act(async () => { await MockWebSocket.instances.at(-1)!.onclose?.({ code: 1006 }); });
+    act(() => vi.advanceTimersByTime(1_001));
+    expect(MockWebSocket.instances).toHaveLength(count + 1);
+    expect(result.current.state).not.toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("stops the state hook on API invalidation and ignores stale session rejection", async () => {
+    setApiAccess(viewerAccess);
+    const oldGeneration = accessGeneration();
+    const { result } = renderHook(() => useStagePilot(), { wrapper: viewerWrapper });
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    setApiAccess(viewerAccess);
+    act(() => invalidateAccess(oldGeneration));
+    expect(result.current.state).not.toBeNull();
+    act(() => invalidateAccess());
+    expect(result.current.state).toBeNull();
   });
 });
