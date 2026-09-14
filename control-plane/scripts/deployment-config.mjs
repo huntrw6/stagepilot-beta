@@ -20,6 +20,8 @@ export function validateDeploymentEnvironment(environment) {
   const zoneId = required(environment, "CLOUDFLARE_ZONE_ID");
   const hostnameSuffix = required(environment, "REMOTE_HOST_SUFFIX").toLowerCase();
   const remotePortText = required(environment, "REMOTE_PORT");
+  const enrollmentEnabled = required(environment, "ENROLLMENT_ENABLED");
+  const installationLimitText = required(environment, "BETA_INSTALLATION_LIMIT");
   const providerToken = required(environment, "CLOUDFLARE_API_TOKEN");
   const adminToken = required(environment, "ADMIN_API_TOKEN");
   const signingKey = required(environment, "INSTALLATION_SIGNING_KEY");
@@ -33,12 +35,19 @@ export function validateDeploymentEnvironment(environment) {
   if (!Number.isInteger(remotePort) || remotePort < 1024 || remotePort > 65535 || remotePort === 8765) {
     throw new Error("REMOTE_PORT must be an integer from 1024 through 65535 other than 8765");
   }
+  if (!["true", "false"].includes(enrollmentEnabled)) {
+    throw new Error("ENROLLMENT_ENABLED must be true or false");
+  }
+  const installationLimit = Number(installationLimitText);
+  if (!Number.isInteger(installationLimit) || installationLimit < 1 || installationLimit > 10000) {
+    throw new Error("BETA_INSTALLATION_LIMIT must be an integer from 1 through 10000");
+  }
   if (providerToken.length < 20) throw new Error("CLOUDFLARE_API_TOKEN is too short");
   if (adminToken.length < 32) throw new Error("ADMIN_API_TOKEN must contain at least 32 characters");
   if (signingKey.length < 32) throw new Error("INSTALLATION_SIGNING_KEY must contain at least 32 characters");
   if (adminToken === signingKey) throw new Error("ADMIN_API_TOKEN and INSTALLATION_SIGNING_KEY must be independent");
 
-  return { accountId, zoneId, hostnameSuffix, remotePort };
+  return { accountId, zoneId, hostnameSuffix, remotePort, enrollmentEnabled, installationLimit };
 }
 
 export function installedSecretNames(output) {
@@ -62,7 +71,7 @@ function main() {
   if (command === "validate") {
     const config = validateDeploymentEnvironment(process.env);
     console.log(
-      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}; 3 runtime secrets present.`,
+      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}, enrollment=${config.enrollmentEnabled}, installation limit=${config.installationLimit}; 3 runtime secrets present.`,
     );
     return;
   }

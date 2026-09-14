@@ -1,7 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type BackendSupervisorStatus = {
@@ -75,16 +74,6 @@ export const restartDesktopBackend = async (): Promise<boolean> => {
   if (!isTauri()) return false;
   await invoke<BackendSupervisorStatus>("restart_managed_backend");
   return true;
-};
-
-export const chooseRemoteBootstrapBundle = async (): Promise<string | null> => {
-  if (!isTauri()) return null;
-  const selected = await open({
-    multiple: false,
-    directory: false,
-    filters: [{name: "StagePilot friend bundle", extensions: ["json"]}],
-  });
-  return typeof selected === "string" ? selected : null;
 };
 
 export const setRemoteAutostart = async (enabled: boolean): Promise<void> => {

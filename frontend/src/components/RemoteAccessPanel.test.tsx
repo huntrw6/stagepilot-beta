@@ -9,12 +9,12 @@ import { RemoteAccessPanel } from "./RemoteAccessPanel";
 vi.mock("../api", async (original) => ({
   ...await original<typeof import("../api")>(),
   getRemoteStatus: vi.fn(), getRemoteUsers: vi.fn(), setRemoteEnabled: vi.fn(),
-  bootstrapRemote: vi.fn(), importRemoteBundle: vi.fn(), createRemoteUser: vi.fn(),
+  bootstrapRemote: vi.fn(), createRemoteUser: vi.fn(),
   updateRemoteUser: vi.fn(), deleteRemoteUser: vi.fn(),
 }));
 vi.mock("../desktop", async (original) => ({
   ...await original<typeof import("../desktop")>(),
-  chooseRemoteBootstrapBundle: vi.fn(), setRemoteAutostart: vi.fn(),
+  setRemoteAutostart: vi.fn(),
 }));
 const off: api.RemoteStatus = {available: true, provisioned: true, credential_available: true, enabled: false, state: "off", url: null, needs_operator: true, message: null, temporary_url: true};
 const operator: api.RemoteUser = {id: "one", email: "operator@example.test", role: "Operator", enabled: true};
@@ -41,27 +41,22 @@ describe("Remote Access", () => {
     expect(desktop.setRemoteAutostart).toHaveBeenCalledWith(true);
   });
 
-  it("imports a friend bundle before enabling", async () => {
+  it("allows first use to enroll transparently while enabling", async () => {
     const unprovisioned = {...off, provisioned: false, credential_available: false};
     vi.mocked(api.getRemoteStatus).mockResolvedValue(unprovisioned);
-    vi.mocked(desktop.chooseRemoteBootstrapBundle).mockResolvedValue("/private/friend.json");
-    vi.mocked(api.importRemoteBundle).mockResolvedValue({...unprovisioned, provisioned: true, credential_available: true});
     render(<RemoteAccessPanel onClose={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", {name: "Import friend bundle"}));
-
-    await waitFor(() => expect(api.importRemoteBundle).toHaveBeenCalledWith("/private/friend.json"));
-    expect(screen.getByRole("button", {name: "Enable Remote Access"})).toBeDisabled();
-    expect(screen.getByText(/Secure erasure is not claimed/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", {name: "Enable Remote Access"})).toBeEnabled();
+    expect(screen.queryByText(/friend bundle/i)).not.toBeInTheDocument();
   });
 
   it("blocks enable when the native installation credential is unavailable", async () => {
     vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, credential_available: false});
     render(<RemoteAccessPanel onClose={vi.fn()} />);
 
-    expect(await screen.findByText(/enrollment is unavailable or revoked/)).toBeInTheDocument();
+    expect(await screen.findByText(/credential is unavailable or revoked/)).toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Enable Remote Access"})).toBeDisabled();
-    expect(screen.getByRole("button", {name: "Import friend bundle"})).toBeEnabled();
+    expect(screen.queryByRole("button", {name: /Import/})).not.toBeInTheDocument();
   });
 
   it("shows only safe connected URL and protects last Operator", async () => {

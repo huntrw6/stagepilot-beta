@@ -1,29 +1,28 @@
-"""One-time desktop import for friend-specific private-beta bootstrap bundles."""
+"""Native credential storage and transparent private-beta enrollment."""
 
 from __future__ import annotations
 
-import json
 import os
+import random
 import re
-import stat
-import sys
+import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Protocol
 from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from stagepilot.remote_files import atomic_write
 from stagepilot.remote_provider import ProviderError
 
-BOOTSTRAP_SCHEMA = "org.stagepilot.private-beta-bootstrap"
-BOOTSTRAP_VERSION = 1
-BOOTSTRAP_MAX_AGE = timedelta(days=7)
-BOOTSTRAP_FUTURE_SKEW = timedelta(minutes=5)
+INSTALLATION_SCHEMA = "org.stagepilot.private-beta-installation"
+DEFAULT_CONTROL_PLANE_ORIGIN = (
+    "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev"
+)
+DEFAULT_REMOTE_PORT = 18766
 TRUSTED_CONTROL_PLANE_ORIGINS = frozenset(
     {"https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev"}
 )
@@ -100,70 +99,6 @@ class NativeRemoteCredentialStore:
             raise ProviderError("The installation credential could not be removed")
 
 
-class BootstrapBundle(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
-
-    schema_name: str = Field(alias="schema")
-    version: int
-    bundle_id: str = Field(alias="bundleId")
-    control_plane_origin: str = Field(alias="controlPlaneOrigin")
-    installation_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")] = Field(
-        alias="installationId"
-    )
-    hostname: str
-    remote_port: int = Field(alias="remotePort", ge=1024, le=65535)
-    installation_credential: str = Field(alias="installationCredential", min_length=70)
-    issued_at: str = Field(alias="issuedAt")
-
-    @field_validator("bundle_id")
-    @classmethod
-    def uuid_v4(cls, value: str) -> str:
-        try:
-            parsed = UUID(value)
-        except (ValueError, AttributeError) as exc:
-            raise ValueError("Bootstrap bundle ID must be UUID v4") from exc
-        if parsed.version != 4 or str(parsed) != value.casefold():
-            raise ValueError("Bootstrap bundle ID must be UUID v4")
-        return value
-
-    @field_validator("issued_at")
-    @classmethod
-    def issue_time(cls, value: str) -> str:
-        try:
-            datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid bootstrap issue time") from exc
-        return value
-
-    @model_validator(mode="after")
-    def binding_policy(self) -> BootstrapBundle:
-        if self.schema_name != BOOTSTRAP_SCHEMA or self.version != BOOTSTRAP_VERSION:
-            raise ValueError("Unsupported bootstrap bundle schema")
-        parsed = urlsplit(self.control_plane_origin)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.path not in {"", "/"}
-            or parsed.query
-            or parsed.fragment
-            or parsed.username
-            or parsed.password
-            or self.control_plane_origin != f"https://{parsed.netloc}"
-        ):
-            raise ValueError("Control-plane origin must be an exact HTTPS origin")
-        if not _HOSTNAME.fullmatch(self.hostname) or ".." in self.hostname:
-            raise ValueError("Invalid installation hostname")
-        suffix = self.hostname.split(".", 1)[1]
-        if self.hostname != f"sp-{self.installation_id}.{suffix}":
-            raise ValueError("Bootstrap hostname is not bound to its installation ID")
-        credential = _CREDENTIAL.fullmatch(self.installation_credential)
-        if credential is None or credential.group(1) != self.installation_id:
-            raise ValueError("Bootstrap credential is not bound to its installation ID")
-        if self.remote_port == 8765:
-            raise ValueError("Remote port must differ from the local StagePilot port")
-        return self
-
-
 class BootstrapMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
@@ -182,7 +117,10 @@ class BootstrapState(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
     active: BootstrapMetadata | None = None
-    consumed_bundle_ids: list[str] = Field(default_factory=list, alias="consumedBundleIds")
+    enrollment_nonce: str | None = Field(default=None, alias="enrollmentNonce")
+    legacy_consumed_bundle_ids: list[str] = Field(
+        default_factory=list, alias="consumedBundleIds", exclude=True
+    )
 
 
 class DesktopBootstrapStore:
@@ -192,16 +130,100 @@ class DesktopBootstrapStore:
         credentials: RemoteCredentialStore | None = None,
         *,
         trusted_origins: frozenset[str] = TRUSTED_CONTROL_PLANE_ORIGINS,
-        verify_enrollment: Callable[[BootstrapBundle], None] | None = None,
-        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if not path.is_absolute():
             raise ValueError("Desktop bootstrap state path must be absolute")
         self.path = path
         self.credentials = credentials or NativeRemoteCredentialStore()
         self.trusted_origins = trusted_origins
-        self.verify_enrollment = verify_enrollment or self._verify_enrollment
-        self.now = now
+
+    def ensure_enrolled(
+        self,
+        *,
+        control_plane_origin: str = DEFAULT_CONTROL_PLANE_ORIGIN,
+        remote_port: int = DEFAULT_REMOTE_PORT,
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        random_value: Callable[[], float] = random.random,
+    ) -> BootstrapMetadata:
+        """Transparently create and securely retain this installation identity."""
+
+        if control_plane_origin not in self.trusted_origins:
+            raise ProviderError("The enrollment service is not trusted")
+        current = self.state()
+        if current.active is not None:
+            self.credential(current.active)
+            return current.active
+        if current.enrollment_nonce is None:
+            current.enrollment_nonce = str(UUID(bytes=os.urandom(16), version=4))
+            self._write(current)
+        response: httpx.Response | None = None
+        with httpx.Client(
+            base_url=control_plane_origin,
+            timeout=20,
+            trust_env=False,
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            for attempt in range(3):
+                try:
+                    response = client.post(
+                        "/v1/installations/enroll", json={"nonce": current.enrollment_nonce}
+                    )
+                except httpx.HTTPError as exc:
+                    if attempt == 2:
+                        raise ProviderError("The enrollment service is unavailable") from exc
+                else:
+                    if response.status_code not in {429, 503} or attempt == 2:
+                        break
+                retry_after = 0
+                if response is not None:
+                    try:
+                        retry_after = max(
+                            0, min(300, int(response.headers.get("Retry-After", "0")))
+                        )
+                    except ValueError:
+                        retry_after = 0
+                sleep(max(float(retry_after), min(0.5 * (2**attempt) + random_value() * 0.25, 5.0)))
+        if response is None or response.status_code not in {200, 201}:
+            raise ProviderError("The enrollment service is unavailable; retry later")
+        try:
+            payload = response.json()
+            installation_id = payload["installationId"]
+            hostname = payload["hostname"]
+            credential = payload["installationCredential"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ProviderError("The enrollment response was invalid") from exc
+        match = _CREDENTIAL.fullmatch(credential) if isinstance(credential, str) else None
+        if (
+            not isinstance(installation_id, str)
+            or not re.fullmatch(r"[a-f0-9]{32}", installation_id)
+            or match is None
+            or match.group(1) != installation_id
+            or not isinstance(hostname, str)
+            or not _HOSTNAME.fullmatch(hostname)
+            or hostname != f"sp-{installation_id}.{hostname.split('.', 1)[1]}"
+        ):
+            raise ProviderError("The enrollment response was not installation-bound")
+        metadata = BootstrapMetadata.model_validate(
+            {
+                "schema": INSTALLATION_SCHEMA,
+                "version": 1,
+                "bundleId": current.enrollment_nonce,
+                "controlPlaneOrigin": control_plane_origin,
+                "installationId": installation_id,
+                "hostname": hostname,
+                "remotePort": remote_port,
+            }
+        )
+        self.credentials.set(installation_id, credential)
+        try:
+            current.active = metadata
+            self._write(current)
+        except Exception:
+            self.credentials.delete(installation_id)
+            raise
+        return metadata
 
     def state(self) -> BootstrapState:
         if not self.path.exists():
@@ -213,91 +235,6 @@ class DesktopBootstrapStore:
         except OSError as exc:
             raise ProviderError("Bootstrap metadata is unavailable") from exc
 
-    def import_path(self, source: Path) -> BootstrapMetadata:
-        if not source.is_absolute():
-            raise ProviderError("Select an absolute bootstrap bundle path")
-        try:
-            details = source.lstat()
-            if not stat.S_ISREG(details.st_mode) or source.is_symlink() or details.st_size > 16_384:
-                raise ProviderError("The bootstrap bundle must be a small regular file")
-            # Enrollment creates mode 0600. Windows ACLs do not map reliably to POSIX mode bits.
-            if sys.platform != "win32" and details.st_mode & 0o077:
-                raise ProviderError("The bootstrap bundle is not private to the current user")
-            payload = json.loads(source.read_text(encoding="utf-8"))
-            bundle = BootstrapBundle.model_validate(payload)
-        except ProviderError:
-            raise
-        except (OSError, ValueError, TypeError) as exc:
-            raise ProviderError("The bootstrap bundle is invalid or unavailable") from exc
-        return self.import_bundle(bundle)
-
-    def import_bundle(self, bundle: BootstrapBundle) -> BootstrapMetadata:
-        if bundle.control_plane_origin not in self.trusted_origins:
-            raise ProviderError("The bootstrap bundle did not come from the trusted control plane")
-        issued_at = datetime.fromisoformat(bundle.issued_at.replace("Z", "+00:00"))
-        if issued_at.tzinfo is None:
-            raise ProviderError("The bootstrap bundle issue time must include a timezone")
-        age = self.now().astimezone(UTC) - issued_at.astimezone(UTC)
-        if age < -BOOTSTRAP_FUTURE_SKEW or age > BOOTSTRAP_MAX_AGE:
-            raise ProviderError("The bootstrap bundle is expired or not yet valid")
-        current = self.state()
-        if bundle.bundle_id in current.consumed_bundle_ids:
-            raise ProviderError("This bootstrap bundle was already imported")
-        if current.active is not None:
-            try:
-                existing_credential = self.credential(current.active)
-            except ProviderError:
-                existing_credential = ""
-            if existing_credential:
-                raise ProviderError("This StagePilot installation is already provisioned")
-        self.verify_enrollment(bundle)
-        metadata = BootstrapMetadata.model_validate(
-            {
-                "schema": bundle.schema_name,
-                "version": bundle.version,
-                "bundleId": bundle.bundle_id,
-                "controlPlaneOrigin": bundle.control_plane_origin,
-                "installationId": bundle.installation_id,
-                "hostname": bundle.hostname,
-                "remotePort": bundle.remote_port,
-            }
-        )
-        self.credentials.set(bundle.installation_id, bundle.installation_credential)
-        try:
-            current.active = metadata
-            current.consumed_bundle_ids.append(bundle.bundle_id)
-            self._write(current)
-        except Exception:
-            self.credentials.delete(bundle.installation_id)
-            raise
-        return metadata
-
-    @staticmethod
-    def _verify_enrollment(bundle: BootstrapBundle) -> None:
-        try:
-            response = httpx.get(
-                f"{bundle.control_plane_origin}/v1/installations/{bundle.installation_id}/status",
-                headers={"Authorization": f"Bearer {bundle.installation_credential}"},
-                timeout=10,
-                trust_env=False,
-                follow_redirects=False,
-            )
-        except httpx.HTTPError as exc:
-            raise ProviderError("The bootstrap enrollment could not be verified") from exc
-        if response.status_code in {401, 403}:
-            raise ProviderError("The bootstrap enrollment is expired or revoked")
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise ProviderError("The bootstrap enrollment response was invalid") from exc
-        if (
-            response.status_code != 200
-            or not isinstance(payload, dict)
-            or payload.get("installationId") != bundle.installation_id
-            or payload.get("hostname") != bundle.hostname
-            or payload.get("revoked") is not False
-        ):
-            raise ProviderError("The bootstrap enrollment did not match the trusted control plane")
 
     def credential(self, metadata: BootstrapMetadata) -> str:
         value = self.credentials.get(metadata.installation_id)
@@ -311,6 +248,7 @@ class DesktopBootstrapStore:
         state = self.state()
         if state.active is not None and state.active.installation_id == metadata.installation_id:
             state.active = None
+            state.enrollment_nonce = None
             self._write(state)
 
     def _write(self, state: BootstrapState) -> None:
