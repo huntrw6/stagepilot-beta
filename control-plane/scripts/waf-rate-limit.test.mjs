@@ -20,9 +20,9 @@ function response(result, status = 200) {
 describe("Remote-only WAF rate limit", () => {
   it("uses the generated hostname namespace and generous Free-plan threshold", () => {
     assert.equal(hostnameExpression("illuminary.studio"), '(http.host wildcard "sp-*.illuminary.studio")');
-    assert.equal(REQUESTS_PER_PERIOD, 120);
-    assert.equal(PERIOD_SECONDS, 60);
-    assert.equal(MITIGATION_SECONDS, 60);
+    assert.equal(REQUESTS_PER_PERIOD, 60);
+    assert.equal(PERIOD_SECONDS, 10);
+    assert.equal(MITIGATION_SECONDS, 10);
   });
 
   it("creates and reads back exactly one dedicated rule", async () => {

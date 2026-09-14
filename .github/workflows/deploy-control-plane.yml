@@ -94,5 +94,3 @@ jobs:
         env:
           WRANGLER_SECRET_LIST: ${{ steps.runtime-secrets.outputs.command-output }}
         run: node control-plane/scripts/deployment-config.mjs verify-secrets
-      - name: Apply and read back the one Remote-host-only WAF rate-limit rule
-        run: node control-plane/scripts/waf-rate-limit.mjs apply

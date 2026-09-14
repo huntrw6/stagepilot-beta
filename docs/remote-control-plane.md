@@ -87,8 +87,9 @@ resource. The desktop retries bounded transient responses with `Retry-After`,
 exponential backoff, and jitter. Admin metrics expose only active/enrollment and
 denial totals; raw addresses, keyed hashes, IDs, and credentials are omitted.
 
-The zone has exactly one StagePilot-owned `http_ratelimit` rule: 120 requests per
-source IP and Cloudflare colo per 60 seconds, followed by a 60-second block. Its
+The zone has exactly one StagePilot-owned Free-plan `http_ratelimit` rule: 60
+requests per source IP and Cloudflare colo per 10 seconds, followed by a 10-second
+block. Its
 expression is `(http.host wildcard "sp-*.illuminary.studio")`, so unrelated
 `illuminary.studio` hosts and other ruleset phases are untouched. A WebSocket
 connection contributes its HTTP upgrade/reconnect request, not each WSS message.
@@ -193,7 +194,8 @@ The account and zone IDs are 32 lowercase hexadecimal characters. The suffix is
 the DNS suffix under which generated installation hostnames may be created. The
 dedicated port is 1024-65535 and must not be local port 8765. The provider token
 must have Worker Scripts deployment for the target account plus Account
-Cloudflare Tunnel Edit, Zone DNS Edit, and Zone WAF Edit for only the chosen zone. The admin token
+Cloudflare Tunnel Edit and Zone DNS Edit for only the chosen zone. The independent
+WAF operator must have Zone WAF Edit only for the chosen zone. The admin token
 and signing key are independent random values of at least 32 bytes.
 
 Dispatch the workflow manually and approve the protected environment when an
@@ -208,10 +210,13 @@ custom HTTPS origin, and `/health` before enrollment. Configure the custom Worke
 hostname narrowly in Cloudflare if it is not already attached; do not alter
 unrelated DNS records.
 
-The final workflow step creates or replaces only the rule with ref
-`stagepilot_remote_beta_rate_limit_v1`, refuses to overwrite any unrelated rate
-rule, and reads back its ruleset ID, rule ID, expression, threshold, period, and
-mitigation duration. To roll back the edge rule, delete that exact rule/ruleset in
+An independently authorized zone-WAF operator runs
+`node control-plane/scripts/waf-rate-limit.mjs apply`; the narrower Worker/tunnel
+token intentionally cannot edit WAF. The helper creates or replaces only the rule
+with ref `stagepilot_remote_beta_rate_limit_v1`, refuses to overwrite any unrelated
+rate rule, and reads back its ruleset ID, rule ID, expression, threshold, period,
+and mitigation duration. To roll back the edge rule, delete that exact rule/ruleset
+in
 the `http_ratelimit` phase through the Cloudflare dashboard/API, verify the phase
 has no StagePilot rule, and leave managed DDoS and every other phase unchanged.
 For emergency enrollment rollback, set `ENROLLMENT_ENABLED=false` and redeploy;

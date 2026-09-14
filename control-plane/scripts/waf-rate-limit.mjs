@@ -1,8 +1,8 @@
 const API = "https://api.cloudflare.com/client/v4";
 export const RULE_REF = "stagepilot_remote_beta_rate_limit_v1";
-export const REQUESTS_PER_PERIOD = 120;
-export const PERIOD_SECONDS = 60;
-export const MITIGATION_SECONDS = 60;
+export const REQUESTS_PER_PERIOD = 60;
+export const PERIOD_SECONDS = 10;
+export const MITIGATION_SECONDS = 10;
 
 function required(environment, name) {
   const value = environment[name];
@@ -62,7 +62,7 @@ function verify(ruleset, suffix) {
     || actual.ratelimit?.period !== expected.ratelimit.period
     || actual.ratelimit?.requests_per_period !== expected.ratelimit.requests_per_period
     || actual.ratelimit?.mitigation_timeout !== expected.ratelimit.mitigation_timeout
-    || actual.ratelimit?.requests_to_origin !== expected.ratelimit.requests_to_origin
+    || (actual.ratelimit?.requests_to_origin ?? false) !== expected.ratelimit.requests_to_origin
     || JSON.stringify([...(actual.ratelimit?.characteristics ?? [])].sort())
       !== JSON.stringify([...expected.ratelimit.characteristics].sort())
   ) throw new Error("StagePilot rate-limit rule read-back mismatch");

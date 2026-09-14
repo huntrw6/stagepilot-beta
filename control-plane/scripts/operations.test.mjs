@@ -67,7 +67,6 @@ describe("deployment configuration", () => {
       assert.match(workflow, new RegExp(`^ {12}${name}$`, "m"));
     }
     assert.match(workflow, /secret list --format json/);
-    assert.match(workflow, /waf-rate-limit\.mjs apply/);
     assert.doesNotMatch(wrangler, /REPLACE_WITH_|example\.invalid/);
   });
 });
