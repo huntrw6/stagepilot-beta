@@ -5,6 +5,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test": "vitest run",
+    "acceptance:live": "node scripts/live-acceptance.mjs",
     "validate:deployment": "node scripts/deployment-config.mjs validate"
   },
   "devDependencies": {
