@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  getAccess,
   getHealth,
   getLightsStatus,
   getMidiInputs,
@@ -55,12 +56,17 @@ import type {
 } from "../types";
 import { restartDesktopBackend } from "../desktop";
 
+import { useDashboardAccess } from "../access/AccessContext";
+import { accessGeneration, invalidateAccess, onAccessInvalidated } from "../access/accessState";
+
 const MAX_RECONNECT_DELAY = 10_000;
 const MIDI_MONITOR_INTERVAL = 750;
 const PROPRESENTER_MONITOR_INTERVAL = 3_000;
 const LIGHTS_MONITOR_INTERVAL = 3_000;
 
 export function useStagePilot() {
+  const access = useDashboardAccess();
+  const { canOperate, canConfigure, canActivateServices } = access.capabilities;
   const [state, setState] = useState<ApplicationState | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [live, setLive] = useState(false);
@@ -122,6 +128,7 @@ export function useStagePilot() {
   }, []);
 
   const loadMidiInputs = useCallback(async () => {
+    if (!canConfigure) return;
     try {
       const response = await getMidiInputs();
       setMidi(response);
@@ -129,17 +136,19 @@ export function useStagePilot() {
     } catch (cause) {
       setMidiError(cause instanceof Error ? cause.message : "MIDI inputs unavailable.");
     }
-  }, []);
+  }, [canConfigure]);
 
   const loadMidiMessages = useCallback(async () => {
+    if (!canConfigure) return;
     try {
       setMidiMessages((await getMidiMessages()).messages);
     } catch {
       // Input selection and cue actions remain usable if the monitor refresh fails.
     }
-  }, []);
+  }, [canConfigure]);
 
   const loadProPresenter = useCallback(async () => {
+    if (!canConfigure) return;
     try {
       setProPresenter(await getProPresenterStatus());
       setProPresenterError(null);
@@ -148,27 +157,30 @@ export function useStagePilot() {
         cause instanceof Error ? cause.message : "ProPresenter status unavailable.",
       );
     }
-  }, []);
+  }, [canConfigure]);
 
   const loadSettings = useCallback(async () => {
+    if (!canConfigure) return;
     try {
       setSettings(await getSettings());
       setSettingsError(null);
     } catch (cause) {
       setSettingsError(cause instanceof Error ? cause.message : "Settings unavailable.");
     }
-  }, []);
+  }, [canConfigure]);
 
   const loadLights = useCallback(async () => {
+    if (!canConfigure) return;
     try {
       setLights(await getLightsStatus());
       setLightsError(null);
     } catch (cause) {
       setLightsError(cause instanceof Error ? cause.message : "Lighting output unavailable.");
     }
-  }, []);
+  }, [canConfigure]);
 
   const loadPlanningCenterStatus = useCallback(async () => {
+    if (!canConfigure) return;
     try {
       setPlanningCenterStatus(await getPlanningCenterStatus());
       setPlanningCenterError(null);
@@ -177,7 +189,7 @@ export function useStagePilot() {
         cause instanceof Error ? cause.message : "Planning Center status unavailable.",
       );
     }
-  }, []);
+  }, [canConfigure]);
 
   useEffect(() => {
     let active = true;
@@ -203,10 +215,27 @@ export function useStagePilot() {
       }
     };
 
+    const stopForAuth = () => {
+      active = false;
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      socket?.close();
+      setLive(false);
+      setState(null);
+      setSettings(null);
+      setMidi(null);
+      setMidiMessages([]);
+      setPlanningCenterStatus(null);
+      setPlanningCenterServiceTypes([]);
+      setProPresenter(null);
+      setLights(null);
+    };
+    const unsubscribeAuth = onAccessInvalidated(stopForAuth);
+
     const connect = () => {
       if (!active) return;
       socket = new WebSocket(websocketUrl);
       socket.onopen = () => {
+        if (!active) return;
         reconnectAttempts.current = 0;
         liveConnectionEstablished.current = true;
         setLive(true);
@@ -214,6 +243,7 @@ export function useStagePilot() {
         void refresh();
       };
       socket.onmessage = (message) => {
+        if (!active) return;
         try {
           const envelope = JSON.parse(String(message.data)) as StateEnvelope;
           if (envelope.type === "state.snapshot") applyState(envelope.data);
@@ -222,14 +252,36 @@ export function useStagePilot() {
         }
       };
       socket.onerror = () => socket?.close();
-      socket.onclose = () => {
+      socket.onclose = async (event) => {
         if (!active) return;
         setLive(false);
+        if (event?.code === 4401 || event?.code === 4403) {
+          invalidateAccess();
+          return;
+        }
         setError(
           liveConnectionEstablished.current
             ? "Live connection interrupted; reconnecting."
-            : "Waiting for the local backend.",
+            : access.mode === "remote" ? "Waiting for the remote backend." : "Waiting for the local backend.",
         );
+        // Browsers report an HTTP-rejected WS handshake as opaque code 1006.
+        // Ask the server before reconnecting; network failures still use backoff.
+        if (event?.code === 1006) {
+          const generation = accessGeneration();
+          try {
+            const nextAccess = await getAccess();
+            if (!active) return;
+            if (!nextAccess.authenticated || !nextAccess.capabilities.canRead
+              || nextAccess.capabilities.canConfigure !== canConfigure
+              || nextAccess.capabilities.canOperate !== canOperate) {
+              invalidateAccess(generation);
+              return;
+            }
+          } catch {
+            // Transport/storage unavailability is not evidence of a logged-out session.
+          }
+        }
+        if (!active) return;
         const delay = Math.min(
           1000 * 2 ** reconnectAttempts.current,
           MAX_RECONNECT_DELAY,
@@ -249,10 +301,14 @@ export function useStagePilot() {
 
     return () => {
       active = false;
+      unsubscribeAuth();
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
   }, [
+    access.mode,
+    canConfigure,
+    canOperate,
     applyState,
     loadMidiInputs,
     loadMidiMessages,
@@ -312,6 +368,7 @@ export function useStagePilot() {
 
   const dispatch = useCallback(
     async (action: ActionName) => {
+    if (!canOperate) return;
       setPendingAction(action);
       setActionMessage(null);
       try {
@@ -326,11 +383,12 @@ export function useStagePilot() {
         setPendingAction(null);
       }
     },
-    [applyState],
+    [canOperate, applyState],
   );
 
   const selectPlan = useCallback(
     async (planId: string) => {
+    if (!canOperate) return;
       setPendingPlanId(planId);
       setActionMessage(null);
       try {
@@ -344,11 +402,12 @@ export function useStagePilot() {
         setPendingPlanId(null);
       }
     },
-    [applyState],
+    [canOperate, applyState],
   );
 
   const saveGeneralSettings = useCallback(
     async (input: GeneralSettingsInput) => {
+    if (!canConfigure) return;
       if (!settings) return;
       setPendingSettingsOperation(true);
       setSettingsError(null);
@@ -384,11 +443,12 @@ export function useStagePilot() {
         setPendingSettingsOperation(false);
       }
     },
-    [settings],
+    [canConfigure, settings],
   );
 
   const saveMidiSettings = useCallback(
     async (input: MidiSettingsInput) => {
+    if (!canConfigure) return;
       if (!settings) return;
       setPendingSettingsOperation(true);
       setSettingsError(null);
@@ -418,11 +478,12 @@ export function useStagePilot() {
         setPendingSettingsOperation(false);
       }
     },
-    [settings],
+    [canConfigure, settings],
   );
 
   const testPlanningCenterConnection = useCallback(
     async (input: PlanningCenterTestInput) => {
+    if (!canConfigure) return;
       setPendingPlanningCenterOperation("test");
       setPlanningCenterError(null);
       setPlanningCenterMessage(null);
@@ -438,10 +499,11 @@ export function useStagePilot() {
         setPendingPlanningCenterOperation(null);
       }
     },
-    [],
+    [canConfigure],
   );
 
   const loadPlanningCenterServiceTypes = useCallback(async () => {
+    if (!canConfigure) return;
     setPendingPlanningCenterOperation("load-types");
     setPlanningCenterError(null);
     setPlanningCenterMessage(null);
@@ -456,13 +518,14 @@ export function useStagePilot() {
     } finally {
       setPendingPlanningCenterOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const savePlanningCenter = useCallback(
     async (
       input: PlanningCenterSettingsInput,
       timezone: string,
     ) => {
+    if (!canConfigure) return;
       setPendingPlanningCenterOperation("save");
       setPlanningCenterError(null);
       setPlanningCenterMessage(null);
@@ -495,10 +558,11 @@ export function useStagePilot() {
         setPendingPlanningCenterOperation(null);
       }
     },
-    [],
+    [canConfigure],
   );
 
   const refreshMidi = useCallback(async () => {
+    if (!canConfigure) return;
     setPendingMidiOperation("refresh");
     setMidiError(null);
     setMidiMessage(null);
@@ -510,9 +574,10 @@ export function useStagePilot() {
     } finally {
       setPendingMidiOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const selectMidi = useCallback(async (inputId: string | null) => {
+    if (!canConfigure) return;
     setPendingMidiOperation(inputId === null ? "disconnect" : "connect");
     setMidiError(null);
     setMidiMessage(null);
@@ -526,10 +591,11 @@ export function useStagePilot() {
     } finally {
       setPendingMidiOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const simulateMidi = useCallback(
     async (cue: MidiCueName) => {
+    if (!canOperate) return;
       setPendingMidiCue(cue);
       setMidiError(null);
       setMidiMessage(null);
@@ -545,10 +611,11 @@ export function useStagePilot() {
         setPendingMidiCue(null);
       }
     },
-    [applyState, loadMidiMessages],
+    [canOperate, applyState, loadMidiMessages],
   );
 
   const saveProPresenter = useCallback(async (input: ProPresenterSettingsInput) => {
+    if (!canConfigure) return;
     if (!settings) return;
     setPendingProPresenterOperation("save");
     setProPresenterError(null);
@@ -578,9 +645,10 @@ export function useStagePilot() {
     } finally {
       setPendingProPresenterOperation(null);
     }
-  }, [settings]);
+  }, [canConfigure, settings]);
 
   const runProPresenterTest = useCallback(async () => {
+    if (!canConfigure) return;
     setPendingProPresenterOperation("test");
     setProPresenterError(null);
     setProPresenterMessage(null);
@@ -596,9 +664,10 @@ export function useStagePilot() {
     } finally {
       setPendingProPresenterOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const refreshProPresenter = useCallback(async () => {
+    if (!canConfigure) return;
     setPendingProPresenterOperation("refresh");
     setProPresenterError(null);
     setProPresenterMessage(null);
@@ -614,9 +683,10 @@ export function useStagePilot() {
     } finally {
       setPendingProPresenterOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const saveLights = useCallback(async (input: LightsSettingsInput) => {
+    if (!canConfigure) return;
     setPendingLightsOperation("save");
     setLightsError(null);
     setLightsMessage(null);
@@ -631,9 +701,10 @@ export function useStagePilot() {
     } finally {
       setPendingLightsOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const refreshLights = useCallback(async () => {
+    if (!canConfigure) return;
     setPendingLightsOperation("refresh");
     setLightsError(null);
     setLightsMessage(null);
@@ -645,9 +716,10 @@ export function useStagePilot() {
     } finally {
       setPendingLightsOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const sendLightingTest = useCallback(async (note: number, velocity: number) => {
+    if (!canOperate) return;
     setPendingLightsOperation("test");
     setLightsError(null);
     setLightsMessage(null);
@@ -661,9 +733,10 @@ export function useStagePilot() {
     } finally {
       setPendingLightsOperation(null);
     }
-  }, []);
+  }, [canOperate]);
 
   const saveLightingCues = useCallback(async (song: Song, cues: LightingCue[]) => {
+    if (!canConfigure) return;
     setPendingLightsOperation("save-cues");
     setLightsError(null);
     setLightsMessage(null);
@@ -682,9 +755,10 @@ export function useStagePilot() {
     } finally {
       setPendingLightsOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const clearAllLightingCues = useCallback(async (songs: Song[]) => {
+    if (!canConfigure) return;
     setPendingLightsOperation("save-cues");
     setLightsError(null);
     setLightsMessage(null);
@@ -708,9 +782,10 @@ export function useStagePilot() {
     } finally {
       setPendingLightsOperation(null);
     }
-  }, []);
+  }, [canConfigure]);
 
   const activateConfiguredServices = useCallback(async () => {
+    if (!canActivateServices) return;
     if (!settings) return;
     const saved = settings.settings;
 
@@ -746,7 +821,7 @@ export function useStagePilot() {
     ) {
       await savePlanningCenter(saved.planning_center, saved.timezone);
     }
-  }, [
+  }, [canActivateServices,
     refreshMidi,
     saveLights,
     savePlanningCenter,

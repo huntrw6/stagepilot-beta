@@ -1,8 +1,11 @@
+import { isDesktopShell } from "./desktop";
+import { accessGeneration, apiAccess, invalidateAccess } from "./access/accessState";
 import type {
   ActionName,
   ActionResponse,
   ApplicationState,
   DashboardAuthStatus,
+  DashboardAccess,
   HealthResponse,
   LightsOperationResponse,
   LightsSettingsInput,
@@ -46,23 +49,57 @@ export const rememberServerPort = (port: number) => {
   }
 };
 
-const browserHostedOrigin =
-  ["http:", "https:"].includes(window.location.protocol) &&
-  Number(window.location.port) === savedServerPort()
-    ? window.location.origin
-    : undefined;
+export function resolveApiOrigin(
+  location: Pick<Location, "protocol" | "origin" | "hostname" | "port">,
+  desktop: boolean,
+  development: boolean,
+  configured: string | undefined,
+  serverPort: number,
+): string {
+  const viteDevelopment = development && location.port === "5173"
+    && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  const hosted = !desktop && !viteDevelopment && ["http:", "https:"].includes(location.protocol);
+  return (configured ?? (hosted ? location.origin : `http://127.0.0.1:${serverPort}`)).replace(/\/$/, "");
+}
 
-export const apiOrigin = (
-  configuredOrigin ?? browserHostedOrigin ?? `http://127.0.0.1:${savedServerPort()}`
-).replace(/\/$/, "");
+export const apiOrigin = resolveApiOrigin(
+  window.location, isDesktopShell(), import.meta.env.DEV, configuredOrigin, savedServerPort(),
+);
 export const websocketUrl = `${apiOrigin.replace(/^http/, "ws")}/ws`;
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
+const accessEndpoints = new Set([
+  "/api/v1/access", "/api/v1/dashboard-auth/status", "/api/v1/dashboard-auth/login",
+  "/api/v1/remote-auth/login", "/api/v1/remote-auth/session",
+]);
+const ownMutations = new Set(["/api/v1/remote-auth/logout", "/api/v1/remote-auth/revoke-sessions"]);
+const viewerReads = new Set([
+  "/api/v1/state", "/api/v1/health", "/api/v1/health/live", "/api/v1/health/ready",
+]);
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const access = apiAccess();
+  const generation = accessGeneration();
+  const mutation = !["GET", "HEAD", "OPTIONS"].includes(init?.method ?? "GET");
+  if (access && !accessEndpoints.has(path)) {
+    if (!access.authenticated) throw new ApiError("Please sign in to continue.", 401);
+    if ((!access.capabilities.canOperate && mutation && !ownMutations.has(path))
+      || (!access.capabilities.canConfigure && !mutation && !viewerReads.has(path))) {
+      throw new ApiError("This session has read-only access.", 403);
+    }
+  }
   const response = await fetch(`${apiOrigin}${path}`, {
     ...init,
     credentials: "include",
     headers: {
       Accept: "application/json",
+      ...(mutation && access?.mode === "remote" && !path.startsWith("/api/v1/remote-")
+        ? { "Idempotency-Key": crypto.randomUUID() } : {}),
+      ...(mutation && access?.mode === "remote" && access.csrf_token
+        ? { "X-CSRF-Token": access.csrf_token } : {}),
       ...init?.headers,
     },
   });
@@ -74,10 +111,55 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Fall back to the status-only message when the server did not return JSON.
     }
-    throw new Error(detail ?? `StagePilot API returned ${response.status}.`);
+    if ((response.status === 401 || response.status === 403) && !accessEndpoints.has(path)) {
+      invalidateAccess(generation);
+    }
+    throw new ApiError(detail ?? `StagePilot API returned ${response.status}.`, response.status);
   }
-  return (await response.json()) as T;
+  return response.status === 204 ? undefined as T : (await response.json()) as T;
 }
+
+export const getAccess = () => requestJson<DashboardAccess>("/api/v1/access", { cache: "no-store" });
+export const loginRemote = (email: string, password: string) =>
+  requestJson<{ authenticated: boolean; csrf_token: string }>("/api/v1/remote-auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-StagePilot-Remote": "1" },
+    body: JSON.stringify({ email, password }),
+  });
+export const logoutRemote = () => requestJson<void>("/api/v1/remote-auth/logout", { method: "POST" });
+
+export interface RemoteStatus {
+  available: boolean;
+  provisioned: boolean;
+  credential_available: boolean;
+  enabled: boolean;
+  state: "off" | "enabling" | "connected" | "reconnecting" | "error";
+  url: string | null;
+  needs_operator: boolean;
+  message: string | null;
+  temporary_url: boolean;
+}
+export interface RemoteUser {
+  id: string; email: string; role: "Viewer" | "Operator"; enabled: boolean;
+}
+export const getRemoteStatus = () => requestJson<RemoteStatus>("/api/v1/remote-access", {cache: "no-store"});
+export const getRemoteUsers = () => requestJson<RemoteUser[]>("/api/v1/remote-auth/users", {cache: "no-store"});
+const remoteMutation = <T>(path: string, method: string, body?: object) => requestJson<T>(path, {
+  method, headers: {"Content-Type": "application/json", "X-StagePilot-Remote": "1"},
+  ...(body ? {body: JSON.stringify(body)} : {}),
+});
+export const setRemoteEnabled = (enabled: boolean) => remoteMutation<RemoteStatus>(
+  `/api/v1/remote-access/${enabled ? "enable" : "disable"}`, "POST", {});
+export const importRemoteBundle = (path: string) => remoteMutation<RemoteStatus>(
+  "/api/v1/remote-access/import", "POST", {path});
+export const bootstrapRemote = (email: string, password: string) => remoteMutation<RemoteUser>(
+  "/api/v1/remote-access/bootstrap", "POST", {email, password});
+export const createRemoteUser = (email: string, password: string, role: RemoteUser["role"]) =>
+  remoteMutation<RemoteUser>("/api/v1/remote-auth/users", "POST", {email, password, role});
+export const updateRemoteUser = (id: string, body: {role?: RemoteUser["role"]; enabled?: boolean; password?: string}) =>
+  remoteMutation<void>(`/api/v1/remote-auth/users/${encodeURIComponent(id)}`, "PATCH", body);
+export const deleteRemoteUser = (id: string) =>
+  remoteMutation<void>(`/api/v1/remote-auth/users/${encodeURIComponent(id)}`, "DELETE");
 
 export const getDashboardAuthStatus = () =>
   requestJson<DashboardAuthStatus>("/api/v1/dashboard-auth/status");
