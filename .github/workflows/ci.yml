@@ -199,8 +199,8 @@ jobs:
           rustup update stable
           rustup default stable
 
-      - name: Build packaged backend sidecar
-        run: npm --prefix desktop run build:sidecar
+      - name: Stage packaged desktop runtime
+        run: npm --prefix desktop run build:runtime
 
       - name: Generate macOS Help Book
         run: npm --prefix desktop run build:help
