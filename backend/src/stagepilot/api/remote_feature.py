@@ -15,6 +15,7 @@ from stagepilot.services.remote_auth import RemoteRole
 
 router = APIRouter(prefix="/api/v1/remote-access", route_class=RemoteRoute)
 
+
 def manager(request: Request) -> Any | None:
     return getattr(request.app.state, "remote_manager", None)
 
@@ -54,7 +55,6 @@ async def status(request: Request) -> dict[str, Any]:
         for u in await access.call(access.store.users)
     )
     return result
-
 
 
 @router.post("/bootstrap", status_code=201)

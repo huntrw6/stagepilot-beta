@@ -235,7 +235,6 @@ class DesktopBootstrapStore:
         except OSError as exc:
             raise ProviderError("Bootstrap metadata is unavailable") from exc
 
-
     def credential(self, metadata: BootstrapMetadata) -> str:
         value = self.credentials.get(metadata.installation_id)
         match = _CREDENTIAL.fullmatch(value or "")
