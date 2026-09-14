@@ -16,7 +16,6 @@ from stagepilot.remote_provider import ProviderError
 TEST_ORIGINS = frozenset({"https://control.example.com"})
 
 
-
 class MemoryCredentials:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}

@@ -90,7 +90,6 @@ class DesktopRemoteManager:
             )
         return result
 
-
     def enable(self) -> dict[str, object]:
         metadata = self._active()
         result = self._apply(metadata, "enable")
