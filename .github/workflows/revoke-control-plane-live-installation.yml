@@ -4,12 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       installation:
-        description: Disposable installation label
+        description: Exact disposable installation ID
         required: true
-        type: choice
-        options:
-          - a
-          - b
+        type: string
 
 permissions:
   contents: read
@@ -28,17 +25,13 @@ jobs:
           INSTALLATION: ${{ inputs.installation }}
         run: |
           set -euo pipefail
-          case "$INSTALLATION" in
-            a) installation_id=c85e14c70d25df528eee82c1f2e45931 ;;
-            b) installation_id=17366e5e772309b14936150b12afa76e ;;
-            *) exit 2 ;;
-          esac
+          [[ "$INSTALLATION" =~ ^[a-f0-9]{32}$ ]] || exit 2
           response="$RUNNER_TEMP/revoke.json"
           curl --silent --show-error --fail \
             --request POST \
             --header "Authorization: Bearer $ADMIN_API_TOKEN" \
             --header 'Content-Type: application/json' \
             --data '{}' \
-            "$CONTROL_PLANE_ORIGIN/v1/admin/installations/$installation_id/revoke" >"$response"
-          jq -e --arg id "$installation_id" '.installationId == $id and .phase == "disabled" and .revoked == true' "$response" >/dev/null
+            "$CONTROL_PLANE_ORIGIN/v1/admin/installations/$INSTALLATION/revoke" >"$response"
+          jq -e --arg id "$INSTALLATION" '.installationId == $id and .phase == "disabled" and .revoked == true' "$response" >/dev/null
           jq '{installationId,hostname,phase,generation,revoked,updatedAt}' "$response"
