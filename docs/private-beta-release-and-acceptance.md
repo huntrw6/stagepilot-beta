@@ -15,7 +15,20 @@ A PAT must never ship in StagePilot. Beta release builds instead use the existin
 - `GET /v1/releases/latest.json`
 - `GET /v1/releases/vVERSION/StagePilot_VERSION_PLATFORM-UPDATER`
 
-The Worker holds a later-supplied `GITHUB_RELEASE_TOKEN` secret. It accepts only versions in `BETA_RELEASE_VERSIONS`, exposes `latest.json` only for `BETA_LATEST_RELEASE_VERSION`, and permits only five exact release filenames: two DMGs, two Tauri macOS updater archives, and the Windows installer/updater. It rejects drafts, duplicates, foreign asset API URLs, truncated or oversized assets, and fetches by immutable release tag and GitHub asset ID. Metadata caches for at most five minutes; immutable payloads advertise a one-year cache. Per canonical source address, the Durable Object allows 30 metadata requests or 6 downloads per minute and bounds retained source windows at 2,000. The broker has no arbitrary URL, hostname, method, or Remote-traffic relay route. Tauri still verifies the embedded signature with the existing public key.
+The Worker holds a `GITHUB_RELEASE_TOKEN` runtime secret, populated by the
+environment-scoped GitHub Actions secret `STAGEPILOT_RELEASE_TOKEN` (GitHub
+reserves the `GITHUB_` prefix). That token must have read-only Contents access to
+only `huntrw6/stagepilot-beta`. The broker accepts only versions in
+`BETA_RELEASE_VERSIONS`, exposes `latest.json` only for
+`BETA_LATEST_RELEASE_VERSION`, and permits only five exact release filenames:
+two DMGs, two Tauri macOS updater archives, and the Windows installer/updater.
+It rejects drafts, duplicates, foreign asset API URLs, truncated or oversized
+assets, and fetches by immutable release tag and GitHub asset ID. Metadata
+caches for at most five minutes; immutable payloads advertise a one-year cache.
+Per canonical source address, the Durable Object allows 30 metadata requests or
+6 downloads per minute and bounds retained source windows at 2,000. The broker
+has no arbitrary URL, hostname, method, or Remote-traffic relay route. Tauri
+still verifies the embedded signature with the existing public key.
 
 The base Tauri configuration retains the main `huntrw6/stagepilot` endpoint. Only the Windows release and macOS release overlays select the beta broker. This prevents a normal/main build from following beta metadata and prevents a beta release build from following main releases.
 
@@ -34,6 +47,23 @@ Each release staging directory must contain exactly:
 - `release-notes.md`
 
 Run `node scripts/audit_beta_release.mjs source` before release and `node scripts/audit_beta_release.mjs assets RELEASE_ASSETS VERSION` after building. Preserve the JSON output as the asset-size/SHA-256 inventory. Standalone `.sig` files are staging inputs and remain omitted from user-facing GitHub assets because their contents are embedded in `latest.json`.
+
+## Friend download instructions
+
+Invite each tester to the private `huntrw6/stagepilot-beta` repository with read
+access. The tester must sign in to GitHub, open the exact immutable beta release,
+and download only the installer matching their platform:
+
+- Windows x64: `StagePilot_VERSION_x64-setup.exe`
+- macOS Apple Silicon: `StagePilot_VERSION_aarch64.dmg`
+- macOS Intel: `StagePilot_VERSION_x64.dmg`
+
+Send the release URL and the matching SHA-256 value from the preserved asset
+inventory through the approved private channel. The tester must compare the
+download hash before installation and must not forward the private asset URL or
+installer. Never send a PAT, updater signing material, machine evidence, or a
+control-plane credential. Installed beta builds obtain later signed updates from
+the beta broker; testers do not need GitHub credentials inside StagePilot.
 
 ## Signing recovery and rollback
 
