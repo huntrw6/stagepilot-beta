@@ -58,6 +58,10 @@ Validate this boundary with a YAML parser before enabling repository Actions:
 python3 scripts/validate_workflow_runners.py
 ```
 
+The initial activation was proven by self-hosted CI run
+`35029964844`: all four active Linux jobs completed on `stagepilot-ci`, while
+the preserved Windows and macOS jobs skipped without acquiring a runner.
+
 ## Deterministic versions and assets
 
 The earlier failed release attempt already occupies immutable tag
