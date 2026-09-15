@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, stagepilot-linux]
     defaults:
       run:
         working-directory: control-plane
@@ -25,7 +25,7 @@ jobs:
 
   deploy:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, stagepilot-linux]
     environment: stagepilot-control-plane
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

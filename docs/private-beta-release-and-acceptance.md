@@ -32,6 +32,32 @@ still verifies the embedded signature with the existing public key.
 
 The base Tauri configuration retains the main `huntrw6/stagepilot` endpoint. Only the Windows release and macOS release overlays select the beta broker. This prevents a normal/main build from following beta metadata and prevents a beta release build from following main releases.
 
+## CI runner boundary
+
+All active jobs in `.github/workflows/*.yml` use exactly
+`runs-on: [self-hosted, stagepilot-linux]`. This includes backend, frontend,
+MultiTracks, Linux-compatible Cargo/Tauri checks, release source validation,
+release manifest/publication logic, control-plane verification/deployment, live
+transparent-enrollment acceptance, and revocation. The normal bootstrap actions
+`actions/checkout`, `actions/setup-node`, and `astral-sh/setup-uv` remain allowed
+on that runner.
+
+Windows x64 packaging and macOS arm64/x64 packaging/lifecycle jobs remain in the
+workflows for later native self-hosted machines, but each is named `DEFERRED` and
+has the unambiguous job condition `if: ${{ false }}`. Their future labels are
+`stagepilot-windows-x64`, `stagepilot-macos-arm64`, and
+`stagepilot-macos-x64`; none is a GitHub-hosted label. A tag push can run Linux
+release source/security validation, but the deferred native build causes the
+dependent publication job to skip, so a tag cannot publish an incomplete native
+release. Do not remove the disabled condition or claim native validation until
+matching self-hosted machines exist and the physical acceptance matrix passes.
+
+Validate this boundary with a YAML parser before enabling repository Actions:
+
+```sh
+python3 scripts/validate_workflow_runners.py
+```
+
 ## Deterministic versions and assets
 
 The earlier failed release attempt already occupies immutable tag
