@@ -141,6 +141,7 @@ jobs:
         run: |
           rustup update stable
           rustup default stable
+          rustup component add rustfmt
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
