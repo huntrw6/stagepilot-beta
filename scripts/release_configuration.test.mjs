@@ -79,6 +79,7 @@ test("desktop capability is narrow and contains updater lifecycle permissions", 
 
 test("desktop Remote packages cloudflared and uses only native platform credential stores", () => {
   const windows = JSON.parse(read("desktop/src-tauri/tauri.release.conf.json"));
+  const windowsCI = JSON.parse(read("desktop/src-tauri/tauri.ci.conf.json"));
   const macOS = JSON.parse(read("desktop/src-tauri/tauri.macos.conf.json"));
   const cargo = read("desktop/src-tauri/Cargo.toml");
   const broker = read("desktop/src-tauri/src/native_credentials.rs");
@@ -86,8 +87,17 @@ test("desktop Remote packages cloudflared and uses only native platform credenti
   const connector = read("backend/src/stagepilot/remote_connector.py");
   const specification = read("backend/stagepilot.spec");
   assert.equal(windows.bundle.resources["resources/cloudflared.exe"], "cloudflared.exe");
+  assert.equal(
+    windowsCI.bundle.resources["resources/cloudflared.exe"],
+    "cloudflared.exe",
+    "the CI installer must exercise the same self-contained Remote runtime",
+  );
   assert.equal(macOS.bundle.resources["resources/cloudflared"], "cloudflared");
-  for (const resources of [windows.bundle.resources, macOS.bundle.resources]) {
+  for (const resources of [
+    windows.bundle.resources,
+    windowsCI.bundle.resources,
+    macOS.bundle.resources,
+  ]) {
     assert.ok(!Object.keys(resources).some((name) => /bootstrap|credential|token|secret|\.pem$/i.test(name)));
   }
   assert.match(cargo, /features = \["windows-native"\]/);
