@@ -277,7 +277,10 @@ async def test_startup_reconciliation_retries_after_transient_outage(tmp_path: P
         await asyncio.sleep(0.2)
         assert restarted._connector_token is None
         fake.offline = False
-        await asyncio.sleep(1.2)
+        for _ in range(100):
+            if restarted._connector_token is not None:
+                break
+            await asyncio.sleep(0.05)
         assert restarted._connector_token == "desktop-installation-cloudflared-token"
     finally:
         stop.set()
