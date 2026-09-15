@@ -191,8 +191,10 @@ repository placeholders):
   `REMOTE_HOST_SUFFIX`, `REMOTE_PORT`, `ENROLLMENT_ENABLED`,
   `BETA_INSTALLATION_LIMIT`, `BETA_RELEASE_VERSIONS`,
   `BETA_LATEST_RELEASE_VERSION`;
-- secrets: `CLOUDFLARE_API_TOKEN`, `ADMIN_API_TOKEN`,
-  `INSTALLATION_SIGNING_KEY`, `GITHUB_RELEASE_TOKEN`.
+- environment secrets: `CLOUDFLARE_API_TOKEN`, `ADMIN_API_TOKEN`,
+  `INSTALLATION_SIGNING_KEY`, `STAGEPILOT_RELEASE_TOKEN`. The deploy workflow
+  maps `STAGEPILOT_RELEASE_TOKEN` to the Worker's `GITHUB_RELEASE_TOKEN` binding
+  because GitHub reserves the `GITHUB_` prefix for Actions secret names.
 
 The account and zone IDs are 32 lowercase hexadecimal characters. The suffix is
 the DNS suffix under which generated installation hostnames may be created. The
@@ -206,11 +208,11 @@ is never returned to clients, and must not be reused for repository writes.
 Dispatch the workflow manually and approve the protected environment when an
 environment reviewer is configured. It runs
 tests and TypeScript build, validates every value without printing secrets, builds
-a Wrangler dry-run preview, supplies all six vars on the command line, installs
-all three Worker runtime secrets through Wrangler, deploys the tracked Durable
+a Wrangler dry-run preview, supplies all eight vars on the command line, installs
+all four Worker runtime secrets through Wrangler, deploys the tracked Durable
 Object migration/binding, then reads `wrangler secret list --format json` and
-fails unless all three secret names are present. No secret value is printed. Read
-back the deployed Worker version, `REGISTRY` binding, six vars, secret names,
+fails unless all four secret names are present. No secret value is printed. Read
+back the deployed Worker version, `REGISTRY` binding, eight vars, secret names,
 custom HTTPS origin, and `/health` before enrollment. Configure the custom Worker
 hostname narrowly in Cloudflare if it is not already attached; do not alter
 unrelated DNS records.

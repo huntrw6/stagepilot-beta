@@ -116,6 +116,7 @@ test("desktop Remote packages cloudflared and uses only native platform credenti
 
 test("release workflow requires secrets and publishes latest.json last", () => {
   const workflow = read(".github/workflows/release-macos.yml");
+  const deployWorkflow = read(".github/workflows/deploy-control-plane.yml");
   assert.match(workflow, /secrets\.TAURI_SIGNING_PRIVATE_KEY/);
   assert.match(workflow, /secrets\.TAURI_SIGNING_PRIVATE_KEY_PASSWORD/);
   assert.match(workflow, /generate_updater_manifest\.mjs/);
@@ -152,6 +153,11 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   );
   assert.match(workflow, /Release \$RELEASE_TAG already exists; immutable beta assets will not be replaced/);
   assert.doesNotMatch(workflow, /--clobber/);
+  assert.match(
+    deployWorkflow,
+    /GITHUB_RELEASE_TOKEN: \$\{\{ secrets\.STAGEPILOT_RELEASE_TOKEN \}\}/,
+  );
+  assert.doesNotMatch(deployWorkflow, /secrets\.GITHUB_RELEASE_TOKEN/);
   const latestUpload = 'gh release upload "$RELEASE_TAG" release-assets/latest.json';
   assert.ok(
     workflow.indexOf('! -name latest.json') < workflow.indexOf(latestUpload),

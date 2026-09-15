@@ -68,9 +68,13 @@ describe("deployment configuration", () => {
       assert.match(workflow, new RegExp(`--var ${name}:`));
     }
     for (const name of RUNTIME_SECRET_NAMES) {
-      assert.match(workflow, new RegExp(`secrets\\.${name}`));
+      const actionSecret = name === "GITHUB_RELEASE_TOKEN"
+        ? "STAGEPILOT_RELEASE_TOKEN"
+        : name;
+      assert.match(workflow, new RegExp(`secrets\\.${actionSecret}`));
       assert.match(workflow, new RegExp(`^ {12}${name}$`, "m"));
     }
+    assert.doesNotMatch(workflow, /secrets\.GITHUB_RELEASE_TOKEN/);
     assert.match(workflow, /secret list --format json/);
     assert.doesNotMatch(wrangler, /REPLACE_WITH_|example\.invalid/);
   });

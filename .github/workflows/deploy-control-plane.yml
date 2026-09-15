@@ -39,7 +39,9 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       INSTALLATION_SIGNING_KEY: ${{ secrets.INSTALLATION_SIGNING_KEY }}
-      GITHUB_RELEASE_TOKEN: ${{ secrets.GITHUB_RELEASE_TOKEN }}
+      # GitHub reserves the GITHUB_ prefix for Actions secret names. Map the
+      # read-only repository secret to the Worker binding expected by the broker.
+      GITHUB_RELEASE_TOKEN: ${{ secrets.STAGEPILOT_RELEASE_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
