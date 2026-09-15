@@ -17,9 +17,12 @@ function deploymentEnvironment(overrides = {}) {
     REMOTE_PORT: "18766",
     ENROLLMENT_ENABLED: "true",
     BETA_INSTALLATION_LIMIT: "500",
+    BETA_RELEASE_VERSIONS: "1.1.103-beta.1,1.1.103-beta.2",
+    BETA_LATEST_RELEASE_VERSION: "1.1.103-beta.1",
     CLOUDFLARE_API_TOKEN: "provider-token-with-narrow-scope",
     ADMIN_API_TOKEN: "admin-token-with-at-least-thirty-two-characters",
     INSTALLATION_SIGNING_KEY: "independent-signing-key-at-least-thirty-two-characters",
+    GITHUB_RELEASE_TOKEN: "github-release-token-server-side-only",
     ...overrides,
   };
 }
@@ -34,6 +37,8 @@ describe("deployment configuration", () => {
       remotePort: 18766,
       enrollmentEnabled: "true",
       installationLimit: 500,
+      releaseVersions: ["1.1.103-beta.1", "1.1.103-beta.2"],
+      latestReleaseVersion: "1.1.103-beta.1",
     });
   });
 
@@ -58,7 +63,7 @@ describe("deployment configuration", () => {
     const wrangler = fs.readFileSync(path.join(repository, "control-plane/wrangler.toml"), "utf8");
     assert.match(workflow, /workflow_dispatch:/);
     assert.doesNotMatch(workflow, /\bpush:/);
-    for (const name of ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ZONE_ID", "REMOTE_HOST_SUFFIX", "REMOTE_PORT", "ENROLLMENT_ENABLED", "BETA_INSTALLATION_LIMIT"]) {
+    for (const name of ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ZONE_ID", "REMOTE_HOST_SUFFIX", "REMOTE_PORT", "ENROLLMENT_ENABLED", "BETA_INSTALLATION_LIMIT", "BETA_RELEASE_VERSIONS", "BETA_LATEST_RELEASE_VERSION"]) {
       assert.match(workflow, new RegExp(`vars\\.${name}`));
       assert.match(workflow, new RegExp(`--var ${name}:`));
     }

@@ -22,7 +22,7 @@ Private beta administrator
 
 Cloudflare Worker + singleton Registry Durable Object
   server-only account/zone IDs, CLOUDFLARE_API_TOKEN,
-  ADMIN_API_TOKEN, INSTALLATION_SIGNING_KEY
+  ADMIN_API_TOKEN, INSTALLATION_SIGNING_KEY, GITHUB_RELEASE_TOKEN
   -> exact named tunnel/configuration/DNS lifecycle
 
 Enrolled StagePilot installation
@@ -138,6 +138,8 @@ All routes except health and enrollment require an authorization bearer.
 | `POST /v1/installations/:id/disable` | matching installation | Fail-closed cleanup |
 | `POST /v1/installations/:id/reconcile` | matching installation | Resume persisted desired lifecycle |
 | `POST /v1/installations/:id/revoke` | matching installation | Permanent self-revocation and cleanup |
+| `GET /v1/releases/latest.json` | public beta app | Allowlisted latest signed updater metadata |
+| `GET /v1/releases/vVERSION/ASSET` | public beta app | Exact immutable allowlisted updater payload only |
 
 ## Installation-side operation
 
@@ -187,17 +189,19 @@ repository placeholders):
 
 - variables: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`,
   `REMOTE_HOST_SUFFIX`, `REMOTE_PORT`, `ENROLLMENT_ENABLED`,
-  `BETA_INSTALLATION_LIMIT`;
+  `BETA_INSTALLATION_LIMIT`, `BETA_RELEASE_VERSIONS`,
+  `BETA_LATEST_RELEASE_VERSION`;
 - secrets: `CLOUDFLARE_API_TOKEN`, `ADMIN_API_TOKEN`,
-  `INSTALLATION_SIGNING_KEY`.
+  `INSTALLATION_SIGNING_KEY`, `GITHUB_RELEASE_TOKEN`.
 
 The account and zone IDs are 32 lowercase hexadecimal characters. The suffix is
 the DNS suffix under which generated installation hostnames may be created. The
 dedicated port is 1024-65535 and must not be local port 8765. The provider token
 must have Worker Scripts deployment for the target account plus Account
 Cloudflare Tunnel Edit and Zone DNS Edit for only the chosen zone. The independent
-WAF operator must have Zone WAF Edit only for the chosen zone. The admin token
-and signing key are independent random values of at least 32 bytes.
+WAF operator must have Zone WAF Edit only for the chosen zone. The admin token and signing key are independent random values of at least 32 bytes.
+The GitHub token is read-only for `huntrw6/stagepilot-beta` contents/releases,
+is never returned to clients, and must not be reused for repository writes.
 
 Dispatch the workflow manually and approve the protected environment when an
 environment reviewer is configured. It runs

@@ -8,8 +8,9 @@ import test from "node:test";
 const root = path.resolve(import.meta.dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
-test("Tauri updater configuration preserves stable identity and trusted endpoint", () => {
+test("Tauri updater configuration isolates main and beta release channels", () => {
   const config = JSON.parse(read("desktop/src-tauri/tauri.conf.json"));
+  const windowsConfig = JSON.parse(read("desktop/src-tauri/tauri.release.conf.json"));
   const macOSConfig = JSON.parse(read("desktop/src-tauri/tauri.macos.conf.json"));
   assert.equal(config.productName, "StagePilot");
   assert.equal(config.identifier, "org.stagepilot.desktop");
@@ -30,8 +31,11 @@ test("Tauri updater configuration preserves stable identity and trusted endpoint
     "Tauri's trailing /** pattern matches directories rather than resource files",
   );
   assert.deepEqual(config.plugins.updater.endpoints, [
-    "https://github.com/huntrw6/stagepilot-beta/releases/latest/download/latest.json",
+    "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
   ]);
+  const betaEndpoint = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
+  assert.deepEqual(windowsConfig.plugins.updater.endpoints, [betaEndpoint]);
+  assert.deepEqual(macOSConfig.plugins.updater.endpoints, [betaEndpoint]);
   assert.ok(config.plugins.updater.pubkey);
   assert.equal(
     config.bundle.windows.nsis.installerHooks,
@@ -116,6 +120,11 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.match(workflow, /secrets\.TAURI_SIGNING_PRIVATE_KEY_PASSWORD/);
   assert.match(workflow, /generate_updater_manifest\.mjs/);
   assert.match(workflow, /validate_updater_manifest\.mjs/);
+  assert.match(workflow, /audit_beta_release\.mjs source/);
+  assert.match(workflow, /audit_beta_release\.mjs assets/);
+  assert.match(workflow, /gh release create "\$RELEASE_TAG" --verify-tag/);
+  assert.equal((workflow.match(/ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/g) ?? []).length, 3);
+  assert.match(workflow, /refs\/tags\/\$RELEASE_TAG\^\{commit\}/);
   assert.match(workflow, /MACOSX_DEPLOYMENT_TARGET: "12\.0"/);
   assert.match(workflow, /verify_macos_release_bundle\.sh --app/);
   assert.match(workflow, /verify_macos_release_bundle\.sh --dmg/);
@@ -141,11 +150,14 @@ test("release workflow requires secrets and publishes latest.json last", () => {
     /find release-assets .* ! -name '\*\.sig'/,
     "standalone updater signatures must not be published as user-facing release assets",
   );
+  assert.match(workflow, /Release \$RELEASE_TAG already exists; immutable beta assets will not be replaced/);
+  assert.doesNotMatch(workflow, /--clobber/);
+  const latestUpload = 'gh release upload "$RELEASE_TAG" release-assets/latest.json';
   assert.ok(
-    workflow.indexOf('! -name latest.json') < workflow.indexOf("release-assets/latest.json --clobber"),
+    workflow.indexOf('! -name latest.json') < workflow.indexOf(latestUpload),
   );
   assert.ok(
-    workflow.indexOf("release-assets/latest.json --clobber") < workflow.indexOf("--draft=false --latest"),
+    workflow.indexOf(latestUpload) < workflow.indexOf("--draft=false --latest"),
   );
 });
 
@@ -221,11 +233,13 @@ test("manifest generator requires artifacts and signatures for every platform", 
       path.join(root, "scripts/generate_updater_manifest.mjs"),
       directory,
       "v1.2.0",
+      "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases",
     ]);
     execFileSync(process.execPath, [
       path.join(root, "scripts/validate_updater_manifest.mjs"),
       path.join(directory, "latest.json"),
       directory,
+      "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases",
     ]);
     const manifest = JSON.parse(fs.readFileSync(path.join(directory, "latest.json"), "utf8"));
     assert.equal(manifest.version, "1.2.0");
@@ -234,6 +248,15 @@ test("manifest generator requires artifacts and signatures for every platform", 
       "darwin-x86_64",
       "windows-x86_64",
     ]);
+    manifest.platforms["darwin-aarch64"].url =
+      "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/v1.2.0/%2e%2e%2foutside.bin";
+    fs.writeFileSync(path.join(directory, "latest.json"), JSON.stringify(manifest));
+    assert.throws(() => execFileSync(process.execPath, [
+      path.join(root, "scripts/validate_updater_manifest.mjs"),
+      path.join(directory, "latest.json"),
+      directory,
+      "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases",
+    ], { stdio: "pipe" }));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

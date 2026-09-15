@@ -6,6 +6,11 @@ Possession of the private beta is sufficient authorization to enroll. There is n
 
 A public endpoint cannot prove private-repository possession. The binary is not treated as a secret. Abuse is contained through finite server-side ceilings, revocation, aggregate observability, and fail-closed behavior. No Cloudflare, administrator, signing, GitHub, or reusable tunnel credential ships in the app.
 
+The same Worker may broker strictly allowlisted signed beta updater metadata and
+immutable updater assets with a server-only GitHub credential. Those public GET
+routes are independently rate limited, accept no arbitrary URL, and never relay
+Remote application traffic. Details are in `private-beta-release-and-acceptance.md`.
+
 ## Implemented controls and thresholds
 
 - Enrollment: 3 new installations per canonical source IPv4 or IPv6 /64 per 24 hours. The source is HMAC-hashed with server-only key material; raw addresses are not stored. Source records expire after 24 hours and the retained index is capped at 2,000 entries.

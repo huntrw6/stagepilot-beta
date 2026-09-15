@@ -116,9 +116,12 @@ const env = {
   REMOTE_HOST_SUFFIX: 'remote.example.com',
   ADMIN_API_TOKEN: adminToken,
   INSTALLATION_SIGNING_KEY: 'installation-signing-key-at-least-32-bytes',
+  GITHUB_RELEASE_TOKEN: 'github-release-token-server-side-only',
   REMOTE_PORT: '18766',
   ENROLLMENT_ENABLED: 'true',
   BETA_INSTALLATION_LIMIT: '500',
+  BETA_RELEASE_VERSIONS: '1.1.103-beta.1,1.1.103-beta.2',
+  BETA_LATEST_RELEASE_VERSION: '1.1.103-beta.1',
 };
 
 function request(path: string, method = 'GET', token?: string, value?: unknown, source = '203.0.113.10'): Request {
@@ -171,7 +174,7 @@ describe('private-beta control plane', () => {
   });
 
   it('fails closed when any required Worker runtime secret is missing', async () => {
-    for (const name of ['CLOUDFLARE_API_TOKEN', 'ADMIN_API_TOKEN', 'INSTALLATION_SIGNING_KEY'] as const) {
+    for (const name of ['CLOUDFLARE_API_TOKEN', 'ADMIN_API_TOKEN', 'INSTALLATION_SIGNING_KEY', 'GITHUB_RELEASE_TOKEN'] as const) {
       registry = new Registry(
         { storage } as unknown as DurableObjectState,
         { ...env, [name]: undefined } as never,
@@ -336,6 +339,199 @@ describe('private-beta control plane', () => {
     expect(response.status).toBe(503);
     expect(JSON.stringify(await json(response))).not.toContain(providerBody);
     expect(JSON.stringify(error.mock.calls)).not.toContain(providerBody);
+  });
+
+  it('serves only allowlisted private-release metadata through the public broker', async () => {
+    const version = '1.1.103-beta.1';
+    const broker = 'https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases';
+    const manifest = JSON.stringify({
+      version,
+      pub_date: '2026-09-15T00:00:00Z',
+      platforms: {
+        'darwin-aarch64': { url: `${broker}/v${version}/StagePilot_${version}_aarch64.app.tar.gz`, signature: 'a' },
+        'darwin-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64.app.tar.gz`, signature: 'b' },
+        'windows-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64-setup.exe`, signature: 'c' },
+      },
+    });
+    const github = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.hostname === 'api.github.com') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer github-release-token-server-side-only');
+      }
+      if (url.pathname.endsWith('/releases/tags/v1.1.103-beta.1')) {
+        return new Response(JSON.stringify({
+          tag_name: 'v1.1.103-beta.1',
+          draft: false,
+          assets: [{
+            name: 'latest.json',
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/101',
+            size: manifest.length,
+            state: 'uploaded',
+            content_type: 'application/json',
+          }],
+        }));
+      }
+      if (url.pathname.endsWith('/releases/assets/101')) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://release-assets.githubusercontent.com/private-signed-download' },
+        });
+      }
+      if (url.hostname === 'release-assets.githubusercontent.com') {
+        expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        return new Response(manifest, { headers: { 'content-length': String(manifest.length) } });
+      }
+      throw new Error(`unexpected GitHub request: ${url.pathname}`);
+    });
+    vi.stubGlobal('fetch', github);
+
+    const response = await registry.fetch(request('/v1/releases/latest.json'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('public, max-age=60, s-maxage=300');
+    expect(await response.text()).toBe(manifest);
+    expect(github).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects a manifest that points beta clients outside the broker', async () => {
+    const manifest = JSON.stringify({
+      version: '1.1.103-beta.1',
+      pub_date: '2026-09-15T00:00:00Z',
+      platforms: {
+        'darwin-aarch64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/a', signature: 'a' },
+        'darwin-x86_64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/b', signature: 'b' },
+        'windows-x86_64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/c', signature: 'c' },
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith('/releases/tags/v1.1.103-beta.1')) {
+        return new Response(JSON.stringify({
+          tag_name: 'v1.1.103-beta.1',
+          draft: false,
+          assets: [{
+            name: 'latest.json',
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/103',
+            size: manifest.length,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      return new Response(manifest, { headers: { 'content-length': String(manifest.length) } });
+    }));
+
+    expect((await registry.fetch(request('/v1/releases/latest.json'))).status).toBe(503);
+  });
+
+  it('rejects a release download when any redirect leaves GitHub asset hosting', async () => {
+    const version = '1.1.103-beta.1';
+    const filename = `StagePilot_${version}_x64-setup.exe`;
+    const github = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith(`/releases/tags/v${version}`)) {
+        return new Response(JSON.stringify({
+          tag_name: `v${version}`,
+          draft: false,
+          assets: [{
+            name: filename,
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/104',
+            size: 1,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      if (url.hostname === 'api.github.com') {
+        expect(new Headers(init?.headers).get('authorization')).toBeTruthy();
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://release-assets.githubusercontent.com/first-hop' },
+        });
+      }
+      expect(new Headers(init?.headers).get('authorization')).toBeNull();
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://example.test/credential-trap' },
+      });
+    });
+    vi.stubGlobal('fetch', github);
+
+    expect((await registry.fetch(request(`/v1/releases/v${version}/${filename}`))).status).toBe(503);
+    expect(github).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects a manifest body larger than its declared GitHub asset size', async () => {
+    const version = '1.1.103-beta.1';
+    const broker = 'https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases';
+    const manifest = JSON.stringify({
+      version,
+      pub_date: '2026-09-15T00:00:00Z',
+      platforms: {
+        'darwin-aarch64': { url: `${broker}/v${version}/StagePilot_${version}_aarch64.app.tar.gz`, signature: 'a' },
+        'darwin-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64.app.tar.gz`, signature: 'b' },
+        'windows-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64-setup.exe`, signature: 'c' },
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith(`/releases/tags/v${version}`)) {
+        return new Response(JSON.stringify({
+          tag_name: `v${version}`,
+          draft: false,
+          assets: [{
+            name: 'latest.json',
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/105',
+            size: manifest.length,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      return new Response(`${manifest}x`);
+    }));
+
+    expect((await registry.fetch(request('/v1/releases/latest.json'))).status).toBe(503);
+  });
+
+  it('rejects nonallowlisted versions and filenames without contacting GitHub', async () => {
+    const github = vi.fn();
+    vi.stubGlobal('fetch', github);
+
+    for (const path of [
+      '/v1/releases/v1.1.104-beta.1/StagePilot_1.1.104-beta.1_x64-setup.exe',
+      '/v1/releases/v1.1.103-beta.1/source.zip',
+    ]) {
+      expect((await registry.fetch(request(path))).status).toBe(404);
+    }
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it('rate limits release downloads independently before contacting GitHub', async () => {
+    const version = '1.1.103-beta.1';
+    const filename = `StagePilot_${version}_x64-setup.exe`;
+    const github = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith(`/releases/tags/v${version}`)) {
+        return new Response(JSON.stringify({
+          tag_name: `v${version}`,
+          draft: false,
+          assets: [{
+            name: filename,
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/102',
+            size: 1,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      return new Response('x', { headers: { 'content-length': '1' } });
+    });
+    vi.stubGlobal('fetch', github);
+    for (let index = 0; index < 6; index += 1) {
+      expect((await registry.fetch(request(`/v1/releases/v${version}/${filename}`))).status).toBe(200);
+    }
+    const calls = github.mock.calls.length;
+    const denied = await registry.fetch(request(`/v1/releases/v${version}/${filename}`));
+    expect(denied.status).toBe(429);
+    expect(denied.headers.get('retry-after')).toBeTruthy();
+    expect(github).toHaveBeenCalledTimes(calls);
   });
 
   it('keeps two provisioned installations isolated across credentials, routes, and lifecycle', async () => {

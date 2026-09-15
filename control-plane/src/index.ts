@@ -6,9 +6,12 @@ interface Env {
   REMOTE_HOST_SUFFIX: string;
   ADMIN_API_TOKEN: string;
   INSTALLATION_SIGNING_KEY: string;
+  GITHUB_RELEASE_TOKEN: string;
   REMOTE_PORT?: string;
   ENROLLMENT_ENABLED?: string;
   BETA_INSTALLATION_LIMIT?: string;
+  BETA_RELEASE_VERSIONS?: string;
+  BETA_LATEST_RELEASE_VERSION?: string;
 }
 
 type Phase = 'disabled' | 'enabling' | 'provisioned' | 'revoking';
@@ -53,6 +56,20 @@ interface CloudflareEnvelope<T> {
   result: T;
 }
 
+interface GitHubReleaseAsset {
+  name?: unknown;
+  url?: unknown;
+  size?: unknown;
+  state?: unknown;
+  content_type?: unknown;
+}
+
+interface GitHubRelease {
+  tag_name?: unknown;
+  draft?: unknown;
+  assets?: GitHubReleaseAsset[];
+}
+
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
@@ -69,6 +86,44 @@ const RECONCILE_CACHE_SECONDS = 30;
 const PROVIDER_WINDOW_SECONDS = 300;
 const PROVIDER_TOTAL_BUDGET = 600;
 const PROVIDER_NORMAL_BUDGET = 480;
+const BETA_RELEASE_REPOSITORY = 'huntrw6/stagepilot-beta';
+const RELEASE_VERSION = /^\d+\.\d+\.\d+-beta\.\d+$/;
+const RELEASE_METADATA_PER_MINUTE = 30;
+const RELEASE_DOWNLOADS_PER_MINUTE = 6;
+const MAX_RELEASE_SOURCES = 2_000;
+const MAX_MANIFEST_BYTES = 64 * 1024;
+const MAX_UPDATER_BYTES = 512 * 1024 * 1024;
+const BETA_RELEASE_ORIGIN = 'https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev';
+const MAX_RELEASE_REDIRECTS = 5;
+
+function exactLengthStream(
+  body: ReadableStream<Uint8Array>,
+  expected: number,
+  maximum: number,
+): ReadableStream<Uint8Array> {
+  let received = 0;
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (received > expected || received > maximum) {
+        throw new Error('release asset exceeded declared size');
+      }
+      controller.enqueue(chunk);
+    },
+    flush() {
+      if (received !== expected) throw new Error('release asset size mismatch');
+    },
+  }));
+}
+
+function parseUrl(value: unknown): URL | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    return new URL(value);
+  } catch {
+    return undefined;
+  }
+}
 
 class Limited extends Error {
   constructor(
@@ -171,6 +226,7 @@ function publicInstallation(installation: Installation): Record<string, unknown>
 export class Registry {
   private serial: Promise<void> = Promise.resolve();
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>();
+  private readonly releaseCache = new Map<string, { release: GitHubRelease; expiresAt: number }>();
   private providerLane: 'normal' | 'recovery' = 'normal';
 
   constructor(
@@ -196,6 +252,13 @@ export class Registry {
       const url = new URL(request.url);
       if (request.method === 'POST' && url.pathname === '/v1/installations/enroll') {
         return await this.enroll(request);
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/releases/latest.json') {
+        return await this.releaseAsset(request, this.latestReleaseVersion(), 'latest.json');
+      }
+      const releaseAsset = url.pathname.match(/^\/v1\/releases\/v([^/]+)\/([^/]+)$/);
+      if (request.method === 'GET' && releaseAsset) {
+        return await this.releaseAsset(request, releaseAsset[1], releaseAsset[2]);
       }
       if (request.method === 'GET' && url.pathname === '/v1/admin/metrics') {
         if (!(await this.isAdmin(request))) return reply({ error: 'unauthorized' }, 401);
@@ -263,6 +326,7 @@ export class Registry {
     if (typeof this.env.CLOUDFLARE_API_TOKEN !== 'string' || this.env.CLOUDFLARE_API_TOKEN.length < 20
       || typeof this.env.ADMIN_API_TOKEN !== 'string' || this.env.ADMIN_API_TOKEN.length < 32
       || typeof this.env.INSTALLATION_SIGNING_KEY !== 'string' || this.env.INSTALLATION_SIGNING_KEY.length < 32
+      || typeof this.env.GITHUB_RELEASE_TOKEN !== 'string' || this.env.GITHUB_RELEASE_TOKEN.length < 20
       || this.env.ADMIN_API_TOKEN === this.env.INSTALLATION_SIGNING_KEY) {
       throw new Error('invalid authentication configuration');
     }
@@ -275,6 +339,188 @@ export class Registry {
       throw new Error('invalid hostname suffix');
     }
     this.remotePort();
+    this.releaseVersions();
+  }
+
+  private releaseVersions(): string[] {
+    const values = (this.env.BETA_RELEASE_VERSIONS ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+    if (values.length < 1 || values.length > 20 || new Set(values).size !== values.length
+      || values.some((value) => !RELEASE_VERSION.test(value))) {
+      throw new Error('invalid beta release allowlist');
+    }
+    if (!values.includes(this.latestReleaseVersion())) throw new Error('invalid beta latest release');
+    return values;
+  }
+
+  private latestReleaseVersion(): string {
+    const value = this.env.BETA_LATEST_RELEASE_VERSION ?? '';
+    if (!RELEASE_VERSION.test(value)) throw new Error('invalid beta latest release');
+    return value;
+  }
+
+  private allowedReleaseAsset(version: string, filename: string): boolean {
+    if (!this.releaseVersions().includes(version)) return false;
+    return new Set([
+      `StagePilot_${version}_aarch64.dmg`,
+      `StagePilot_${version}_x64.dmg`,
+      `StagePilot_${version}_aarch64.app.tar.gz`,
+      `StagePilot_${version}_x64.app.tar.gz`,
+      `StagePilot_${version}_x64-setup.exe`,
+    ]).has(filename) || (version === this.latestReleaseVersion() && filename === 'latest.json');
+  }
+
+  private async takeReleaseRate(request: Request, kind: 'metadata' | 'download'): Promise<void> {
+    const source = normalizeSourceAddress(request.headers.get('cf-connecting-ip') ?? '');
+    if (!source) throw new Limited(429, 60, 'release request rate limited');
+    const now = Math.floor(Date.now() / 1000);
+    const hash = await keyedHash(this.env.INSTALLATION_SIGNING_KEY, `release-source:${source}`);
+    const subject = `${kind}:${hash}`;
+    const indexKey = 'release-source-index';
+    const index = await this.state.storage.get<string[]>(indexKey) ?? [];
+    const retained: string[] = [];
+    for (const candidate of index) {
+      const stored = await this.state.storage.get<RateWindow>(`release-source:${candidate}`);
+      if (stored && now - stored.startedAt < 60) retained.push(candidate);
+      else await this.state.storage.delete(`release-source:${candidate}`);
+    }
+    if (!retained.includes(subject) && retained.length >= MAX_RELEASE_SOURCES) {
+      throw new Limited(503, 60, 'release service unavailable');
+    }
+    const key = `release-source:${subject}`;
+    const current = await this.state.storage.get<RateWindow>(key);
+    const window = !current || now - current.startedAt >= 60 ? { startedAt: now, count: 0 } : current;
+    const limit = kind === 'metadata' ? RELEASE_METADATA_PER_MINUTE : RELEASE_DOWNLOADS_PER_MINUTE;
+    if (window.count >= limit) throw new Limited(429, Math.max(1, 60 - (now - window.startedAt)), 'release request rate limited');
+    await this.state.storage.put({
+      [key]: { ...window, count: window.count + 1 },
+      [indexKey]: retained.includes(subject) ? retained : [...retained, subject],
+    });
+  }
+
+  private async releaseAsset(request: Request, version: string, filename: string): Promise<Response> {
+    if (!this.allowedReleaseAsset(version, filename)) return reply({ error: 'not found' }, 404);
+    await this.takeReleaseRate(request, filename === 'latest.json' ? 'metadata' : 'download');
+    const release = await this.githubRelease(version);
+    if (!release) return reply({ error: 'release unavailable' }, 503, 60);
+    if (release.tag_name !== `v${version}` || release.draft !== false || !Array.isArray(release.assets)) {
+      return reply({ error: 'release unavailable' }, 503, 60);
+    }
+    const matches = release.assets.filter((asset) => asset.name === filename && asset.state === 'uploaded');
+    const asset = matches.length === 1 ? matches[0] : undefined;
+    const maximum = filename === 'latest.json' ? MAX_MANIFEST_BYTES : MAX_UPDATER_BYTES;
+    const assetUrl = parseUrl(asset?.url);
+    const expectedAssetPath = new RegExp(
+      `^/repos/${BETA_RELEASE_REPOSITORY.replace('/', '\\/')}/releases/assets/[1-9][0-9]*$`,
+    );
+    if (!asset || !assetUrl || typeof asset.size !== 'number'
+      || asset.size < 1 || asset.size > maximum || assetUrl.protocol !== 'https:'
+      || assetUrl.hostname !== 'api.github.com' || assetUrl.search !== ''
+      || !expectedAssetPath.test(assetUrl.pathname)) {
+      return reply({ error: 'release unavailable' }, 503, 60);
+    }
+    const response = await this.downloadGitHubAsset(assetUrl.toString());
+    if (!response.ok || !response.body) return reply({ error: 'release unavailable' }, 503, 60);
+    const length = Number(response.headers.get('content-length') ?? asset.size);
+    if (!Number.isFinite(length) || length !== asset.size || length > maximum) {
+      return reply({ error: 'release unavailable' }, 503, 60);
+    }
+    const boundedBody = exactLengthStream(response.body, asset.size, maximum);
+    if (filename === 'latest.json') {
+      let manifest: string;
+      try {
+        manifest = await new Response(boundedBody).text();
+      } catch {
+        return reply({ error: 'release unavailable' }, 503, 60);
+      }
+      if (!this.validManifest(manifest, version)) {
+        return reply({ error: 'release unavailable' }, 503, 60);
+      }
+      return new Response(manifest, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'content-length': String(asset.size),
+          'cache-control': 'public, max-age=60, s-maxage=300',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    }
+    return new Response(boundedBody, {
+      status: 200,
+      headers: {
+        'content-type': typeof asset.content_type === 'string' ? asset.content_type : 'application/octet-stream',
+        'content-length': String(length),
+        'cache-control': 'public, max-age=31536000, immutable',
+        'x-content-type-options': 'nosniff',
+      },
+    });
+  }
+
+  private validManifest(content: string, version: string): boolean {
+    try {
+      const manifest = JSON.parse(content) as {
+        version?: unknown;
+        pub_date?: unknown;
+        platforms?: Record<string, { url?: unknown; signature?: unknown }>;
+      };
+      if (manifest.version !== version || typeof manifest.pub_date !== 'string'
+        || !Number.isFinite(Date.parse(manifest.pub_date)) || !manifest.platforms) return false;
+      const filenames: Record<string, string> = {
+        'darwin-aarch64': `StagePilot_${version}_aarch64.app.tar.gz`,
+        'darwin-x86_64': `StagePilot_${version}_x64.app.tar.gz`,
+        'windows-x86_64': `StagePilot_${version}_x64-setup.exe`,
+      };
+      if (Object.keys(manifest.platforms).sort().join(',') !== Object.keys(filenames).sort().join(',')) return false;
+      return Object.entries(filenames).every(([platform, filename]) => {
+        const entry = manifest.platforms?.[platform];
+        return entry?.url === `${BETA_RELEASE_ORIGIN}/v1/releases/v${version}/${filename}`
+          && typeof entry.signature === 'string' && entry.signature.length > 0 && entry.signature.length <= 4096;
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  private async githubRelease(version: string): Promise<GitHubRelease | undefined> {
+    const now = Math.floor(Date.now() / 1000);
+    const cached = this.releaseCache.get(version);
+    if (cached && cached.expiresAt >= now) return cached.release;
+    const response = await fetch(
+      `https://api.github.com/repos/${BETA_RELEASE_REPOSITORY}/releases/tags/v${version}`,
+      { headers: this.githubHeaders('application/vnd.github+json') },
+    );
+    if (!response.ok) return undefined;
+    const release = await response.json() as GitHubRelease;
+    this.releaseCache.set(version, { release, expiresAt: now + 300 });
+    return release;
+  }
+
+  private async downloadGitHubAsset(assetUrl: string): Promise<Response> {
+    let response = await fetch(assetUrl, {
+      headers: this.githubHeaders('application/octet-stream'),
+      redirect: 'manual',
+    });
+    let current = new URL(assetUrl);
+    for (let redirects = 0; [301, 302, 303, 307, 308].includes(response.status); redirects += 1) {
+      if (redirects >= MAX_RELEASE_REDIRECTS) return new Response(null, { status: 502 });
+      const location = response.headers.get('location');
+      if (!location) return new Response(null, { status: 502 });
+      const download = new URL(location, current);
+      if (download.protocol !== 'https:' || !download.hostname.endsWith('.githubusercontent.com')) {
+        return new Response(null, { status: 502 });
+      }
+      current = download;
+      response = await fetch(download, { redirect: 'manual' });
+    }
+    return response;
+  }
+
+  private githubHeaders(accept: string): HeadersInit {
+    return {
+      accept,
+      authorization: `Bearer ${this.env.GITHUB_RELEASE_TOKEN}`,
+      'user-agent': 'stagepilot-beta-release-broker/1',
+      'x-github-api-version': '2022-11-28',
+    };
   }
 
   private async isAdmin(request: Request): Promise<boolean> {
