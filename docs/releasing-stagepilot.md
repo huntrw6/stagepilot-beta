@@ -16,7 +16,8 @@ Private GitHub Releases cannot be read by an unauthenticated installed client.
 The beta Windows/macOS release overlays therefore use the narrowly allowlisted
 control-plane broker while the base/main configuration keeps the public main
 release endpoint. Never put a GitHub PAT in Tauri, frontend code, or an artifact.
-Use `v1.1.103-beta.1` for release 1 and `v1.1.103-beta.2` for the update proof,
+Because the failed bootstrap attempt already occupies `v1.1.103-beta.1`, use
+`v1.1.103-beta.2` for release 1 and `v1.1.103-beta.3` for the update proof,
 then follow [the private beta release and acceptance plan](private-beta-release-and-acceptance.md).
 
 ## One-time updater key setup

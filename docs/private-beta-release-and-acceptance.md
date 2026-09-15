@@ -34,7 +34,9 @@ The base Tauri configuration retains the main `huntrw6/stagepilot` endpoint. Onl
 
 ## Deterministic versions and assets
 
-Release 1 is `v1.1.103-beta.1`; release 2 is `v1.1.103-beta.2`. Never reuse either tag/version after publication.
+The earlier failed release attempt already occupies immutable tag
+`v1.1.103-beta.1`, so release 1 is `v1.1.103-beta.2` and release 2 is
+`v1.1.103-beta.3`. Never move or reuse any of these tags/versions.
 
 Each release staging directory must contain exactly:
 
@@ -82,15 +84,15 @@ Use fresh isolated accounts/machines for:
 For each platform, record both release installers first:
 
 ```text
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer --platform PLATFORM --version 1.1.103-beta.1 --file INSTALLER
 python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer --platform PLATFORM --version 1.1.103-beta.2 --file INSTALLER
+python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer --platform PLATFORM --version 1.1.103-beta.3 --file INSTALLER
 ```
 
 Install beta 1 and record secret-free receipts for every check name: `local_health`, `transparent_enrollment`, `first_operator`, `https_wss_roles`, `restart_recovery`, `reboot_recovery`, `disable_reenable_provider_cleanup`, `updater_discovery`, `updater_install_relaunch`, and `final_cleanup`. Use:
 
 ```text
 python scripts/beta_release_acceptance.py --report PRIVATE_REPORT check --platform PLATFORM --name CHECK --evidence "short local receipt"
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT verify --from-version 1.1.103-beta.1 --to-version 1.1.103-beta.2
+python scripts/beta_release_acceptance.py --report PRIVATE_REPORT verify --from-version 1.1.103-beta.2 --to-version 1.1.103-beta.3
 ```
 
 The operator must observe: installer hash/version; loopback local health; no-auth transparent enrollment; exactly one first Operator; Viewer/Operator HTTPS and WSS policy; app/connector restart; actual machine reboot; disable, re-enable with a new generation, and exact provider cleanup; beta 2 discovery; signed download/install/relaunch with version read-back; then revocation/removal of disposable DNS, tunnel, sessions, credentials, test users, installers, and private evidence as policy requires. The harness rejects obvious credential-bearing evidence strings but the operator must still inspect the report before sharing it.
