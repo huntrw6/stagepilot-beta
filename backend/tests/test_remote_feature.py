@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-import stagepilot.remote_files as remote_files
 from stagepilot.api.remote_ingress import COOKIE_NAME, RemoteIngress
 from stagepilot.core.config import Settings
 from stagepilot.main import create_app
@@ -22,22 +23,18 @@ ORIGIN = "https://remote.stagepilot.test"
 
 
 def test_atomic_write_skips_unsupported_directory_fsync_on_windows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    original_open = remote_files.os.open
-
-    def fail_on_directory_open(path: object, flags: int, *args: object) -> int:
-        if path == tmp_path and flags == remote_files.os.O_RDONLY:
-            pytest.fail("directory open is unsupported on Windows")
-        return original_open(path, flags, *args)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(remote_files.sys, "platform", "win32")
-    monkeypatch.setattr(remote_files.os, "open", fail_on_directory_open)
     path = tmp_path / "remote.json"
 
-    atomic_write(path, "durable file contents")
+    with (
+        patch("stagepilot.remote_files.sys.platform", "win32"),
+        patch("stagepilot.remote_files.os.open", wraps=os.open) as open_mock,
+    ):
+        atomic_write(path, "durable file contents")
 
     assert path.read_text() == "durable file contents"
+    assert not any(call.args[:2] == (tmp_path, os.O_RDONLY) for call in open_mock.call_args_list)
 
 
 def test_product_bootstrap_and_intent(tmp_path: Path) -> None:
