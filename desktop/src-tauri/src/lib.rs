@@ -1097,8 +1097,13 @@ mod tests {
         assert_eq!(macos["bundle"]["macOS"]["minimumSystemVersion"], "12.0");
         assert_eq!(
             config["plugins"]["updater"]["endpoints"][0],
-            "https://github.com/huntrw6/stagepilot-beta/releases/latest/download/latest.json"
+            "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json"
         );
+        let windows: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
+        let beta_endpoint = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
+        assert_eq!(windows["plugins"]["updater"]["endpoints"][0], beta_endpoint);
+        assert_eq!(macos["plugins"]["updater"]["endpoints"][0], beta_endpoint);
         assert!(config["plugins"]["updater"]["pubkey"]
             .as_str()
             .is_some_and(|value| !value.is_empty()));

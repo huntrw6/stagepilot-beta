@@ -1,10 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [assetsDirectory, tag, repository = "huntrw6/stagepilot"] = process.argv.slice(2);
-if (!assetsDirectory || !tag) throw new Error("Usage: node scripts/generate_updater_manifest.mjs ASSETS_DIR vVERSION [OWNER/REPO]");
+const [assetsDirectory, tag, downloadBase = "https://github.com/huntrw6/stagepilot/releases/download"] = process.argv.slice(2);
+if (!assetsDirectory || !tag) throw new Error("Usage: node scripts/generate_updater_manifest.mjs ASSETS_DIR vVERSION [DOWNLOAD_BASE_URL]");
 const version = tag.replace(/^v/, "");
 if (`v${version}` !== tag) throw new Error(`Invalid release tag: ${tag}`);
+const base = new URL(downloadBase);
+if (base.protocol !== "https:" || base.search || base.hash) throw new Error("Download base must be an HTTPS URL without query or fragment.");
+const normalizedBase = base.href.replace(/\/$/, "");
 
 const platforms = {
   "darwin-aarch64": `StagePilot_${version}_aarch64.app.tar.gz`,
@@ -21,7 +24,7 @@ for (const [platform, filename] of Object.entries(platforms)) {
   if (!signature) throw new Error(`Empty updater signature: ${filename}.sig`);
   manifestPlatforms[platform] = {
     signature,
-    url: `https://github.com/${repository}/releases/download/${tag}/${filename}`,
+    url: `${normalizedBase}/${tag}/${filename}`,
   };
 }
 const notesPath = path.join(assetsDirectory, "release-notes.md");

@@ -5,6 +5,7 @@ export const RUNTIME_SECRET_NAMES = Object.freeze([
   "CLOUDFLARE_API_TOKEN",
   "ADMIN_API_TOKEN",
   "INSTALLATION_SIGNING_KEY",
+  "GITHUB_RELEASE_TOKEN",
 ]);
 
 function required(environment, name) {
@@ -22,9 +23,12 @@ export function validateDeploymentEnvironment(environment) {
   const remotePortText = required(environment, "REMOTE_PORT");
   const enrollmentEnabled = required(environment, "ENROLLMENT_ENABLED");
   const installationLimitText = required(environment, "BETA_INSTALLATION_LIMIT");
+  const releaseVersionsText = required(environment, "BETA_RELEASE_VERSIONS");
+  const latestReleaseVersion = required(environment, "BETA_LATEST_RELEASE_VERSION");
   const providerToken = required(environment, "CLOUDFLARE_API_TOKEN");
   const adminToken = required(environment, "ADMIN_API_TOKEN");
   const signingKey = required(environment, "INSTALLATION_SIGNING_KEY");
+  const githubReleaseToken = required(environment, "GITHUB_RELEASE_TOKEN");
 
   if (!ID.test(accountId)) throw new Error("CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters");
   if (!ID.test(zoneId)) throw new Error("CLOUDFLARE_ZONE_ID must be 32 lowercase hexadecimal characters");
@@ -45,9 +49,21 @@ export function validateDeploymentEnvironment(environment) {
   if (providerToken.length < 20) throw new Error("CLOUDFLARE_API_TOKEN is too short");
   if (adminToken.length < 32) throw new Error("ADMIN_API_TOKEN must contain at least 32 characters");
   if (signingKey.length < 32) throw new Error("INSTALLATION_SIGNING_KEY must contain at least 32 characters");
+  if (githubReleaseToken.length < 20) throw new Error("GITHUB_RELEASE_TOKEN is too short");
   if (adminToken === signingKey) throw new Error("ADMIN_API_TOKEN and INSTALLATION_SIGNING_KEY must be independent");
 
-  return { accountId, zoneId, hostnameSuffix, remotePort, enrollmentEnabled, installationLimit };
+  const releaseVersions = releaseVersionsText.split(",").map((value) => value.trim()).filter(Boolean);
+  const releasePattern = /^\d+\.\d+\.\d+-beta\.\d+$/;
+  if (releaseVersions.length < 1 || releaseVersions.length > 20
+    || new Set(releaseVersions).size !== releaseVersions.length
+    || releaseVersions.some((value) => !releasePattern.test(value))) {
+    throw new Error("BETA_RELEASE_VERSIONS must be a unique comma-separated beta version allowlist");
+  }
+  if (!releaseVersions.includes(latestReleaseVersion)) {
+    throw new Error("BETA_LATEST_RELEASE_VERSION must be in BETA_RELEASE_VERSIONS");
+  }
+
+  return { accountId, zoneId, hostnameSuffix, remotePort, enrollmentEnabled, installationLimit, releaseVersions, latestReleaseVersion };
 }
 
 export function installedSecretNames(output) {
@@ -71,7 +87,7 @@ function main() {
   if (command === "validate") {
     const config = validateDeploymentEnvironment(process.env);
     console.log(
-      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}, enrollment=${config.enrollmentEnabled}, installation limit=${config.installationLimit}; 3 runtime secrets present.`,
+      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}, enrollment=${config.enrollmentEnabled}, installation limit=${config.installationLimit}, latest beta=${config.latestReleaseVersion}; 4 runtime secrets present.`,
     );
     return;
   }

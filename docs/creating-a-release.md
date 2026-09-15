@@ -48,3 +48,8 @@ authentication is unavailable, the current checkout is behind `origin/main`,
 or generated/sensitive files are staged. A failure before confirmation makes
 no changes; a later validation failure leaves changes local without committing,
 tagging, or pushing.
+
+This helper targets the main repository and must not be used unchanged for the
+private beta. Private-beta releases use the exact versions, repository boundary,
+asset audit, broker allowlist, and manual gates in
+[`private-beta-release-and-acceptance.md`](private-beta-release-and-acceptance.md).

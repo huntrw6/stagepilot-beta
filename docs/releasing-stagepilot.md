@@ -10,6 +10,15 @@ The macOS community release is ad-hoc signed without Hardened Runtime; it does
 not require Apple Developer ID or notarization. See
 [macOS ad-hoc signing](macos-adhoc-signing.md).
 
+## Private beta channel
+
+Private GitHub Releases cannot be read by an unauthenticated installed client.
+The beta Windows/macOS release overlays therefore use the narrowly allowlisted
+control-plane broker while the base/main configuration keeps the public main
+release endpoint. Never put a GitHub PAT in Tauri, frontend code, or an artifact.
+Use `v1.1.103-beta.1` for release 1 and `v1.1.103-beta.2` for the update proof,
+then follow [the private beta release and acceptance plan](private-beta-release-and-acceptance.md).
+
 ## One-time updater key setup
 
 Generate the long-term key outside the repository. This prompts for a password:
@@ -30,8 +39,8 @@ from accepting future updates.
 Configure GitHub without printing either secret:
 
 ```powershell
-gh secret set TAURI_SIGNING_PRIVATE_KEY --repo huntrw6/stagepilot < "$env:USERPROFILE\.tauri\stagepilot-updater.key"
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo huntrw6/stagepilot
+gh secret set TAURI_SIGNING_PRIVATE_KEY --repo huntrw6/stagepilot-beta < "$env:USERPROFILE\.tauri\stagepilot-updater.key"
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo huntrw6/stagepilot-beta
 ```
 
 The second command prompts securely. The release fails before building if

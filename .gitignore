@@ -1,0 +1,30 @@
+# Local dependencies and build outputs
+node_modules/
+dist/
+target/
+__pycache__/
+*.py[cod]
+
+# Agent, acceptance, deployment, and nested-worktree state
+.tools/
+.deploy-worktree/
+.guardrails-worktree/
+.milestone-*-commit/
+.release-*-worktree/
+*.sqlite
+*.sqlite3
+*.db
+journal-*.json
+
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+!*.env.example
+*.key
+*.pem
+private_key.*
+public_key.*
+*.p12
+*.pfx
+*.mobileprovision

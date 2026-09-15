@@ -1,5 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],

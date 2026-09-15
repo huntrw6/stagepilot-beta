@@ -1,7 +1,10 @@
 # Updating StagePilot
 
-StagePilot checks for updates from the latest GitHub Release after the desktop
-dashboard is ready. It waits about five seconds so the check never blocks
+StagePilot checks for updates after the desktop dashboard is ready. Main builds
+use the public main GitHub Release endpoint; private-beta release builds use the
+beta control-plane metadata/download broker because private GitHub Releases are
+not anonymously readable. The broker never disables or replaces Tauri signature
+verification and does not relay Remote traffic. StagePilot waits about five seconds so the check never blocks
 startup, checks again every six hours, and may check when the app regains focus
 after that interval.
 
@@ -34,6 +37,11 @@ remove/replace the bad `latest.json`. Fix the defect and publish a **newer
 version number**; never reuse a published version. If in-app recovery is not
 possible, install a newer release manually. macOS may require Privacy &
 Security approval again for that browser-downloaded replacement.
+
+For the private beta, first move `BETA_LATEST_RELEASE_VERSION` back to the last
+known-good allowlisted version and redeploy/read back the Worker. Then publish a
+higher signed version; never mutate or reuse a published tag. See
+[the private beta plan](private-beta-release-and-acceptance.md).
 
 Tauri updater signatures are not Apple code signatures. Their contents are
 embedded in `latest.json` and allow installed StagePilot copies to authenticate

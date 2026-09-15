@@ -34,9 +34,12 @@ jobs:
       REMOTE_PORT: ${{ vars.REMOTE_PORT }}
       ENROLLMENT_ENABLED: ${{ vars.ENROLLMENT_ENABLED }}
       BETA_INSTALLATION_LIMIT: ${{ vars.BETA_INSTALLATION_LIMIT }}
+      BETA_RELEASE_VERSIONS: ${{ vars.BETA_RELEASE_VERSIONS }}
+      BETA_LATEST_RELEASE_VERSION: ${{ vars.BETA_LATEST_RELEASE_VERSION }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       INSTALLATION_SIGNING_KEY: ${{ secrets.INSTALLATION_SIGNING_KEY }}
+      GITHUB_RELEASE_TOKEN: ${{ secrets.GITHUB_RELEASE_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -62,6 +65,8 @@ jobs:
             --var REMOTE_PORT:${{ vars.REMOTE_PORT }}
             --var ENROLLMENT_ENABLED:${{ vars.ENROLLMENT_ENABLED }}
             --var BETA_INSTALLATION_LIMIT:${{ vars.BETA_INSTALLATION_LIMIT }}
+            --var BETA_RELEASE_VERSIONS:${{ vars.BETA_RELEASE_VERSIONS }}
+            --var BETA_LATEST_RELEASE_VERSION:${{ vars.BETA_LATEST_RELEASE_VERSION }}
       - name: Deploy and install Worker runtime secrets
         uses: cloudflare/wrangler-action@v4
         with:
@@ -77,10 +82,13 @@ jobs:
             --var REMOTE_PORT:${{ vars.REMOTE_PORT }}
             --var ENROLLMENT_ENABLED:${{ vars.ENROLLMENT_ENABLED }}
             --var BETA_INSTALLATION_LIMIT:${{ vars.BETA_INSTALLATION_LIMIT }}
+            --var BETA_RELEASE_VERSIONS:${{ vars.BETA_RELEASE_VERSIONS }}
+            --var BETA_LATEST_RELEASE_VERSION:${{ vars.BETA_LATEST_RELEASE_VERSION }}
           secrets: |
             CLOUDFLARE_API_TOKEN
             ADMIN_API_TOKEN
             INSTALLATION_SIGNING_KEY
+            GITHUB_RELEASE_TOKEN
       - name: Read back Worker runtime secret names
         id: runtime-secrets
         uses: cloudflare/wrangler-action@v4
