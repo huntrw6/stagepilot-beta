@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Annotated, Literal
@@ -47,6 +48,8 @@ def atomic_write(path: Path, text: str) -> None:
             file.flush()
             os.fsync(file.fileno())
         os.replace(name, path)
+        if sys.platform == "win32":
+            return
         directory = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(directory)
