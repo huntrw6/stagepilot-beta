@@ -33,6 +33,13 @@ class MidiSource(StrEnum):
     REAL = "real"
 
 
+class MidiTransport(StrEnum):
+    """Physical transport used by a real MIDI integration."""
+
+    LOCAL = "local"
+    NETWORK = "network"
+
+
 class TimerOutput(StrEnum):
     """Destination used for countdown timer output."""
 
@@ -100,6 +107,7 @@ class MidiSettings(BaseModel):
     """Validated runtime settings for the Playback MIDI input."""
 
     enabled: bool = False
+    transport: MidiTransport = MidiTransport.LOCAL
     input_name: str | None = Field(default=None, max_length=512)
     channel: int = Field(default=1, ge=1, le=16)
     note: int = Field(default=112, ge=0, le=127)
@@ -160,6 +168,7 @@ class LightsSettings(BaseModel):
     """Validated MIDI output and per-song cue timelines for Lights."""
 
     enabled: bool = False
+    transport: MidiTransport = MidiTransport.LOCAL
     output_name: str | None = Field(default=None, max_length=512)
     channel: int = Field(default=1, ge=1, le=15)
     pulse_ms: int = Field(default=100, ge=10, le=2_000)
@@ -179,6 +188,27 @@ class LightsSettings(BaseModel):
             if key != cue_map.song_key:
                 raise ValueError("Every lighting cue-map key must match its song key.")
         return self
+
+
+class NetworkMidiSettings(BaseModel):
+    """Private IPC settings shared by server-side network MIDI adapters."""
+
+    socket_path: str = Field(
+        default="/run/stagepilot-midi/midi.sock",
+        min_length=1,
+        max_length=1024,
+    )
+    request_timeout_seconds: float = Field(default=2.0, gt=0, le=30.0)
+
+    @field_validator("socket_path", mode="before")
+    @classmethod
+    def socket_path_is_trimmed(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                raise ValueError("Network MIDI socket path cannot be empty.")
+            return stripped
+        return value
 
 
 class ProPresenterSettings(BaseModel):
@@ -284,7 +314,7 @@ class Settings(BaseModel):
     """Validated runtime settings; integration secrets remain server-side only."""
 
     app_name: str = "StagePilot"
-    version: str = "1.1.102"
+    version: str = "1.1.103-beta.2"
     bind_host: str = "127.0.0.1"
     bind_port: int = Field(default=8765, ge=1, le=65535)
     log_level: str = "INFO"
@@ -295,6 +325,7 @@ class Settings(BaseModel):
     planning_center: PlanningCenterSettings = Field(default_factory=PlanningCenterSettings)
     midi: MidiSettings = Field(default_factory=MidiSettings)
     lights: LightsSettings = Field(default_factory=LightsSettings)
+    network_midi: NetworkMidiSettings = Field(default_factory=NetworkMidiSettings)
     propresenter: ProPresenterSettings = Field(default_factory=ProPresenterSettings)
     recent_event_limit: int = Field(default=100, ge=1, le=1000)
     recent_error_limit: int = Field(default=50, ge=1, le=500)

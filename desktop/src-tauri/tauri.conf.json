@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "StagePilot",
-  "version": "1.1.102",
+  "version": "1.1.103-beta.2",
   "identifier": "org.stagepilot.desktop",
   "build": {
     "beforeDevCommand": "npm --prefix ../frontend run dev -- --host 127.0.0.1",
@@ -57,7 +57,7 @@
       "endpoints": [
         "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCQTUzMzI4Rjk3RURFQkIKUldTNzNuNzVLRE9seS8wVjR4alZEeXJPbUlNb0kwN251V1hDMms4TWI5Sm9MTldkSFBsc3NXZmEK"
+      "pubkey": "TUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUEzTmFnUGl2MktUeXp3cWZ2aXArbFdtazU3bnRWeHdkVW9OL29GVUxhY05uTHVNVWtnU3AxMnYrR0FmRk1Wd2dqbGxNaCswZGFVelBkd3p1RkZ6WEdERXdBbWl6SlZRaWlEYXZHUDhIQlZ1ZiszUW1SNnZoaTFRb04wclhreStpbGNha09uMzd0VjFZWSs3bXVKU2IyMldaTHF6K3FkcHowOHVESUR0NzJoejlTaElnWk5ueVU1Vm9jMGhCdWVrK2g1RWdrYzgzSFlMMTR3ejFpM1haY0x5clhEaDM1TkNJc2paMEJjeGNoZXp0dmtNTDVJSTBsamRrZUxKVXBLOFo5eStSQnk2Wk5Pd0xSRTJMTkZGdmcyQndNekpKc0JUMG9CSXJYd0ZWeDhsYXZIRFE5K0dzTi9DRUFuNDF0ajlrelZxODlkUTRoeFdhQ2JnR1dJU0pySXdJREFRQUI="
     }
   }
 }

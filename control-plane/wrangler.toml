@@ -13,8 +13,10 @@ new_sqlite_classes = ["Registry"]
 
 # The protected manual deployment workflow supplies CLOUDFLARE_ACCOUNT_ID,
 # CLOUDFLARE_ZONE_ID, REMOTE_HOST_SUFFIX, and REMOTE_PORT as deployment vars.
-# It also installs and reads back the names of these Worker secrets:
-# CLOUDFLARE_API_TOKEN, ADMIN_API_TOKEN, INSTALLATION_SIGNING_KEY.
+# BETA_RELEASE_VERSIONS and BETA_LATEST_RELEASE_VERSION are also deployment vars.
+# It installs and reads back the names of these Worker secrets:
+# CLOUDFLARE_API_TOKEN, ADMIN_API_TOKEN, INSTALLATION_SIGNING_KEY,
+# GITHUB_RELEASE_TOKEN.
 # Do not add deployment-specific placeholders or secret values to this file.
 
 [observability]
