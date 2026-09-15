@@ -37,14 +37,29 @@ class RemoteFeature:
 
     @contextmanager
     def locked(self) -> Iterator[None]:
-        # This is the installed Linux service path, not a desktop dependency.
-        import fcntl
-
         self.control.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd = os.open(self.control.with_name("access.lock"), os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
+            if os.name == "nt":
+                import msvcrt
+
+                if os.fstat(fd).st_size == 0:
+                    os.write(fd, b"\0")
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
+                try:
+                    yield
+                finally:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 

@@ -222,7 +222,10 @@ export class Registry {
       if (action === 'provision') return await this.provision(request, installation);
       if (action === 'disable') return await this.withProviderLane('recovery', () => this.disable(installation, false));
       if (action === 'revoke') return await this.withProviderLane('recovery', () => this.disable(installation, true));
-      if (action === 'reconcile') return await this.withProviderLane('recovery', () => this.reconcile(installation));
+      if (action === 'reconcile') {
+        const lane = installation.desiredEnabled ? 'normal' : 'recovery';
+        return await this.withProviderLane(lane, () => this.reconcile(installation));
+      }
       return reply({ error: 'method not allowed' }, 405);
     } catch (error) {
       if (error instanceof Limited) {
@@ -636,7 +639,12 @@ export class Registry {
       throw new Limited(503, Number.isFinite(retryAfter) ? Math.max(1, Math.ceil(retryAfter)) : 60, 'provider capacity unavailable');
     }
     if (!response.ok) throw new Error(`provider ${operation} request failed (HTTP ${response.status})`);
-    const envelope = (await response.json()) as CloudflareEnvelope<T>;
+    let envelope: CloudflareEnvelope<T>;
+    try {
+      envelope = (await response.json()) as CloudflareEnvelope<T>;
+    } catch {
+      throw new Error(`provider ${operation} returned invalid response`);
+    }
     if (envelope.success !== true || !('result' in envelope)) {
       throw new Error(`provider rejected ${operation} request`);
     }

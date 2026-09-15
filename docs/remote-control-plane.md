@@ -141,7 +141,8 @@ All routes except health and enrollment require an authorization bearer.
 
 ## Installation-side operation
 
-On first local enable, the packaged desktop persists a random non-secret nonce,
+On first local enable, the packaged desktop persists a random enrollment nonce only
+until the enrollment response and native credential write are durable, then removes it,
 calls the fixed HTTPS enrollment origin, validates the returned identity,
 hostname, and credential binding, and stores only the unique installation
 credential in Windows Credential Manager or macOS Keychain. It persists only the
@@ -232,9 +233,8 @@ single-site response to compromise.
 
 Rotating `INSTALLATION_SIGNING_KEY` immediately invalidates every installation
 credential. Inventory and disable/revoke affected installations first, preserve
-the old key only in the approved recovery vault, deploy the new key, re-enroll
-each friend, privately deliver a new bundle, and verify each new import before
-retiring the old key. Never put either key in a bundle.
+the old key only in the approved recovery vault, deploy the new key, and have
+each affected desktop transparently re-enroll before retiring the old key.
 
 For code rollback, select the last known-good Cloudflare Worker version and keep
 the current Durable Object binding and schema; migrations are forward-only and a
