@@ -8,6 +8,7 @@ from typing import Any
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from stagepilot.api.dashboard_auth import COOKIE_NAME
+from stagepilot.api.remote_ingress import remote_context
 
 DESKTOP_ORIGINS = {
     b"http://tauri.localhost",
@@ -15,9 +16,12 @@ DESKTOP_ORIGINS = {
     b"tauri://localhost",
 }
 PUBLIC_PATHS = {
+    "/api/v1/access",
     "/api/v1/dashboard-auth/status",
     "/api/v1/dashboard-auth/login",
     "/api/v1/health",
+    "/api/v1/health/live",
+    "/api/v1/health/ready",
 }
 
 
@@ -26,6 +30,10 @@ class DashboardAuthMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if remote_context(scope) is not None:
+            # Only the trusted remote wrapper sets this, after remote authorization.
+            await self.app(scope, receive, send)
+            return
         if scope["type"] not in {"http", "websocket"} or not self._protected(scope):
             await self.app(scope, receive, send)
             return

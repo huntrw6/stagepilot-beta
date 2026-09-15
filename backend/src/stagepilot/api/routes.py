@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request
 
+from stagepilot.api.remote_retry import RemoteRetryRoute
 from stagepilot.core.config import LightsSettings, MidiSource, ProPresenterSettings, Settings
 from stagepilot.core.events import (
     ActionName,
@@ -73,7 +74,7 @@ from stagepilot.plugins.planning_center.errors import (
 )
 from stagepilot.plugins.propresenter.errors import ProPresenterError
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", route_class=RemoteRetryRoute)
 
 
 def _runtime(request: Request) -> Runtime:
@@ -265,6 +266,13 @@ async def health(request: Request) -> HealthResponse:
         application_status=state.application_status,
         plugins=plugins,
     )
+
+
+@router.get("/health/live")
+async def liveness() -> dict[str, str]:
+    """Report that the HTTP process and event loop can serve requests."""
+
+    return {"status": "alive"}
 
 
 @router.get("/state", response_model=ApplicationState)

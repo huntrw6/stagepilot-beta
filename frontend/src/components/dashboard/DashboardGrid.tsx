@@ -117,13 +117,16 @@ const itemAttributes = (item: DashboardLayoutItem) => ({
 
 export function DashboardGrid({
   widgets,
+  canEditLayout = true,
 }: {
   widgets: Record<DashboardWidgetId, ReactNode>;
+  canEditLayout?: boolean;
 }) {
   const [layout, setLayout] = useState(() =>
     loadDashboardLayout(window.localStorage));
   const [mode, setMode] = useState(() => dashboardModeForWidth(window.innerWidth));
-  const [editing, setEditing] = useState(false);
+  const [editingRequested, setEditing] = useState(false);
+  const editing = canEditLayout && editingRequested;
   const [interactingId, setInteractingId] = useState<DashboardItemId | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
@@ -138,7 +141,10 @@ export function DashboardGrid({
   modeRef.current = mode;
   editingRef.current = editing;
 
-  const items = useMemo(() => activeItems(layout, mode), [layout, mode]);
+  const hiddenWidgets = Object.entries(widgets).filter(([, content]) => content == null).map(([id]) => id).join(",");
+  const items = useMemo(() => activeItems(layout, mode).filter(
+    (item) => !hiddenWidgets.split(",").includes(item.id),
+  ), [layout, mode, hiddenWidgets]);
   const orderedIds = useMemo(
     () => orderedLayoutItems(items).map(({ id }) => id),
     [items],
@@ -486,18 +492,18 @@ export function DashboardGrid({
           );
         })}
       </div>
-      <DashboardLayoutToolbar
+      {canEditLayout && <DashboardLayoutToolbar
         editing={editing}
         onAddSpacer={addSpacer}
         onCompact={() => compactGrid(true)}
         onDone={() => setEditing(false)}
         onEdit={() => setEditing(true)}
         onReset={() => setResetOpen(true)}
-      />
+      />}
       <DashboardResetDialog
         onCancel={() => setResetOpen(false)}
         onConfirm={resetLayout}
-        open={resetOpen}
+        open={canEditLayout && resetOpen}
       />
     </section>
   );

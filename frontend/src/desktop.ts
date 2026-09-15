@@ -76,6 +76,11 @@ export const restartDesktopBackend = async (): Promise<boolean> => {
   return true;
 };
 
+export const setRemoteAutostart = async (enabled: boolean): Promise<void> => {
+  if (!isTauri()) return;
+  await invoke("set_remote_autostart", {enabled});
+};
+
 export const openExternalUrl = async (url: string): Promise<void> => {
   if (isTauri()) {
     await openUrl(url);

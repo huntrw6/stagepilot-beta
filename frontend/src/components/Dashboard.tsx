@@ -1,6 +1,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { LOCAL_CAPABILITIES } from "../access/accessState";
 import lightsIcon from "../assets/lights-icon-purple.png";
 import multitracksIcon from "../assets/multitracks-icon.png";
 import planningCenterIcon from "../assets/planning-center-icon.png";
@@ -8,6 +9,7 @@ import propresenterIcon from "../assets/propresenter-icon.png";
 import stagepilotIcon from "../assets/stagepilot-icon.png";
 import { useDelayedHover } from "../hooks/useDelayedHover";
 import type {
+  AccessCapabilities,
   ActionName,
   ApplicationState,
   ConnectionStatus,
@@ -32,6 +34,7 @@ import type {
 } from "../types";
 import type { UpdaterController } from "../hooks/useUpdater";
 import { BackendSetupPanel } from "./BackendSetupPanel";
+import { RemoteAccessPanel } from "./RemoteAccessPanel";
 import { DashboardGrid } from "./dashboard/DashboardGrid";
 import { latestActiveError } from "./dashboard/dashboardActiveError";
 import {
@@ -177,6 +180,7 @@ function ReferenceItemRow({ item }: { item: SkippedServiceItem }) {
 }
 
 export function Dashboard({
+  capabilities = LOCAL_CAPABILITIES,
   state,
   health,
   live,
@@ -227,6 +231,7 @@ export function Dashboard({
   clearAllLightingCues = () => undefined,
   updater,
 }: {
+  capabilities?: AccessCapabilities;
   state: ApplicationState;
   health: HealthResponse | null;
   live: boolean;
@@ -280,7 +285,9 @@ export function Dashboard({
   clearAllLightingCues?: (songs: Song[]) => void;
   updater?: UpdaterController;
 }) {
+  const { canOperate, canConfigure } = capabilities;
   const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const [notificationQueue, setNotificationQueue] = useState<HeaderNotification[]>([]);
   const [statusCompact, setStatusCompact] = useState(() => window.innerWidth <= 1_000);
@@ -469,6 +476,7 @@ export function Dashboard({
   }, [notification]);
   const connectionViews = buildConnectionCardViews({
     state,
+    stateOnly: !canConfigure,
     settings,
     midi,
     propresenter,
@@ -476,6 +484,7 @@ export function Dashboard({
   });
   const checks = buildReadinessChecks({
     state,
+    stateOnly: !canConfigure,
     settings,
     propresenter,
     live,
@@ -496,6 +505,7 @@ export function Dashboard({
     timerDuration - Math.ceil(elapsedMilliseconds / 1_000),
   );
   const toggleConnection = (connection: ConnectionPanel) => {
+    if (!canConfigure) return;
     setActiveConnection((current) => current === connection ? null : connection);
   };
   const closeConnection = () => setActiveConnection(null);
@@ -517,7 +527,7 @@ export function Dashboard({
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:gap-4">
         <div className="flex items-center">
           <h1 className="relative z-10 -translate-y-4 shrink-0 select-none font-brand text-[4.05rem] leading-[0.56] text-white">StagePilot</h1>
-          {updater?.status === "available" && updater.availableVersion && (
+          {canConfigure && updater?.status === "available" && updater.availableVersion && (
             <UpdateAvailableButton
               onClick={updater.openConfirmation}
               ref={updateButton}
@@ -550,7 +560,7 @@ export function Dashboard({
             type="button"
           >
             <span className={`h-2 w-2 rounded-full ${ready ? "bg-emerald-400" : systemError ? "bg-rose-400" : "bg-amber-400"}`} />
-            {ready ? "Ready" : systemError ? "Error" : "Check system"}
+            {!canConfigure ? "Live status" : ready ? "Ready" : systemError ? "Error" : "Check system"}
           </button>
           <div
             className={`absolute right-0 top-full w-[min(22rem,calc(100vw-2rem))] pt-2 transition ${readinessHover.open ? "visible translate-y-0 opacity-100" : "pointer-events-none invisible translate-y-1 opacity-0"}`}
@@ -584,7 +594,14 @@ export function Dashboard({
         </div>
       </header>
 
-      {updater && (
+      {canConfigure && <details className="mb-4 text-sm text-slate-200">
+        <summary className="cursor-pointer">Settings</summary>
+        <button className="mt-2 rounded-lg border border-white/20 px-3 py-2" type="button"
+          onClick={() => setRemoteOpen(true)}>Remote Access</button>
+      </details>}
+      {canConfigure && remoteOpen && <RemoteAccessPanel onClose={() => setRemoteOpen(false)} />}
+
+      {canConfigure && updater && (
         <UpdateDialog
           onCancel={updater.cancelConfirmation}
           onCloseError={updater.closeError}
@@ -595,7 +612,7 @@ export function Dashboard({
         />
       )}
 
-      {FIRST_LAUNCH_SETUP_ENABLED && (
+      {canConfigure && FIRST_LAUNCH_SETUP_ENABLED && (
         <SetupChecklist
           live={live}
           midi={midi}
@@ -613,7 +630,7 @@ export function Dashboard({
           {serviceLoad.message && <p className="mt-1 text-sm font-medium text-amber-100">{serviceLoad.message}</p>}
           <p className="mt-1 text-sm text-amber-100/70">
             {serviceLoad.is_stale ? "The previous plan remains available but is marked stale. " : ""}
-            Choose the service plan StagePilot should load.
+            {canOperate ? "Choose the service plan StagePilot should load." : "Waiting for an Operator to select the service plan."}
           </p>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             {serviceLoad.candidates.map((candidate) => (
@@ -622,7 +639,7 @@ export function Dashboard({
                   <p className="truncate font-semibold text-slate-100">{candidate.title}</p>
                   <p className="mt-0.5 text-xs text-slate-400">{candidate.service_type_name} · {candidate.service_times.join(", ")}</p>
                 </div>
-                <button
+                {canOperate && <button
                   aria-label={pendingPlanId === candidate.id ? `Loading ${candidate.title}` : `Use ${candidate.title}`}
                   className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-amber-200 disabled:cursor-wait disabled:opacity-50"
                   disabled={pendingPlanId !== null}
@@ -630,7 +647,7 @@ export function Dashboard({
                   type="button"
                 >
                   {pendingPlanId === candidate.id ? "Loading…" : "Use this plan"}
-                </button>
+                </button>}
               </div>
             ))}
           </div>
@@ -643,6 +660,7 @@ export function Dashboard({
         ref={connectionsRow}
       >
         <StatusCard
+          interactive={canConfigure}
           accessibleTitle="Planning Center"
           active={activeConnection === "planning-center"}
           controls="planning-center-configuration"
@@ -653,6 +671,7 @@ export function Dashboard({
           title="Services"
         />
         <StatusCard
+          interactive={canConfigure}
           accessibleTitle="MIDI / Playback"
           active={activeConnection === "midi"}
           controls="midi-configuration"
@@ -663,6 +682,7 @@ export function Dashboard({
           title="Playback"
         />
         <StatusCard
+          interactive={canConfigure}
           accessibleTitle="ProPresenter"
           active={activeConnection === "propresenter"}
           controls="propresenter-configuration"
@@ -673,6 +693,7 @@ export function Dashboard({
           title="Presentation"
         />
         <StatusCard
+          interactive={canConfigure}
           active={activeConnection === "lights"}
           controls="lights-configuration"
           detail={connectionViews.lights.detail}
@@ -682,6 +703,7 @@ export function Dashboard({
           title="Lights"
         />
         <StatusCard
+          interactive={canConfigure}
           accessibleTitle="StagePilot backend"
           active={activeConnection === "backend"}
           controls="backend-configuration"
@@ -693,7 +715,7 @@ export function Dashboard({
         />
       </section>
 
-      {activeConnection === "planning-center" && (
+      {canConfigure && activeConnection === "planning-center" && (
         <PlanningCenterSetupPanel
           error={planningCenterError}
           message={planningCenterMessage}
@@ -713,7 +735,7 @@ export function Dashboard({
         />
       )}
 
-      {activeConnection === "midi" && (
+      {canConfigure && activeConnection === "midi" && (
         <MidiSetupPanel
           error={midiError}
           message={midiMessage}
@@ -734,7 +756,7 @@ export function Dashboard({
         />
       )}
 
-      {activeConnection === "propresenter" && (
+      {canConfigure && activeConnection === "propresenter" && (
         <ProPresenterSetupPanel
           error={propresenterError}
           message={propresenterMessage}
@@ -747,7 +769,7 @@ export function Dashboard({
         />
       )}
 
-      {activeConnection === "lights" && (
+      {canConfigure && activeConnection === "lights" && (
         <LightsSetupPanel
           connectionStatus={connectionViews.lights.status}
           error={lightsError}
@@ -765,7 +787,7 @@ export function Dashboard({
         />
       )}
 
-      {activeConnection === "backend" && (
+      {canConfigure && activeConnection === "backend" && (
         <BackendSetupPanel
           error={settingsError}
           health={health}
@@ -780,6 +802,7 @@ export function Dashboard({
       )}
 
       <DashboardGrid
+        canEditLayout={canConfigure}
         widgets={{
           "service-plan": (
         <section className="stage-panel widget-autosize-target flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
@@ -831,7 +854,7 @@ export function Dashboard({
             </div>
           </section>
           ),
-          "manual-controls": (
+          "manual-controls": canOperate ? (
           <section className="stage-panel widget-autosize-target manual-controls-panel h-full min-h-0 overflow-hidden rounded-xl p-4">
             <p className="section-kicker">Manual controls</p>
             <div className="manual-controls-grid mt-3 grid gap-2">
@@ -844,7 +867,7 @@ export function Dashboard({
               <ActionButton action="reset_position" label="Reset position" tone="red" disabled={pendingAction !== null} onAction={dispatch} />
             </div>
           </section>
-          ),
+          ) : null,
           events: (
         <section className="stage-panel flex h-full min-h-0 flex-col overflow-hidden rounded-xl">
           <div className="flex items-center justify-between p-4"><p className="section-kicker">Recent event stream</p><span className="text-xs text-slate-600">Latest {activity.length}</span></div>

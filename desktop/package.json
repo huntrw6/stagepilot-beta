@@ -1,15 +1,17 @@
 {
   "name": "@stagepilot/desktop",
-  "version": "1.1.102",
+  "version": "1.1.103-beta.2",
   "private": true,
   "description": "Tauri v2 shell for the StagePilot dashboard",
   "scripts": {
     "dev": "tauri dev",
-    "build": "npm run build:sidecar && tauri build --config src-tauri/tauri.release.conf.json",
-    "build:ci": "npm run build:sidecar && tauri build --config src-tauri/tauri.ci.conf.json",
-    "build:mac": "npm run build:help && npm run build:sidecar && tauri build --config src-tauri/tauri.macos.conf.json",
+    "build": "npm run build:runtime && tauri build --config src-tauri/tauri.release.conf.json",
+    "build:ci": "npm run build:runtime && tauri build --config src-tauri/tauri.ci.conf.json",
+    "build:mac": "npm run build:help && npm run build:runtime && tauri build --config src-tauri/tauri.macos.conf.json",
     "build:help": "node ../scripts/build_macos_help.mjs",
     "build:sidecar": "npm --prefix ../frontend run build && python ../scripts/build_backend_sidecar.py",
+    "build:cloudflared": "python ../scripts/stage_cloudflared.py",
+    "build:runtime": "npm run build:sidecar && npm run build:cloudflared",
     "release:validate": "node ../scripts/validate_versions.mjs",
     "release:test": "node --test ../scripts/release_configuration.test.mjs ../scripts/build_macos_help.test.mjs"
   },

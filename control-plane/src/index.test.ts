@@ -18,6 +18,18 @@ class MemoryStorage {
       this.values.set(key, structuredClone(entry));
     }
   }
+
+  async delete(key: string): Promise<boolean> {
+    return this.values.delete(key);
+  }
+
+  async list<T>(options?: { prefix?: string }): Promise<Map<string, T>> {
+    return new Map(
+      [...this.values.entries()]
+        .filter(([key]) => !options?.prefix || key.startsWith(options.prefix))
+        .map(([key, value]) => [key, structuredClone(value) as T]),
+    );
+  }
 }
 
 class FakeCloudflare {
@@ -104,15 +116,21 @@ const env = {
   REMOTE_HOST_SUFFIX: 'remote.example.com',
   ADMIN_API_TOKEN: adminToken,
   INSTALLATION_SIGNING_KEY: 'installation-signing-key-at-least-32-bytes',
+  GITHUB_RELEASE_TOKEN: 'github-release-token-server-side-only',
   REMOTE_PORT: '18766',
+  ENROLLMENT_ENABLED: 'true',
+  BETA_INSTALLATION_LIMIT: '500',
+  BETA_RELEASE_VERSIONS: '1.1.103-beta.1,1.1.103-beta.2',
+  BETA_LATEST_RELEASE_VERSION: '1.1.103-beta.1',
 };
 
-function request(path: string, method = 'GET', token?: string, value?: unknown): Request {
+function request(path: string, method = 'GET', token?: string, value?: unknown, source = '203.0.113.10'): Request {
   return new Request(`https://control.example.com${path}`, {
     method,
     headers: {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(value ? { 'content-type': 'application/json' } : {}),
+      'cf-connecting-ip': source,
     },
     body: value ? JSON.stringify(value) : undefined,
   });
@@ -123,9 +141,8 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 }
 
 async function enroll(registry: Registry, key: string): Promise<Record<string, unknown>> {
-  const response = await registry.fetch(request('/v1/admin/installations', 'POST', adminToken, {
-    idempotencyKey: key,
-    label: key,
+  const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, {
+    nonce: key,
   }));
   expect(response.status).toBe(201);
   return json(response);
@@ -147,23 +164,23 @@ describe('private-beta control plane', () => {
     registry = new Registry({ storage } as unknown as DurableObjectState, env as never);
   });
 
-  it('rejects arbitrary Internet clients before allocating state or provider resources', async () => {
-    const response = await registry.fetch(request('/v1/admin/installations', 'POST', undefined, {
-      idempotencyKey: 'unauthorized-request',
+  it('rejects malformed enrollment before allocating installation or provider resources', async () => {
+    const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, {
+      unexpected: 'unauthorized-request',
     }));
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
     expect(storage.values.size).toBe(0);
     expect(provider.fetch).not.toHaveBeenCalled();
   });
 
   it('fails closed when any required Worker runtime secret is missing', async () => {
-    for (const name of ['CLOUDFLARE_API_TOKEN', 'ADMIN_API_TOKEN', 'INSTALLATION_SIGNING_KEY'] as const) {
+    for (const name of ['CLOUDFLARE_API_TOKEN', 'ADMIN_API_TOKEN', 'INSTALLATION_SIGNING_KEY', 'GITHUB_RELEASE_TOKEN'] as const) {
       registry = new Registry(
         { storage } as unknown as DurableObjectState,
         { ...env, [name]: undefined } as never,
       );
-      const response = await registry.fetch(request('/v1/admin/installations', 'POST', adminToken, {
-        idempotencyKey: 'missing-secret-test',
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, {
+        nonce: 'missing-secret-test',
       }));
       expect(response.status).toBe(503);
       expect(await json(response)).toEqual({ error: 'operation incomplete; retry reconciliation' });
@@ -183,6 +200,338 @@ describe('private-beta control plane', () => {
     expect(second.installationCredential).not.toBe(first.installationCredential);
     expect(String(first.hostname)).toBe(`sp-${String(first.installationId)}.remote.example.com`);
     expect(JSON.stringify([...storage.values.values()])).not.toContain('provider-secret-never-returned');
+  });
+
+  it('enforces normalized-source enrollment quota while replay and another source remain available', async () => {
+    const ipv6 = '2001:0db8:0001:0002:0000:0000:0000:0001';
+    const compactSamePrefix = '2001:db8:1:2::abcd';
+    const accepted: Record<string, unknown>[] = [];
+    for (const nonce of ['source-one-0001', 'source-one-0002', 'source-one-0003']) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, ipv6));
+      expect(response.status).toBe(201);
+      accepted.push(await json(response));
+    }
+    const before = [...storage.values.keys()].filter((key) => key.startsWith('installation:')).length;
+    const denied = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'source-one-0004' }, compactSamePrefix,
+    ));
+    expect(denied.status).toBe(429);
+    expect(Number(denied.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect([...storage.values.keys()].filter((key) => key.startsWith('installation:'))).toHaveLength(before);
+    const replay = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'source-one-0001' }, compactSamePrefix,
+    ));
+    expect(await json(replay)).toEqual(accepted[0]);
+    const other = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'source-two-0001' }, '2001:db8:1:3::1',
+    ));
+    expect(other.status).toBe(201);
+    expect(provider.fetch).not.toHaveBeenCalled();
+  });
+
+  it('enforces the installation ceiling and kill switch without creating installations', async () => {
+    registry = new Registry({ storage } as unknown as DurableObjectState, { ...env, BETA_INSTALLATION_LIMIT: '1' } as never);
+    await enroll(registry, 'ceiling-first-request');
+    const denied = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'ceiling-second-request' }, '198.51.100.2',
+    ));
+    expect(denied.status).toBe(503);
+    expect([...storage.values.keys()].filter((key) => key.startsWith('installation:'))).toHaveLength(1);
+
+    const disabledStorage = new MemoryStorage();
+    registry = new Registry(
+      { storage: disabledStorage } as unknown as DurableObjectState,
+      { ...env, ENROLLMENT_ENABLED: 'false' } as never,
+    );
+    const switchedOff = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'kill-switch-request' },
+    ));
+    expect(switchedOff.status).toBe(503);
+    expect([...disabledStorage.values.keys()].some((key) => key.startsWith('installation:'))).toBe(false);
+  });
+
+  it('uses distinct status and mutation quotas and exposes only aggregate counters', async () => {
+    const installation = await enroll(registry, 'rate-limits-request');
+    for (let index = 0; index < 120; index += 1) {
+      const response = await registry.fetch(request(
+        installationPath(installation, 'status'), 'GET', String(installation.installationCredential),
+      ));
+      expect(response.status).toBe(200);
+    }
+    const statusDenied = await registry.fetch(request(
+      installationPath(installation, 'status'), 'GET', String(installation.installationCredential),
+    ));
+    expect(statusDenied.status).toBe(429);
+
+    const generation = '55555555-5555-4555-8555-555555555555';
+    for (let index = 0; index < 20; index += 1) {
+      const response = await registry.fetch(request(
+        installationPath(installation, 'provision'), 'POST', String(installation.installationCredential), { generation },
+      ));
+      expect(response.status).toBe(200);
+    }
+    const mutationDenied = await registry.fetch(request(
+      installationPath(installation, 'provision'), 'POST', String(installation.installationCredential), { generation },
+    ));
+    expect(mutationDenied.status).toBe(429);
+    expect(provider.createCount).toBe(1);
+    expect(provider.dnsCreateCount).toBe(1);
+
+    const metrics = await registry.fetch(request('/v1/admin/metrics', 'GET', adminToken));
+    expect(metrics.status).toBe(200);
+    const aggregate = await json(metrics);
+    expect(aggregate.statusDenied).toBe(1);
+    expect(aggregate.mutationDenied).toBe(1);
+    expect(JSON.stringify(aggregate)).not.toContain('203.0.113.10');
+  });
+
+  it('reserves provider capacity for revoke and recovery operations', async () => {
+    const installation = await enroll(registry, 'provider-budget-request');
+    storage.values.set('provider:budget', { startedAt: Math.floor(Date.now() / 1000), count: 480 });
+    const generation = '66666666-6666-4666-8666-666666666666';
+    const provision = await registry.fetch(request(
+      installationPath(installation, 'provision'), 'POST', String(installation.installationCredential), { generation },
+    ));
+    expect(provision.status).toBe(503);
+    expect(provider.fetch).not.toHaveBeenCalled();
+    const revoke = await registry.fetch(request(
+      installationPath(installation, 'revoke'), 'POST', String(installation.installationCredential), {},
+    ));
+    expect(revoke.status).toBe(200);
+    expect((await json(revoke)).revoked).toBe(true);
+  });
+
+  it('does not let enabled reconcile consume reserved revoke capacity', async () => {
+    const installation = await enroll(registry, 'reconcile-budget-request');
+    const generation = '77777777-7777-4777-8777-777777777777';
+    expect((await registry.fetch(request(
+      installationPath(installation, 'provision'), 'POST', String(installation.installationCredential), { generation },
+    ))).status).toBe(200);
+    storage.values.set('provider:budget', { startedAt: Math.floor(Date.now() / 1000), count: 480 });
+    registry = new Registry({ storage } as unknown as DurableObjectState, env as never);
+    const callsBefore = provider.fetch.mock.calls.length;
+
+    const reconcile = await registry.fetch(request(
+      installationPath(installation, 'reconcile'), 'POST', String(installation.installationCredential),
+    ));
+    expect(reconcile.status).toBe(503);
+    expect(provider.fetch).toHaveBeenCalledTimes(callsBefore);
+
+    const revoke = await registry.fetch(request(
+      installationPath(installation, 'revoke'), 'POST', String(installation.installationCredential),
+    ));
+    expect(revoke.status).toBe(200);
+  });
+
+  it('does not log a non-JSON provider response body', async () => {
+    const installation = await enroll(registry, 'provider-body-request');
+    const providerBody = 'PRIVATE_PROVIDER_BODY';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(providerBody, { status: 200 })));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await registry.fetch(request(
+      installationPath(installation, 'provision'),
+      'POST',
+      String(installation.installationCredential),
+      { generation: '88888888-8888-4888-8888-888888888888' },
+    ));
+
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await json(response))).not.toContain(providerBody);
+    expect(JSON.stringify(error.mock.calls)).not.toContain(providerBody);
+  });
+
+  it('serves only allowlisted private-release metadata through the public broker', async () => {
+    const version = '1.1.103-beta.1';
+    const broker = 'https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases';
+    const manifest = JSON.stringify({
+      version,
+      pub_date: '2026-09-15T00:00:00Z',
+      platforms: {
+        'darwin-aarch64': { url: `${broker}/v${version}/StagePilot_${version}_aarch64.app.tar.gz`, signature: 'a' },
+        'darwin-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64.app.tar.gz`, signature: 'b' },
+        'windows-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64-setup.exe`, signature: 'c' },
+      },
+    });
+    const github = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.hostname === 'api.github.com') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer github-release-token-server-side-only');
+      }
+      if (url.pathname.endsWith('/releases/tags/v1.1.103-beta.1')) {
+        return new Response(JSON.stringify({
+          tag_name: 'v1.1.103-beta.1',
+          draft: false,
+          assets: [{
+            name: 'latest.json',
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/101',
+            size: manifest.length,
+            state: 'uploaded',
+            content_type: 'application/json',
+          }],
+        }));
+      }
+      if (url.pathname.endsWith('/releases/assets/101')) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://release-assets.githubusercontent.com/private-signed-download' },
+        });
+      }
+      if (url.hostname === 'release-assets.githubusercontent.com') {
+        expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        return new Response(manifest, { headers: { 'content-length': String(manifest.length) } });
+      }
+      throw new Error(`unexpected GitHub request: ${url.pathname}`);
+    });
+    vi.stubGlobal('fetch', github);
+
+    const response = await registry.fetch(request('/v1/releases/latest.json'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('public, max-age=60, s-maxage=300');
+    expect(await response.text()).toBe(manifest);
+    expect(github).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects a manifest that points beta clients outside the broker', async () => {
+    const manifest = JSON.stringify({
+      version: '1.1.103-beta.1',
+      pub_date: '2026-09-15T00:00:00Z',
+      platforms: {
+        'darwin-aarch64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/a', signature: 'a' },
+        'darwin-x86_64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/b', signature: 'b' },
+        'windows-x86_64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/c', signature: 'c' },
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith('/releases/tags/v1.1.103-beta.1')) {
+        return new Response(JSON.stringify({
+          tag_name: 'v1.1.103-beta.1',
+          draft: false,
+          assets: [{
+            name: 'latest.json',
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/103',
+            size: manifest.length,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      return new Response(manifest, { headers: { 'content-length': String(manifest.length) } });
+    }));
+
+    expect((await registry.fetch(request('/v1/releases/latest.json'))).status).toBe(503);
+  });
+
+  it('rejects a release download when any redirect leaves GitHub asset hosting', async () => {
+    const version = '1.1.103-beta.1';
+    const filename = `StagePilot_${version}_x64-setup.exe`;
+    const github = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith(`/releases/tags/v${version}`)) {
+        return new Response(JSON.stringify({
+          tag_name: `v${version}`,
+          draft: false,
+          assets: [{
+            name: filename,
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/104',
+            size: 1,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      if (url.hostname === 'api.github.com') {
+        expect(new Headers(init?.headers).get('authorization')).toBeTruthy();
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://release-assets.githubusercontent.com/first-hop' },
+        });
+      }
+      expect(new Headers(init?.headers).get('authorization')).toBeNull();
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://example.test/credential-trap' },
+      });
+    });
+    vi.stubGlobal('fetch', github);
+
+    expect((await registry.fetch(request(`/v1/releases/v${version}/${filename}`))).status).toBe(503);
+    expect(github).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects a manifest body larger than its declared GitHub asset size', async () => {
+    const version = '1.1.103-beta.1';
+    const broker = 'https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases';
+    const manifest = JSON.stringify({
+      version,
+      pub_date: '2026-09-15T00:00:00Z',
+      platforms: {
+        'darwin-aarch64': { url: `${broker}/v${version}/StagePilot_${version}_aarch64.app.tar.gz`, signature: 'a' },
+        'darwin-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64.app.tar.gz`, signature: 'b' },
+        'windows-x86_64': { url: `${broker}/v${version}/StagePilot_${version}_x64-setup.exe`, signature: 'c' },
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith(`/releases/tags/v${version}`)) {
+        return new Response(JSON.stringify({
+          tag_name: `v${version}`,
+          draft: false,
+          assets: [{
+            name: 'latest.json',
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/105',
+            size: manifest.length,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      return new Response(`${manifest}x`);
+    }));
+
+    expect((await registry.fetch(request('/v1/releases/latest.json'))).status).toBe(503);
+  });
+
+  it('rejects nonallowlisted versions and filenames without contacting GitHub', async () => {
+    const github = vi.fn();
+    vi.stubGlobal('fetch', github);
+
+    for (const path of [
+      '/v1/releases/v1.1.104-beta.1/StagePilot_1.1.104-beta.1_x64-setup.exe',
+      '/v1/releases/v1.1.103-beta.1/source.zip',
+    ]) {
+      expect((await registry.fetch(request(path))).status).toBe(404);
+    }
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it('rate limits release downloads independently before contacting GitHub', async () => {
+    const version = '1.1.103-beta.1';
+    const filename = `StagePilot_${version}_x64-setup.exe`;
+    const github = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+      if (url.pathname.endsWith(`/releases/tags/v${version}`)) {
+        return new Response(JSON.stringify({
+          tag_name: `v${version}`,
+          draft: false,
+          assets: [{
+            name: filename,
+            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/102',
+            size: 1,
+            state: 'uploaded',
+          }],
+        }));
+      }
+      return new Response('x', { headers: { 'content-length': '1' } });
+    });
+    vi.stubGlobal('fetch', github);
+    for (let index = 0; index < 6; index += 1) {
+      expect((await registry.fetch(request(`/v1/releases/v${version}/${filename}`))).status).toBe(200);
+    }
+    const calls = github.mock.calls.length;
+    const denied = await registry.fetch(request(`/v1/releases/v${version}/${filename}`));
+    expect(denied.status).toBe(429);
+    expect(denied.headers.get('retry-after')).toBeTruthy();
+    expect(github).toHaveBeenCalledTimes(calls);
   });
 
   it('keeps two provisioned installations isolated across credentials, routes, and lifecycle', async () => {

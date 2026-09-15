@@ -1,6 +1,6 @@
 [package]
 name = "stagepilot-desktop"
-version = "1.1.102"
+version = "1.1.103-beta.2"
 description = "Native desktop shell for StagePilot"
 authors = ["StagePilot contributors"]
 edition = "2021"
@@ -24,9 +24,13 @@ tauri-plugin-process = "=2.3.1"
 tauri-plugin-single-instance = "=2.4.3"
 tauri-plugin-opener = "=2.5.4"
 tauri-plugin-window-state = "=2.4.1"
+tauri-plugin-autostart = "=2.5.1"
+tauri-plugin-dialog = "=2.7.3"
 tokio = { version = "1", features = ["time"] }
+getrandom = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
 windows = { version = "0.61.3", features = [
     "Win32_Foundation",
     "Win32_System_Com",
@@ -36,3 +40,6 @@ windows = { version = "0.61.3", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
