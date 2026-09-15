@@ -36,6 +36,12 @@ matching runner architecture. It freezes the native backend sidecar, builds the
 Tauri application, uploads the `.dmg` as a workflow artifact, and attaches it to
 the selected GitHub release.
 
+Native CI packaging is currently deferred: the preserved Windows x64, macOS
+Apple Silicon, and macOS Intel jobs are explicitly disabled until matching
+self-hosted native runners exist. The active `stagepilot-linux` runner performs
+only Linux-compatible Cargo/Tauri checks and must not be treated as native
+packaging or acceptance evidence.
+
 The same build can be run on a Mac with:
 
 ```sh
@@ -78,6 +84,11 @@ Test every installer candidate on a Windows account without repository tooling:
 6. Install the next version over the existing version and repeat the checks.
 7. Uninstall StagePilot and confirm user settings remain available for an upgrade
    unless the release policy explicitly adds a separate data-removal option.
+
+For the private beta, execute this flow on Windows x64, macOS arm64, and macOS
+x64, including actual reboot and a signed beta-1 to beta-2 in-app update. Record
+the matrix with `scripts/beta_release_acceptance.py` as described in
+[`private-beta-release-and-acceptance.md`](private-beta-release-and-acceptance.md).
 
 The application is not code-signed or notarized yet. Windows may display an
 unknown-publisher warning, and macOS may require the user to approve the app in

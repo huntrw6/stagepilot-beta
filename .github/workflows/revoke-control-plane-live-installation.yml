@@ -1,0 +1,37 @@
+name: Revoke Disposable Control Plane Installation
+
+on:
+  workflow_dispatch:
+    inputs:
+      installation:
+        description: Exact disposable installation ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  revoke:
+    runs-on: [self-hosted, stagepilot-linux]
+    environment: stagepilot-control-plane
+    env:
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+      CONTROL_PLANE_ORIGIN: https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev
+    steps:
+      - name: Revoke exact disposable installation
+        shell: bash
+        env:
+          INSTALLATION: ${{ inputs.installation }}
+        run: |
+          set -euo pipefail
+          [[ "$INSTALLATION" =~ ^[a-f0-9]{32}$ ]] || exit 2
+          response="$RUNNER_TEMP/revoke.json"
+          curl --silent --show-error --fail \
+            --request POST \
+            --header "Authorization: Bearer $ADMIN_API_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{}' \
+            "$CONTROL_PLANE_ORIGIN/v1/admin/installations/$INSTALLATION/revoke" >"$response"
+          jq -e --arg id "$INSTALLATION" '.installationId == $id and .phase == "disabled" and .revoked == true' "$response" >/dev/null
+          jq '{installationId,hostname,phase,generation,revoked,updatedAt}' "$response"
