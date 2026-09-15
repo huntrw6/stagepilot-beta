@@ -20,9 +20,12 @@ env:
 jobs:
   validate:
     name: Validate release
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, stagepilot-linux]
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -37,6 +40,13 @@ jobs:
         env:
           STAGEPILOT_TRACKED_FILES: ${{ join(github.event.commits.*.added, '\n') }}
         run: node scripts/validate_versions.mjs "$RELEASE_TAG"
+      - name: Verify exact tagged source and release export
+        run: |
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)" || {
+            echo "::error::Checked-out source does not match $RELEASE_TAG."
+            exit 1
+          }
+          node scripts/audit_beta_release.mjs source
       - name: Reject tracked private keys
         run: |
           if git ls-files | grep -E '\.(key|pem)$'; then
@@ -45,32 +55,37 @@ jobs:
           fi
 
   build:
-    name: Build — ${{ matrix.name }}
+    name: DEFERRED — Build — ${{ matrix.name }}
     needs: validate
+    # Native sign/package work is preserved but cannot run until matching
+    # self-hosted Windows and macOS machines are available and validated.
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: macOS Apple Silicon
-            runner: macos-15
+            runner: stagepilot-macos-arm64
             platform: darwin-aarch64
             suffix: aarch64
             command: build:mac
           - name: macOS Intel
-            runner: macos-15-intel
+            runner: stagepilot-macos-x64
             platform: darwin-x86_64
             suffix: x64
             command: build:mac
           - name: Windows x64
-            runner: windows-latest
+            runner: stagepilot-windows-x64
             platform: windows-x86_64
             suffix: x64
             command: build
-    runs-on: ${{ matrix.runner }}
+    runs-on: [self-hosted, "${{ matrix.runner }}"]
     env:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.11.28"
@@ -105,7 +120,7 @@ jobs:
           npm --prefix frontend run typecheck
           npm --prefix frontend test -- --run
           npm --prefix frontend run build
-          npm --prefix desktop run build:sidecar
+          npm --prefix desktop run build:runtime
           cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
           cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path desktop/src-tauri/Cargo.toml
@@ -159,9 +174,11 @@ jobs:
   publish:
     name: Publish release and updater manifest
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, stagepilot-linux]
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -178,22 +195,25 @@ jobs:
             git log -1 --pretty=%B
           } > release-assets/release-notes.md
       - name: Generate and validate latest.json
+        env:
+          BETA_DOWNLOAD_BASE: https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases
         run: |
-          node scripts/generate_updater_manifest.mjs release-assets "$RELEASE_TAG" "$GITHUB_REPOSITORY"
-          node scripts/validate_updater_manifest.mjs release-assets/latest.json release-assets
+          node scripts/generate_updater_manifest.mjs release-assets "$RELEASE_TAG" "$BETA_DOWNLOAD_BASE"
+          node scripts/validate_updater_manifest.mjs release-assets/latest.json release-assets "$BETA_DOWNLOAD_BASE"
+          node scripts/audit_beta_release.mjs assets release-assets "${RELEASE_TAG#v}"
       - name: Create draft release and upload artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --draft --latest=false
-          else
-            gh release create "$RELEASE_TAG" --draft --title "StagePilot $RELEASE_TAG" --notes-file release-assets/release-notes.md
+            echo "Release $RELEASE_TAG already exists; immutable beta assets will not be replaced." >&2
+            exit 1
           fi
+          gh release create "$RELEASE_TAG" --verify-tag --draft --latest=false --title "StagePilot $RELEASE_TAG" --notes-file release-assets/release-notes.md
           # Signatures must remain in the staging directory while latest.json is
           # generated and validated, but latest.json embeds their contents. Do
           # not publish standalone .sig files as user-facing release downloads.
           find release-assets -maxdepth 1 -type f ! -name latest.json ! -name release-notes.md ! -name '*.sig' -print0 |
-            xargs -0 gh release upload "$RELEASE_TAG" --clobber
-          gh release upload "$RELEASE_TAG" release-assets/latest.json --clobber
+            xargs -0 gh release upload "$RELEASE_TAG"
+          gh release upload "$RELEASE_TAG" release-assets/latest.json
           gh release edit "$RELEASE_TAG" --draft=false --latest
