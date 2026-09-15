@@ -298,6 +298,46 @@ describe('private-beta control plane', () => {
     expect((await json(revoke)).revoked).toBe(true);
   });
 
+  it('does not let enabled reconcile consume reserved revoke capacity', async () => {
+    const installation = await enroll(registry, 'reconcile-budget-request');
+    const generation = '77777777-7777-4777-8777-777777777777';
+    expect((await registry.fetch(request(
+      installationPath(installation, 'provision'), 'POST', String(installation.installationCredential), { generation },
+    ))).status).toBe(200);
+    storage.values.set('provider:budget', { startedAt: Math.floor(Date.now() / 1000), count: 480 });
+    registry = new Registry({ storage } as unknown as DurableObjectState, env as never);
+    const callsBefore = provider.fetch.mock.calls.length;
+
+    const reconcile = await registry.fetch(request(
+      installationPath(installation, 'reconcile'), 'POST', String(installation.installationCredential),
+    ));
+    expect(reconcile.status).toBe(503);
+    expect(provider.fetch).toHaveBeenCalledTimes(callsBefore);
+
+    const revoke = await registry.fetch(request(
+      installationPath(installation, 'revoke'), 'POST', String(installation.installationCredential),
+    ));
+    expect(revoke.status).toBe(200);
+  });
+
+  it('does not log a non-JSON provider response body', async () => {
+    const installation = await enroll(registry, 'provider-body-request');
+    const providerBody = 'PRIVATE_PROVIDER_BODY';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(providerBody, { status: 200 })));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await registry.fetch(request(
+      installationPath(installation, 'provision'),
+      'POST',
+      String(installation.installationCredential),
+      { generation: '88888888-8888-4888-8888-888888888888' },
+    ));
+
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await json(response))).not.toContain(providerBody);
+    expect(JSON.stringify(error.mock.calls)).not.toContain(providerBody);
+  });
+
   it('keeps two provisioned installations isolated across credentials, routes, and lifecycle', async () => {
     const first = await enroll(registry, 'friend-one-request');
     const second = await enroll(registry, 'friend-two-request');

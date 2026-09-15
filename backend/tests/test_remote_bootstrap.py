@@ -56,11 +56,13 @@ class FakeControlPlane:
         self.reject_credential = False
         self.fail_revoke = False
         self.offline = False
+        self.enrollment_nonce = ""
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if self.offline:
             raise httpx.ConnectError("test outage")
         if request.url.path.endswith("/v1/installations/enroll"):
+            self.enrollment_nonce = str(json.loads(request.content)["nonce"])
             return httpx.Response(201, json=self.payload)
         if self.reject_credential:
             return httpx.Response(401, json={"error": "unauthorized"})
@@ -159,7 +161,11 @@ def test_first_enable_transparently_enrolls_and_keeps_credential_native(tmp_path
     assert active is not None
     assert active.installation_id == payload["installationId"]
     assert credentials.get(active.installation_id) == payload["installationCredential"]
-    assert str(payload["installationCredential"]) not in store.path.read_text(encoding="utf-8")
+    serialized = store.path.read_text(encoding="utf-8")
+    assert str(payload["installationCredential"]) not in serialized
+    assert store.state().enrollment_nonce is None
+    assert active.bundle_id == active.installation_id
+    assert fake.enrollment_nonce not in serialized
 
 
 def test_enrollment_honors_retry_after_with_backoff_and_jitter(tmp_path: Path) -> None:

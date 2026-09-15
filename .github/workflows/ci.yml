@@ -132,6 +132,11 @@ jobs:
           npm ci --prefix frontend
           npm ci --prefix desktop
 
+      - name: Run packaged Remote lifecycle on Windows
+        run: |
+          uv sync --project backend --locked --extra dev
+          uv run --project backend --frozen pytest backend/tests/test_remote_bootstrap.py backend/tests/test_remote_feature.py
+
       - name: Select stable Rust
         run: |
           rustup update stable

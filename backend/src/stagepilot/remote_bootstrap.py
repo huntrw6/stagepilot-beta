@@ -209,7 +209,7 @@ class DesktopBootstrapStore:
             {
                 "schema": INSTALLATION_SCHEMA,
                 "version": 1,
-                "bundleId": current.enrollment_nonce,
+                "bundleId": installation_id,
                 "controlPlaneOrigin": control_plane_origin,
                 "installationId": installation_id,
                 "hostname": hostname,
@@ -219,6 +219,7 @@ class DesktopBootstrapStore:
         self.credentials.set(installation_id, credential)
         try:
             current.active = metadata
+            current.enrollment_nonce = None
             self._write(current)
         except Exception:
             self.credentials.delete(installation_id)

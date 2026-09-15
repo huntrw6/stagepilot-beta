@@ -2,7 +2,7 @@
 
 ## Decision
 
-Possession of the private beta is sufficient authorization to enroll. There is no GitHub verification, OAuth, StagePilot account, invite code, administrator-created bundle, or private bundle delivery. On first local enable, the app creates and persists a random nonce, receives a random installation identity and unique machine credential, and stores the credential only in Windows Credential Manager or macOS Keychain. Every later lifecycle call requires that credential.
+Possession of the private beta is sufficient authorization to enroll. There is no GitHub verification, OAuth, StagePilot account, invite code, administrator-created bundle, or private bundle delivery. On first local enable, the app creates a random nonce and retains it only while enrollment is incomplete, receives a random installation identity and unique machine credential, then removes the nonce from ordinary local state and stores the credential only in Windows Credential Manager or macOS Keychain. Every later lifecycle call requires that credential.
 
 A public endpoint cannot prove private-repository possession. The binary is not treated as a secret. Abuse is contained through finite server-side ceilings, revocation, aggregate observability, and fail-closed behavior. No Cloudflare, administrator, signing, GitHub, or reusable tunnel credential ships in the app.
 
@@ -12,7 +12,7 @@ A public endpoint cannot prove private-repository possession. The binary is not 
 - Replay: a valid nonce replay returns the same installation and credential before any quota check and does not consume quota.
 - Global gate: 500 active installations by default, configurable with `BETA_INSTALLATION_LIMIT`; `ENROLLMENT_ENABLED=false` stops only new enrollment.
 - Installation API: 120 status requests and 20 lifecycle mutations per installation per 60 seconds. Status never invokes Cloudflare. Confirmed provision responses are cached in memory for 30 seconds so rapid reconcile/provision replay is provider-free.
-- Provider API: all requests are serialized in the singleton Durable Object. The total ceiling is 600 calls per 5 minutes; ordinary provisioning stops at 480, reserving 120 calls for disable, revoke, and recovery. This is below Cloudflare's documented 1,200 calls per 5 minutes and 200 calls per second per IP.
+- Provider API: all requests are serialized in the singleton Durable Object. The total ceiling is 600 calls per 5 minutes; ordinary provisioning and enabled reconciliation stop at 480, reserving 120 calls for disable, revoke, and recovery. This is below Cloudflare's documented 1,200 calls per 5 minutes and 200 calls per second per IP.
 - Client: enrollment and lifecycle requests make at most three attempts for 429/503 responses, honor bounded `Retry-After` values, and add exponential backoff with jitter.
 - Edge: exactly one Free-plan `http_ratelimit` rule with ref `stagepilot_remote_beta_rate_limit_v1`, expression `(http.host wildcard "sp-*.illuminary.studio")`, 60 requests per source IP/colo per 10 seconds, and a 10-second block. WSS messages are not counted as HTTP requests; initial upgrades and reconnects are.
 - Observability: the administrator metrics route exposes only aggregate active/enrollment and denial counters. It emits no raw IP, keyed source hash, installation ID, hostname, provider body, or credential.
