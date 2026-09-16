@@ -183,6 +183,15 @@ jobs:
           npm ci --prefix frontend
           npm ci --prefix desktop
 
+      # The runner only provides `python3` on PATH; `build:sidecar` invokes
+      # the literal command `python`. Shim it for this job only (RUNNER_TEMP
+      # is cleaned up automatically) rather than touching the host.
+      - name: Ensure python resolves on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          ln -sf "$(command -v python3)" "$RUNNER_TEMP/bin/python"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       # Only the sidecar half of `npm run build:runtime` is Linux-provable:
       # it builds the frontend bundle and PyInstalls the backend into the
       # Tauri binaries directory, the same chain every native build depends
