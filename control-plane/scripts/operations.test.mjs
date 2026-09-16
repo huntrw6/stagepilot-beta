@@ -39,7 +39,15 @@ describe("deployment configuration", () => {
       installationLimit: 500,
       releaseVersions: ["1.1.103-beta.1", "1.1.103-beta.2"],
       latestReleaseVersion: "1.1.103-beta.1",
+      enrollmentExemptSources: "",
     });
+  });
+
+  it("accepts a comma-separated developer-network enrollment exemption list", () => {
+    const config = validateDeploymentEnvironment(
+      deploymentEnvironment({ ENROLLMENT_EXEMPT_SOURCES: "192.0.2.10,2001:db8:1:4::/64" }),
+    );
+    assert.equal(config.enrollmentExemptSources, "192.0.2.10,2001:db8:1:4::/64");
   });
 
   it("fails before deployment when any runtime secret is missing", () => {
@@ -63,7 +71,7 @@ describe("deployment configuration", () => {
     const wrangler = fs.readFileSync(path.join(repository, "control-plane/wrangler.toml"), "utf8");
     assert.match(workflow, /workflow_dispatch:/);
     assert.doesNotMatch(workflow, /\bpush:/);
-    for (const name of ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ZONE_ID", "REMOTE_HOST_SUFFIX", "REMOTE_PORT", "ENROLLMENT_ENABLED", "BETA_INSTALLATION_LIMIT", "BETA_RELEASE_VERSIONS", "BETA_LATEST_RELEASE_VERSION"]) {
+    for (const name of ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ZONE_ID", "REMOTE_HOST_SUFFIX", "REMOTE_PORT", "ENROLLMENT_ENABLED", "BETA_INSTALLATION_LIMIT", "BETA_RELEASE_VERSIONS", "BETA_LATEST_RELEASE_VERSION", "ENROLLMENT_EXEMPT_SOURCES"]) {
       assert.match(workflow, new RegExp(`vars\\.${name}`));
       assert.match(workflow, new RegExp(`--var ${name}:`));
     }

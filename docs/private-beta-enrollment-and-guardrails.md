@@ -14,6 +14,7 @@ Remote application traffic. Details are in `private-beta-release-and-acceptance.
 ## Implemented controls and thresholds
 
 - Enrollment: 3 new installations per canonical source IPv4 or IPv6 /64 per 24 hours. The source is HMAC-hashed with server-only key material; raw addresses are not stored. Source records expire after 24 hours and the retained index is capped at 2,000 entries.
+- Developer-network enrollment exemption: the optional Worker variable `ENROLLMENT_EXEMPT_SOURCES` is a comma-separated list of already-normalized sources (e.g. `192.0.2.10` or `2001:db8:1:4::/64`) that skip only the per-source `ENROLLMENTS_PER_SOURCE` check above. It is a developer convenience so work on this project is never blocked by the beta abuse limit; it defaults to unset, which exempts nobody, so production behavior is unchanged by default. An exempt source is still subject to `ENROLLMENT_ENABLED`, the global `BETA_INSTALLATION_LIMIT` ceiling, `MAX_SOURCE_QUOTAS` pressure, nonce idempotency, and every downstream status/mutation/provider quota — it is never an unlimited bypass. The comparison uses the same `normalizeSourceAddress` as the quota itself, on the already-normalized configured value, never the raw header, so a differently formatted or malformed configuration entry is not treated as a match. Exempt enrollments still increment `enrollments`/`activeInstallations` so capacity stays observable, and never increment `enrollmentDenied`. This list must contain only trusted developer networks, never a beta user's address.
 - Replay: a valid nonce replay returns the same installation and credential before any quota check and does not consume quota.
 - Global gate: 500 active installations by default, configurable with `BETA_INSTALLATION_LIMIT`; `ENROLLMENT_ENABLED=false` stops only new enrollment.
 - Installation API: 120 status requests and 20 lifecycle mutations per installation per 60 seconds. Status never invokes Cloudflare. Confirmed provision responses are cached in memory for 30 seconds so rapid reconcile/provision replay is provider-free.
@@ -29,6 +30,29 @@ Quota and capacity denials return sanitized 429 or 503 responses plus `Retry-Aft
 The manual protected deployment workflow supplies `ENROLLMENT_ENABLED` and `BETA_INSTALLATION_LIMIT` and deploys the Worker. An independently authorized zone-WAF operator runs `node control-plane/scripts/waf-rate-limit.mjs apply` and reads back the exact rule; the narrower Worker/tunnel token intentionally cannot edit WAF. Monitor `GET /v1/admin/metrics` with the administrator credential and Cloudflare Security Events. Tune only after measuring ordinary HTTPS polling and WSS upgrade/reconnect rates.
 
 Emergency enrollment rollback is `ENROLLMENT_ENABLED=false` followed by a manual Worker deployment; existing authenticated lifecycle and cleanup continue. WAF rollback deletes only the exact StagePilot rule/ruleset in the zone `http_ratelimit` phase and verifies that managed DDoS and all other phases and hosts remain unchanged. Code rollback must preserve the existing Durable Object class/binding and forward-only migration history.
+
+### Refreshing the developer-network exemption
+
+`ENROLLMENT_EXEMPT_SOURCES` is set on the `stagepilot-control-plane` GitHub
+environment as a comma-separated list and deployed by `deploy-control-plane.yml`
+(`gh variable set ENROLLMENT_EXEMPT_SOURCES --env stagepilot-control-plane
+--repo huntrw6/stagepilot-beta --body "<ipv4>,<ipv6-/64>"`, then dispatch the
+workflow). Both entries are ISP-assigned and can change. To refresh:
+
+1. Re-read the current developer-network sources:
+   `curl -s https://cloudflare.com/cdn-cgi/trace | grep ^ip=` for the default
+   route (usually IPv6) and `curl -4 -s https://cloudflare.com/cdn-cgi/trace |
+   grep ^ip=` for IPv4.
+2. Normalize the IPv6 value to its `/64` (first four hextets, then `::/64`) —
+   the same shape `normalizeSourceAddress` produces internally.
+3. Update the `ENROLLMENT_EXEMPT_SOURCES` variable with both values and
+   redeploy.
+4. Read back the deployed configuration (`deployment-config.mjs validate` logs
+   only an exemption *count*, never the raw values) to confirm the change is
+   live.
+
+This list must contain only trusted developer networks, never a beta user's
+address.
 
 ## Limitations
 

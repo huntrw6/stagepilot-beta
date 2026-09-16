@@ -25,6 +25,10 @@ export function validateDeploymentEnvironment(environment) {
   const installationLimitText = required(environment, "BETA_INSTALLATION_LIMIT");
   const releaseVersionsText = required(environment, "BETA_RELEASE_VERSIONS");
   const latestReleaseVersion = required(environment, "BETA_LATEST_RELEASE_VERSION");
+  // Optional: comma-separated already-normalized developer-network enrollment
+  // exemptions. Empty/unset means "no exemptions" so production behaviour is
+  // unchanged by default; the Worker itself re-validates each entry.
+  const enrollmentExemptSources = environment.ENROLLMENT_EXEMPT_SOURCES ?? "";
   const providerToken = required(environment, "CLOUDFLARE_API_TOKEN");
   const adminToken = required(environment, "ADMIN_API_TOKEN");
   const signingKey = required(environment, "INSTALLATION_SIGNING_KEY");
@@ -63,7 +67,7 @@ export function validateDeploymentEnvironment(environment) {
     throw new Error("BETA_LATEST_RELEASE_VERSION must be in BETA_RELEASE_VERSIONS");
   }
 
-  return { accountId, zoneId, hostnameSuffix, remotePort, enrollmentEnabled, installationLimit, releaseVersions, latestReleaseVersion };
+  return { accountId, zoneId, hostnameSuffix, remotePort, enrollmentEnabled, installationLimit, releaseVersions, latestReleaseVersion, enrollmentExemptSources };
 }
 
 export function installedSecretNames(output) {
@@ -86,8 +90,9 @@ function main() {
   const command = process.argv[2];
   if (command === "validate") {
     const config = validateDeploymentEnvironment(process.env);
+    const exemptCount = config.enrollmentExemptSources.split(",").map((value) => value.trim()).filter(Boolean).length;
     console.log(
-      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}, enrollment=${config.enrollmentEnabled}, installation limit=${config.installationLimit}, latest beta=${config.latestReleaseVersion}; 4 runtime secrets present.`,
+      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}, enrollment=${config.enrollmentEnabled}, installation limit=${config.installationLimit}, latest beta=${config.latestReleaseVersion}, enrollment exemptions=${exemptCount}; 4 runtime secrets present.`,
     );
     return;
   }

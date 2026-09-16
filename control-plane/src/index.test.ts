@@ -229,6 +229,85 @@ describe('private-beta control plane', () => {
     expect(provider.fetch).not.toHaveBeenCalled();
   });
 
+  it('exempts a configured developer source from the per-source enrollment quota', async () => {
+    registry = new Registry(
+      { storage } as unknown as DurableObjectState,
+      { ...env, ENROLLMENT_EXEMPT_SOURCES: '192.0.2.10,2001:db8:1:4::/64' } as never,
+    );
+    const ipv4Nonces = ['exempt-ipv4-0001', 'exempt-ipv4-0002', 'exempt-ipv4-0003', 'exempt-ipv4-0004', 'exempt-ipv4-0005'];
+    for (const nonce of ipv4Nonces) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, '192.0.2.10'));
+      expect(response.status).toBe(201);
+    }
+    const ipv6Address = '2001:db8:1:4:aaaa:bbbb:cccc:dddd';
+    const ipv6Nonces = ['exempt-ipv6-0001', 'exempt-ipv6-0002', 'exempt-ipv6-0003', 'exempt-ipv6-0004'];
+    for (const nonce of ipv6Nonces) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, ipv6Address));
+      expect(response.status).toBe(201);
+    }
+    const stats = await registry.fetch(request('/v1/admin/metrics', 'GET', adminToken));
+    const aggregate = await json(stats);
+    expect(aggregate.enrollments).toBe(ipv4Nonces.length + ipv6Nonces.length);
+    expect(aggregate.activeInstallations).toBe(ipv4Nonces.length + ipv6Nonces.length);
+    expect(aggregate.enrollmentDenied).toBe(0);
+  });
+
+  it('still denies a non-exempt source with 429 and retry-after when an exemption list is configured', async () => {
+    registry = new Registry(
+      { storage } as unknown as DurableObjectState,
+      { ...env, ENROLLMENT_EXEMPT_SOURCES: '192.0.2.10,2001:db8:1:4::/64' } as never,
+    );
+    const other = '198.51.100.9';
+    for (const nonce of ['non-exempt-0001', 'non-exempt-0002', 'non-exempt-0003']) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, other));
+      expect(response.status).toBe(201);
+    }
+    const denied = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'non-exempt-0004' }, other,
+    ));
+    expect(denied.status).toBe(429);
+    expect(Number(denied.headers.get('retry-after'))).toBeGreaterThan(0);
+  });
+
+  it('does not treat a malformed or spoofed variant of an exempt value as exempt', async () => {
+    registry = new Registry(
+      { storage } as unknown as DurableObjectState,
+      {
+        ...env,
+        ENROLLMENT_EXEMPT_SOURCES:
+          '067.049.024.009,2001:db8:1:4:0000:0000:0000:0000/64,2603:8000:8300:1b15::/64',
+      } as never,
+    );
+    for (const nonce of ['spoof-0001', 'spoof-0002', 'spoof-0003']) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, '192.0.2.10'));
+      expect(response.status).toBe(201);
+    }
+    const denied = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'spoof-0004' }, '192.0.2.10',
+    ));
+    expect(denied.status).toBe(429);
+  });
+
+  it('treats an empty or unset exemption list as exempting nobody', async () => {
+    for (const exemptSources of [undefined, '', '   ', ',,']) {
+      const storageForRun = new MemoryStorage();
+      const registryForRun = new Registry(
+        { storage: storageForRun } as unknown as DurableObjectState,
+        { ...env, ENROLLMENT_EXEMPT_SOURCES: exemptSources } as never,
+      );
+      for (const nonce of ['empty-0001', 'empty-0002', 'empty-0003']) {
+        const response = await registryForRun.fetch(request(
+          '/v1/installations/enroll', 'POST', undefined, { nonce }, '192.0.2.10',
+        ));
+        expect(response.status).toBe(201);
+      }
+      const denied = await registryForRun.fetch(request(
+        '/v1/installations/enroll', 'POST', undefined, { nonce: 'empty-0004' }, '192.0.2.10',
+      ));
+      expect(denied.status).toBe(429);
+    }
+  });
+
   it('enforces the installation ceiling and kill switch without creating installations', async () => {
     registry = new Registry({ storage } as unknown as DurableObjectState, { ...env, BETA_INSTALLATION_LIMIT: '1' } as never);
     await enroll(registry, 'ceiling-first-request');

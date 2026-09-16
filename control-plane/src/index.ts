@@ -12,6 +12,7 @@ interface Env {
   BETA_INSTALLATION_LIMIT?: string;
   BETA_RELEASE_VERSIONS?: string;
   BETA_LATEST_RELEASE_VERSION?: string;
+  ENROLLMENT_EXEMPT_SOURCES?: string;
 }
 
 type Phase = 'disabled' | 'enabling' | 'provisioned' | 'revoking';
@@ -194,6 +195,22 @@ function normalizeSourceAddress(value: string): string | undefined {
     .map((part) => Number.parseInt(part, 16));
   if (words.length !== 8) return undefined;
   return `${words.slice(0, 4).map((part) => part.toString(16)).join(':')}::/64`;
+}
+
+function exemptSources(value: string | undefined): Set<string> {
+  const set = new Set<string>();
+  for (const raw of (value ?? '').split(',')) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.endsWith('::/64')
+      ? normalizeSourceAddress(`${trimmed.slice(0, -'::/64'.length)}::`)
+      : normalizeSourceAddress(trimmed);
+    // Only accept config entries that are already in exact canonical form;
+    // anything that round-trips differently (a malformed or spoofed variant)
+    // is silently dropped rather than treated as an exemption.
+    if (normalized === trimmed) set.add(normalized);
+  }
+  return set;
 }
 
 function bearer(request: Request): string {
@@ -572,12 +589,13 @@ export class Registry {
       }
       const source = normalizeSourceAddress(request.headers.get('cf-connecting-ip') ?? '');
       if (!source) return reply({ error: 'invalid request' }, 400);
+      const exempt = exemptSources(this.env.ENROLLMENT_EXEMPT_SOURCES).has(source);
       const sourceHash = await keyedHash(this.env.INSTALLATION_SIGNING_KEY, `enrollment-source:${source}`);
       const nowSeconds = Math.floor(Date.now() / 1000);
       const sourceKey = `enrollment-source:${sourceHash}`;
       let quota = await this.state.storage.get<SourceQuota>(sourceKey);
       if (quota && nowSeconds - quota.startedAt >= ENROLLMENT_WINDOW_SECONDS) quota = undefined;
-      if (quota && quota.count >= ENROLLMENTS_PER_SOURCE) {
+      if (!exempt && quota && quota.count >= ENROLLMENTS_PER_SOURCE) {
         await this.bumpDenied(stats, 'enrollmentDenied');
         throw new Limited(429, Math.max(1, ENROLLMENT_WINDOW_SECONDS - (nowSeconds - quota.startedAt)), 'enrollment rate limited');
       }
