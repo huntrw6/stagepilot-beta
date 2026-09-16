@@ -6,6 +6,7 @@
     "build": "tsc --noEmit",
     "test": "vitest run",
     "acceptance:live": "node scripts/live-acceptance.mjs",
+    "acceptance:residue": "node scripts/residue-check.mjs",
     "validate:deployment": "node scripts/deployment-config.mjs validate"
   },
   "devDependencies": {
