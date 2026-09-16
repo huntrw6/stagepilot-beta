@@ -128,3 +128,13 @@ python scripts/beta_release_acceptance.py --report PRIVATE_REPORT verify --from-
 The operator must observe: installer hash/version; loopback local health; no-auth transparent enrollment; exactly one first Operator; Viewer/Operator HTTPS and WSS policy; app/connector restart; actual machine reboot; disable, re-enable with a new generation, and exact provider cleanup; beta 2 discovery; signed download/install/relaunch with version read-back; then revocation/removal of disposable DNS, tunnel, sessions, credentials, test users, installers, and private evidence as policy requires. The harness rejects obvious credential-bearing evidence strings but the operator must still inspect the report before sharing it.
 
 No local mock, CI build, service restart, or prior Linux/LXC proof substitutes for this physical matrix.
+
+## Native completion runbook and status ledger
+
+The exact, ordered, copy-pasteable commands that finish release 1 and release 2
+the moment a native self-hosted runner is registered — including runner labels,
+required secrets, tag names, expected assets, and read-back checks — plus the
+authoritative PROVEN-on-Linux versus DEFERRED ledger, live in
+[`native-completion-runbook.md`](native-completion-runbook.md). Treat that file
+as the single source of truth for what has actually been validated; never
+present a DEFERRED item there as proven.

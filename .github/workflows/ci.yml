@@ -155,6 +155,36 @@ jobs:
       - name: Validate updater and release configuration
         run: npm --prefix desktop run release:test
 
+  updater-chain:
+    name: Updater chain — Linux-provable
+    runs-on: [self-hosted, stagepilot-linux]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: control-plane/package-lock.json
+
+      - name: Install locked control-plane dependencies
+        run: npm ci --prefix control-plane
+
+      - name: Type-check the control plane
+        run: npm --prefix control-plane run build
+
+      - name: Prove release-broker allowlisting, caching, and abuse limits
+        run: npm --prefix control-plane test
+
+      - name: Prove manifest generation, validation, and channel isolation
+        run: npm --prefix desktop run release:test
+
+      - name: Prove updater manifest negative cases end to end
+        run: node scripts/updater_chain_proof.mjs
+
   desktop:
     name: DEFERRED — Desktop installer — Windows x64
     # Native packaging stays defined for a future matching self-hosted runner.
