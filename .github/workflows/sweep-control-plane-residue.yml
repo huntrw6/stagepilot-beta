@@ -36,6 +36,16 @@ jobs:
           cache: npm
           cache-dependency-path: control-plane/package-lock.json
       - run: npm ci --prefix control-plane
+      - name: Read enrollment budget counters
+        # The runbook directs an operator to check the remaining enrollment
+        # budget with this workflow before dispatching the live acceptance run,
+        # but the provider sweep below reads Cloudflare only and never surfaces
+        # a counter. Read the aggregate-only admin metrics here so the
+        # prescribed check actually produces the prescribed evidence. This is a
+        # read; it consumes no enrollment quota.
+        env:
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: npm --silent --prefix control-plane run acceptance:baseline
       - name: Sweep disposable acceptance residue
         env:
           SWEEP_MODE: ${{ inputs.apply }}

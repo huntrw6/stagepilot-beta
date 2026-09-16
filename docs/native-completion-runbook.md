@@ -66,7 +66,7 @@ Never describe any of these as validated.
 | D9 | Disable, re-enable with a new generation, exact provider cleanup | native hardware | `check --name disable_reenable_provider_cleanup` receipt |
 | D10 | In-app update discovery, download, install, relaunch, version read-back | D3 + two published releases | `check --name updater_discovery`, `updater_install_relaunch`, then `verify --from-version … --to-version …` |
 | D11 | Gatekeeper / SmartScreen behaviour on unsigned-publisher builds | native hardware | Recorded operator observation per platform |
-| D12 | Live enrollment/guardrail acceptance against the deployed Worker | enrollment source quota (below) | `prepare-control-plane-live-acceptance.yml` green with a full `report` object and `CLEANUP_RECEIPTS` showing every installation revoked |
+| D12 | Live enrollment/guardrail acceptance against the deployed Worker | enrollment source quota (below); window observed exhausted 2026-09-16, reopens ~2026-09-17 16:40Z at the latest | `prepare-control-plane-live-acceptance.yml` green with a full `report` object and `CLEANUP_RECEIPTS` showing every installation revoked |
 
 ### D12 operational note — enrollment source quota
 
@@ -89,8 +89,48 @@ gh workflow run sweep-control-plane-residue.yml --repo huntrw6/stagepilot-beta \
   --ref main -f apply=report
 ```
 
-A rising `enrollmentDenied` counter with a flat `enrollments` counter means the
-window is exhausted.
+The workflow's **Read enrollment budget counters** step prints the
+aggregate-only admin metrics. Reading them consumes no quota. A rising
+`enrollmentDenied` counter with a flat `enrollments` counter means the window
+is exhausted.
+
+#### Observed exhaustion, 2026-09-16
+
+Four acceptance attempts ran between 16:06Z and 16:31Z, and the counters read
+back by run `35122372776` pin the state exactly:
+
+| Reading | `enrollments` | `enrollmentDenied` | `activeInstallations` |
+|---|---|---|---|
+| Baseline, 16:31:03Z | 12 | 2 | 2 |
+| After the run, 16:31:16Z | 12 | 5 | 2 |
+
+`enrollments` did not move while `enrollmentDenied` rose by exactly 3 — one per
+enrollment attempt in the run (`nonceA`, its replay, `nonceB`). Every attempt
+was refused at the quota gate; none reached installation creation. This is the
+textbook exhausted-window signature, and it is the guardrail working.
+
+Two independent facts confirm the refusal is the quota and not a regression:
+
+- `activeInstallations` held at 2 across the baseline and the post-run reading,
+  so the run created nothing. The 2 are pre-existing, not residue from these
+  attempts.
+- The provider sweep read `disposableHostnames: []` and `disposableTunnels: []`
+  directly from Cloudflare at 16:41Z. Nothing was provisioned, so there is
+  nothing to strand.
+
+The quota window is keyed to each source's first enrollment in the window, not
+to a wall clock the operator controls, and the admin surface is aggregate-only:
+it exposes no per-source counter and no window start. So the exact reopening
+time is **not readable** — it can only be bounded. The 24-hour window covering
+the denials at 16:31Z started no earlier than the first enrollment in that
+window, so the window reopens at roughly **2026-09-17 16:40Z at the latest**,
+and possibly earlier. Do not treat that timestamp as precise. Re-read the
+counters first; dispatch the acceptance run only once `enrollments` can move
+again.
+
+Do not attempt the acceptance run before then. A premature attempt is not free:
+each denied attempt increments `enrollmentDenied` but leaves the window's start
+untouched, so it costs a CI run and buys nothing.
 
 ## Recovering a stranded disposable installation
 
