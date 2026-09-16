@@ -165,6 +165,35 @@ exact IDs.
 The sweep touches only `sp-<32 hex>.<REMOTE_HOST_SUFFIX>` DNS records and
 `stagepilot-<32 hex>-<generation>` tunnels, and reads back to confirm removal.
 
+### Known unrecoverable registry entries — 2 stranded, zero provider residue
+
+The first acceptance attempt of 2026-09-16 (run `35119782474`, at commit
+`33a39fe`, before the `badb3a4` fix) enrolled two installations and then died
+on a TLS `unrecognized name` error during hostname activation. The script at
+that commit appended to `installations` only *after* its assertions, so the
+`finally` block had nothing to revoke and printed no receipts. Their exact IDs
+were never emitted and the Worker exposes no enumeration route, so **they
+cannot be recovered or revoked**. They are the persistent
+`activeInstallations: 2` in every reading since.
+
+This is bounded and costs nothing:
+
+- Provider residue is **zero** — confirmed by direct Cloudflare reads at 16:41Z
+  (run `35123422067`) and 17:02Z (run `35125995391`), both
+  `disposableHostnames: []` and `disposableTunnels: []`. No DNS record is held,
+  no tunnel is reachable, nothing bills.
+- Both entries are `phase: disabled` with no provisioned generation; a stranded
+  entry that never completed provisioning holds no provider object.
+- `BETA_INSTALLATION_LIMIT` defaults to 500, so 2 entries do not approach the
+  global enrollment ceiling.
+
+`badb3a4` fixed the cause: enrollments are now registered for cleanup the
+instant they succeed, revocation is retried, and IDs are printed
+unconditionally, so no future run can strand an installation invisibly. Treat
+the residual 2 as a permanent, harmless baseline offset — the residue check
+asserts `activeInstallations` is **not greater than** its baseline for exactly
+this reason, rather than asserting zero.
+
 ---
 
 # Native completion runbook
