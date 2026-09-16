@@ -155,6 +155,44 @@ jobs:
       - name: Validate updater and release configuration
         run: npm --prefix desktop run release:test
 
+  desktop-sidecar-smoke:
+    name: Desktop packaging smoke — sidecar (Linux-provable)
+    runs-on: [self-hosted, stagepilot-linux]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install frontend and desktop dependencies
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix desktop
+
+      # Only the sidecar half of `npm run build:runtime` is Linux-provable:
+      # it builds the frontend bundle and PyInstalls the backend into the
+      # Tauri binaries directory, the same chain every native build depends
+      # on. The cloudflared half (`build:cloudflared`) is Windows/macOS-only
+      # by design (`scripts/stage_cloudflared.py` has no Linux asset because
+      # StagePilot does not ship a Linux bundle) and is intentionally not
+      # run here.
+      - name: Build the desktop sidecar (frontend + backend PyInstaller)
+        run: npm --prefix desktop run build:sidecar
+
   updater-chain:
     name: Updater chain — Linux-provable
     runs-on: [self-hosted, stagepilot-linux]

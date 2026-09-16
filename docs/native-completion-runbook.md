@@ -3,8 +3,10 @@
 This is the single authoritative source for (a) exactly what the self-hosted
 Linux runner `stagepilot-ci` has actually proven, (b) what remains DEFERRED and
 precisely what evidence each deferred item still needs, and (c) the exact
-ordered commands that finish private beta release 1 and release 2 the moment a
-native self-hosted runner is registered.
+ordered commands that finish private beta release 1 — the only release this
+beta ships — the moment a native self-hosted runner is registered. The in-app
+updater, release 2, and the release broker are deferred by operator choice;
+see "Deferred by operator choice" below.
 
 Nothing in this file may be presented as validated unless it appears under
 PROVEN with a CI run URL. See
@@ -18,9 +20,9 @@ for the guardrail thresholds.
 | Label | Machine | Status |
 |---|---|---|
 | `stagepilot-linux` | `stagepilot-ci` (Linux X64) | Registered and online |
-| `stagepilot-windows-x64` | — | **Not registered.** Blocks release 1 and 2. |
-| `stagepilot-macos-arm64` | — | **Not registered.** Blocks release 1 and 2. |
-| `stagepilot-macos-x64` | — | **Not registered.** Blocks release 1 and 2. |
+| `stagepilot-windows-x64` | — | **Not registered.** Blocks release 1. |
+| `stagepilot-macos-arm64` | — | **Not registered.** Blocks release 1. |
+| `stagepilot-macos-x64` | — | **Not registered.** Blocks release 1. |
 
 Every active workflow job uses exactly `runs-on: [self-hosted, stagepilot-linux]`.
 Every native job is named `DEFERRED — …` and carries `if: ${{ false }}`. Enforced
@@ -48,27 +50,28 @@ rather than trusting this table alone.
 | P11 | Release workflow ordering: signing secrets required, source audit, exact-tag source match, `latest.json` uploaded last, standalone `.sig` never published, immutable tags never clobbered | `ci.yml:updater-chain` → `npm --prefix desktop run release:test` |
 | P12 | Control-plane enrollment, isolation, quota, provider-lane, and fail-closed behaviour at unit level | `ci.yml:updater-chain` → `npm --prefix control-plane test` |
 | P13 | Zero Cloudflare residue: no `sp-<id>.<suffix>` DNS record and no `stagepilot-<id>-<generation>` tunnel survives an acceptance run | `sweep-control-plane-residue.yml` (report mode) |
+| P14 | Release-1 dry run at `main`/`8ce2da9`: `validate_versions.mjs v1.1.103-beta.2`, `audit_beta_release.mjs source` (428 tracked files, zero leaks), `npm --prefix desktop run release:test` (15/15) pass without tagging or publishing | manual local run, see "Release 1 dry run" below; now enforced every push by `ci.yml:desktop-sidecar-smoke` |
+| P15 | Desktop sidecar packaging chain (`npm --prefix desktop run build:sidecar`: frontend build + backend PyInstaller into `desktop/src-tauri/binaries/`) builds clean on self-hosted Linux — the same chain every native build depends on | `ci.yml:desktop-sidecar-smoke` → `npm --prefix desktop run build:sidecar` |
 
-## DEFERRED — not proven, with the exact evidence still required
+## DEFERRED — not proven, required for release 1, with the exact evidence still required
 
-Never describe any of these as validated.
+Never describe any of these as validated. All nine remain in scope for the
+beta release-1 native path (see the runbook below): registering the native
+runners clears the blocking condition for every row here.
 
 | # | Item | Blocked by | Evidence required to clear it |
 |---|---|---|---|
 | D1 | Windows x64 installer builds and is signed | `stagepilot-windows-x64` runner | `ci.yml:desktop` green with a real `*-setup.exe` and `.sig` artifact |
 | D2 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build and verify | `stagepilot-macos-*` runners | `release-macos.yml:build` green; `scripts/verify_macos_release_bundle.sh` passes `--app`, `--dmg`, `--archive` |
-| D3 | Real signed `latest.json` for actual artifacts | D1 + D2 | `release-macos.yml:publish` green; manifest generated from real `.sig` files |
-| D4 | Broker serves a real private release end to end | D3 + a published release | `GET /v1/releases/latest.json` returns 200 for the real tag |
-| D5 | Fresh-machine install on each platform | native hardware | `beta_release_acceptance.py installer` + `check --name local_health` receipts |
-| D6 | No-auth transparent enrollment from an installed build | native hardware | `check --name transparent_enrollment` and `first_operator` receipts |
-| D7 | Viewer/Operator HTTPS + WSS policy from an installed build | native hardware | `check --name https_wss_roles` receipt |
-| D8 | App/connector restart and real machine reboot recovery | native hardware | `check --name restart_recovery`, `reboot_recovery` receipts |
-| D9 | Disable, re-enable with a new generation, exact provider cleanup | native hardware | `check --name disable_reenable_provider_cleanup` receipt |
-| D10 | In-app update discovery, download, install, relaunch, version read-back | D3 + two published releases | `check --name updater_discovery`, `updater_install_relaunch`, then `verify --from-version … --to-version …` |
-| D11 | Gatekeeper / SmartScreen behaviour on unsigned-publisher builds | native hardware | Recorded operator observation per platform |
-| D12 | Live enrollment/guardrail acceptance against the deployed Worker | enrollment source quota (below); window observed exhausted 2026-09-16, reopens ~2026-09-17 16:40Z at the latest | `prepare-control-plane-live-acceptance.yml` green with a full `report` object and `CLEANUP_RECEIPTS` showing every installation revoked |
+| D3 | Fresh-machine install on each platform | native hardware | `beta_release_acceptance.py installer` + `check --name local_health` receipts |
+| D4 | No-auth transparent enrollment from an installed build | native hardware | `check --name transparent_enrollment` and `first_operator` receipts |
+| D5 | Viewer/Operator HTTPS + WSS policy from an installed build | native hardware | `check --name https_wss_roles` receipt |
+| D6 | App/connector restart and real machine reboot recovery | native hardware | `check --name restart_recovery`, `reboot_recovery` receipts |
+| D7 | Disable, re-enable with a new generation, exact provider cleanup | native hardware | `check --name disable_reenable_provider_cleanup` receipt |
+| D8 | Gatekeeper / SmartScreen behaviour on unsigned-publisher builds | native hardware | Recorded operator observation per platform |
+| D9 | Live enrollment/guardrail acceptance against the deployed Worker | enrollment source quota (below); window observed exhausted 2026-09-16, reopens ~2026-09-17 16:40Z at the latest | `prepare-control-plane-live-acceptance.yml` green with a full `report` object and `CLEANUP_RECEIPTS` showing every installation revoked |
 
-### D12 operational note — enrollment source quota
+### D9 operational note — enrollment source quota
 
 The live acceptance run is itself subject to the production guardrail it
 verifies: **3 new installations per canonical source IPv4/IPv6-/64 per 24
@@ -194,12 +197,33 @@ the residual 2 as a permanent, harmless baseline offset — the residue check
 asserts `activeInstallations` is **not greater than** its baseline for exactly
 this reason, rather than asserting zero.
 
+## Deferred by operator choice — required only when promoting to the stable public release repo
+
+These are **not failures and not validated** because they are **out of scope
+for the private beta**, not because anything about them is broken. The
+operator has decided the in-app updater is off for the beta: it ships as a
+directly downloaded installer, there is no release 2, no Update-button
+acceptance, and no release-broker deployment. No `STAGEPILOT_RELEASE_TOKEN`
+will be issued for the beta. The implementation stays intact and promotable —
+nothing here was removed, only deferred.
+
+| Item | Why it is deferred | What clears it |
+|---|---|---|
+| Release-broker deployment (`deploy-control-plane.yml` with `STAGEPILOT_RELEASE_TOKEN` set) | Operator decision: no release-download token will be issued for the beta | An operator decision to promote beyond the private beta, plus the token |
+| Real signed `latest.json` served end to end and `GET /v1/releases/latest.json` returning the real tag | Depends on the broker being deployed | Broker deployment above |
+| Release 2 (`v1.1.103-beta.3`) build/sign/publish | Operator decision: beta ships exactly one release | An operator decision to publish a second release |
+| In-app update discovery, download, install, relaunch, and version read-back (`updater_discovery`, `updater_install_relaunch`, `verify --from-version … --to-version …`) | Depends on the broker and release 2, both deferred above | Broker deployment + release 2 |
+
 ---
 
 # Native completion runbook
 
 Execute top to bottom. Every command is copy-pasteable and requires no
-rediscovery. Do not skip a read-back.
+rediscovery. Do not skip a read-back. This is exactly the release-1 native
+path: register runners, enable native jobs, confirm signing secrets,
+build/sign/publish release 1, native acceptance for release 1, rollback. The
+release-broker deploy, release 2, and update acceptance are out of scope — see
+"Deferred by operator choice" above.
 
 ## Step 0 — Register the native runners (one time, per machine)
 
@@ -236,16 +260,16 @@ macOS Intel:
 ```
 
 Each machine needs Node 22, Python 3.12 via `uv`, and a stable Rust toolchain;
-macOS additionally needs Xcode command line tools. Verify all four runners are
-online and correctly labelled:
+macOS additionally needs the Xcode command line tools (`xcode-select
+--install`). Verify all four runners are online and idle (not `busy`):
 
 ```sh
 gh api repos/huntrw6/stagepilot-beta/actions/runners \
-  --jq '.runners[] | "\(.name) \(.status) \(.labels | map(.name) | join(","))"'
+  --jq '.runners[] | "\(.name) \(.status) busy=\(.busy) \(.labels | map(.name) | join(","))"'
 ```
 
 Expect `stagepilot-ci`, `stagepilot-win-x64`, `stagepilot-mac-arm64`, and
-`stagepilot-mac-x64`, all `online`.
+`stagepilot-mac-x64`, all `status: online` and `busy: false`.
 
 ## Step 1 — Enable the native jobs
 
@@ -272,56 +296,33 @@ git commit -m "ci: enable native jobs now that self-hosted native runners exist"
 git push beta HEAD:refs/heads/main
 ```
 
-## Step 2 — Confirm the required secrets exist
+## Step 2 — Confirm the release-1 signing secrets exist
 
 ```sh
 gh secret list --repo huntrw6/stagepilot-beta
-gh secret list --repo huntrw6/stagepilot-beta --env stagepilot-control-plane
-gh variable list --repo huntrw6/stagepilot-beta --env stagepilot-control-plane
 ```
 
-Required, and never printed:
+Required for release 1, and never printed:
 
 | Name | Scope | Purpose |
 |---|---|---|
 | `TAURI_SIGNING_PRIVATE_KEY` | repository | Signs updater artifacts |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | repository | Unlocks the signing key |
-| `ADMIN_API_TOKEN` | `stagepilot-control-plane` | Admin metrics and revoke |
-| `CLOUDFLARE_API_TOKEN` | `stagepilot-control-plane` | Worker deploy and residue sweep |
-| `INSTALLATION_SIGNING_KEY` | `stagepilot-control-plane` | Per-installation credentials |
-| `STAGEPILOT_RELEASE_TOKEN` | `stagepilot-control-plane` | Read-only Contents on `huntrw6/stagepilot-beta`, mapped to the Worker's `GITHUB_RELEASE_TOKEN` |
 
-`STAGEPILOT_RELEASE_TOKEN` is the operator-supplied secret that gates the
-release-broker deploy. Without it the broker cannot serve `latest.json`, so
-D4 and D10 cannot clear. Set it with:
+The beta control plane (enrollment/guardrails) is already live and unrelated
+to these two secrets. `STAGEPILOT_RELEASE_TOKEN` and the release broker are
+**deferred by operator choice** (see above) — do not set it and do not block
+release 1 on it.
 
-```sh
-gh secret set STAGEPILOT_RELEASE_TOKEN --repo huntrw6/stagepilot-beta \
-  --env stagepilot-control-plane
-```
-
-Verify the release allowlist variables before tagging:
+Verify the release allowlist variable before tagging:
 
 ```sh
 gh variable get BETA_RELEASE_VERSIONS --repo huntrw6/stagepilot-beta --env stagepilot-control-plane
-gh variable get BETA_LATEST_RELEASE_VERSION --repo huntrw6/stagepilot-beta --env stagepilot-control-plane
 ```
 
-`BETA_RELEASE_VERSIONS` must be `1.1.103-beta.2,1.1.103-beta.3`.
-`BETA_LATEST_RELEASE_VERSION` must be `1.1.103-beta.2` for release 1.
+`BETA_RELEASE_VERSIONS` must include `1.1.103-beta.2`.
 
-## Step 3 — Deploy the control plane with the release broker
-
-```sh
-gh workflow run deploy-control-plane.yml --repo huntrw6/stagepilot-beta --ref main
-gh run watch "$(gh run list --repo huntrw6/stagepilot-beta \
-  --workflow deploy-control-plane.yml --limit 1 --json databaseId -q '.[0].databaseId')"
-```
-
-The final step reads back every Worker runtime secret name and fails if any is
-missing. Do not proceed on a failure.
-
-## Step 4 — Release 1: `v1.1.103-beta.2`
+## Step 3 — Release 1: `v1.1.103-beta.2`
 
 Set every application version to `1.1.103-beta.2`, then:
 
@@ -357,14 +358,16 @@ Read back:
 ```sh
 gh release view v1.1.103-beta.2 --repo huntrw6/stagepilot-beta \
   --json tagName,isDraft,assets -q '{tag:.tagName,draft:.isDraft,assets:[.assets[].name]}'
-curl -sS https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json
 ```
 
-The release must be non-draft, must carry exactly the six assets above, and the
-broker must return the manifest with `"version": "1.1.103-beta.2"` and every
-`url` pointing at the broker.
+The release must be non-draft and must carry exactly the six assets above.
+`latest.json` is generated for release-integrity purposes even though the
+broker is not deployed — do not skip its generation or validation, since it
+is the same artifact a future promoted release depends on. There is no
+broker to read it back from in the beta: distribution is the direct
+GitHub Release download, so users install straight from the release page.
 
-## Step 5 — Native acceptance for release 1
+## Step 4 — Native acceptance for release 1
 
 On each of Windows x64, macOS arm64, and macOS x64, with a fresh account:
 
@@ -381,95 +384,29 @@ python scripts/beta_release_acceptance.py --report PRIVATE_REPORT check \
 ```
 
 Repeat for `transparent_enrollment`, `first_operator`, `https_wss_roles`,
-`restart_recovery`, `reboot_recovery`, `disable_reenable_provider_cleanup`.
-This clears D5–D9 and D11. `updater_discovery` and `updater_install_relaunch`
-wait for release 2.
+`restart_recovery`, `reboot_recovery`, `disable_reenable_provider_cleanup`,
+then `final_cleanup`. This clears D3–D7. Record a plain operator observation
+for Gatekeeper/SmartScreen behaviour to clear D8. `updater_discovery` and
+`updater_install_relaunch` are **not part of release 1** — they belong to the
+deferred update-acceptance path above and require a release 2 that will not
+be published for this beta. Do not run `beta_release_acceptance.py verify`
+for release 1: `verify` is a two-release update-acceptance gate
+(`--from-version`/`--to-version`) and is itself part of the deferred scope.
 
-## Step 6 — Release 2: `v1.1.103-beta.3`
+Finish by revoking every disposable installation created during acceptance
+and confirming zero residue using the two commands in "Recovering a
+stranded disposable installation" above.
 
-Bump every application version to `1.1.103-beta.3`. **Do not rotate the updater
-key** — installed release-1 clients trust only the embedded public key.
+## Step 5 — Rollback
 
-```sh
-node scripts/validate_versions.mjs v1.1.103-beta.3
-node scripts/audit_beta_release.mjs source
-git add -A
-git commit -m "chore(release): StagePilot 1.1.103-beta.3"
-git push beta HEAD:refs/heads/main
-git tag -a v1.1.103-beta.3 -m "StagePilot 1.1.103-beta.3"
-git push beta v1.1.103-beta.3
-gh run watch "$(gh run list --repo huntrw6/stagepilot-beta \
-  --workflow release-macos.yml --limit 1 --json databaseId -q '.[0].databaseId')"
-```
+The beta ships as a direct GitHub Release download with no broker and no
+in-app updater, so rollback is a distribution-side action only — there is no
+broker variable to repoint or redeploy:
 
-Point the broker at release 2 and redeploy so installed release-1 clients can
-discover it:
-
-```sh
-gh variable set BETA_LATEST_RELEASE_VERSION --repo huntrw6/stagepilot-beta \
-  --env stagepilot-control-plane --body 1.1.103-beta.3
-gh workflow run deploy-control-plane.yml --repo huntrw6/stagepilot-beta --ref main
-```
-
-Read back:
-
-```sh
-curl -sS https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json
-```
-
-It must now report `"version": "1.1.103-beta.3"`.
-
-## Step 7 — Update acceptance, clearing D10
-
-On each platform, with release 1 still installed, observe discovery, cancel
-once to prove no download starts, then accept and observe the unattended
-install and relaunch. Record:
-
-```sh
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT check \
-  --platform PLATFORM --name updater_discovery --evidence "short local receipt"
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT check \
-  --platform PLATFORM --name updater_install_relaunch --evidence "short local receipt"
-```
-
-Record the release-2 installer for every platform as well, because `verify`
-requires exactly both update versions per platform:
-
-```sh
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer \
-  --platform PLATFORM --version 1.1.103-beta.3 --file INSTALLER
-```
-
-Finish with cleanup on every platform:
-
-```sh
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT check \
-  --platform PLATFORM --name final_cleanup --evidence "short local receipt"
-```
-
-`verify` passes only once all ten checks and both installers are recorded for
-all three platforms, so run it last:
-
-```sh
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT verify \
-  --from-version 1.1.103-beta.2 --to-version 1.1.103-beta.3
-```
-
-It prints `{"passed": true, "failures": []}` and exits non-zero on any gap.
-Then revoke every disposable installation created during acceptance and confirm
-zero residue using the two commands in "Recovering a stranded disposable
-installation" above.
-
-## Rollback
-
-If a release is bad, immediately point the broker back at the last known-good
-version and redeploy:
-
-```sh
-gh variable set BETA_LATEST_RELEASE_VERSION --repo huntrw6/stagepilot-beta \
-  --env stagepilot-control-plane --body 1.1.103-beta.2
-gh workflow run deploy-control-plane.yml --repo huntrw6/stagepilot-beta --ref main
-```
-
-Keep the bad tag immutable. Never replace a signed artifact, move a tag, or
-reuse a version — publish a higher one.
+- Keep the bad tag and release immutable. Never delete, move, or reuse a
+  version.
+- Unpublish the bad Release (`gh release edit v1.1.103-beta.2 --repo
+  huntrw6/stagepilot-beta --draft` marks it a draft, hiding it from the
+  Releases page for download while preserving the tag and assets for audit).
+- Fix the problem, bump to the next version, and publish a new release
+  following Steps 3–4 again. Point any download instructions at the new tag.
