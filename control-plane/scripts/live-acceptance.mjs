@@ -149,19 +149,29 @@ try {
     ], { stdio: "ignore" }));
   }
 
-  const deadline = Date.now() + 60_000;
+  // A freshly created proxied hostname is not served by every Cloudflare edge
+  // colo the instant the provider confirms the route. Poll until each isolated
+  // hostname actually answers, then assert, so an activation lag never reads as
+  // a guardrail or isolation failure and never surfaces as a raw TLS error.
+  const probe = async (hostname) => {
+    try {
+      return await httpsStatus(hostname);
+    } catch (error) {
+      return error instanceof Error ? error.message : "unreachable";
+    }
+  };
+  const deadline = Date.now() + 240_000;
+  let readiness = [];
   while (Date.now() < deadline) {
-    const ready = await Promise.all(installations.map(async (item) => {
-      try {
-        return await httpsStatus(item.hostname) === 200;
-      } catch {
-        return false;
-      }
-    }));
-    if (ready.every(Boolean)) break;
-    await wait(2_000);
+    readiness = await Promise.all(installations.map((item) => probe(item.hostname)));
+    if (readiness.every((code) => code === 200)) break;
+    await wait(3_000);
   }
-  assert((await Promise.all(installations.map((item) => httpsStatus(item.hostname)))).every((code) => code === 200));
+  assert.deepEqual(
+    readiness,
+    installations.map(() => 200),
+    `isolated hostnames did not both serve HTTPS 200 within the activation window: ${JSON.stringify(readiness)}`,
+  );
   report.twoTunnelHttpsIsolation = true;
 
   await wait(11_000);
@@ -202,6 +212,10 @@ try {
   }
   for (const tokenFile of tokenFiles) fs.rmSync(tokenFile, { force: true });
   server.close();
+  // Emit the revocation receipts unconditionally. A failed assertion above must
+  // still leave a machine-readable record proving every disposable installation
+  // was revoked and no residue remains.
+  console.log(`CLEANUP_RECEIPTS ${JSON.stringify(report.cleanup)}`);
 }
 
 assert(report.cleanup.every((item) => item.status === 200 && item.phase === "disabled" && item.revoked === true));

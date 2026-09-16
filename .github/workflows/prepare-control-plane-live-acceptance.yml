@@ -39,3 +39,17 @@ jobs:
         env:
           CLOUDFLARED_BIN: ${{ runner.temp }}/cloudflared
         run: npm --prefix control-plane run acceptance:live
+      - name: Prove zero disposable installation residue
+        if: always()
+        shell: bash
+        env:
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          metrics="$RUNNER_TEMP/admin-metrics.json"
+          curl --silent --show-error --fail \
+            --header "Authorization: Bearer $ADMIN_API_TOKEN" \
+            "$CONTROL_PLANE_ORIGIN/v1/admin/metrics" >"$metrics"
+          # Aggregate-only counters; no installation ID, hostname, or credential.
+          jq -e '.activeInstallations == 0' "$metrics" >/dev/null
+          jq '{activeInstallations,enrollments,enrollmentDenied,statusDenied,mutationDenied,providerDenied}' "$metrics"
