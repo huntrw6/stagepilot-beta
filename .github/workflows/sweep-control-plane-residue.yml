@@ -1,0 +1,47 @@
+name: Sweep Disposable Control Plane Residue
+
+# Recovers from an acceptance run that stranded a disposable installation.
+# The deployed Worker exposes no route that enumerates installations, so the
+# only authoritative view of residue is the Cloudflare zone/account itself.
+# This reads the provider directly, deletes only records and tunnels matching
+# the exact disposable acceptance naming, and reads back to confirm removal.
+#
+# It never touches an unrelated DNS record, tunnel, WAF rule, or zone setting,
+# and never prints a tunnel token, credential, or provider response body.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Set to "apply" to delete residue; anything else only reports
+        required: true
+        default: report
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: [self-hosted, stagepilot-linux]
+    timeout-minutes: 10
+    environment: stagepilot-control-plane
+    env:
+      CONTROL_PLANE_ORIGIN: https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: control-plane/package-lock.json
+      - run: npm ci --prefix control-plane
+      - name: Sweep disposable acceptance residue
+        env:
+          SWEEP_MODE: ${{ inputs.apply }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          REMOTE_HOST_SUFFIX: ${{ vars.REMOTE_HOST_SUFFIX }}
+        run: npm --prefix control-plane run acceptance:sweep

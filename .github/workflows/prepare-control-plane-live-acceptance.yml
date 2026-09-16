@@ -35,6 +35,15 @@ jobs:
             "$CLOUDFLARED_BIN" | sha256sum --check
           chmod 700 "$CLOUDFLARED_BIN"
           "$CLOUDFLARED_BIN" --version
+      - name: Capture pre-run registry baseline
+        id: baseline
+        env:
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          baseline="$(npm --silent --prefix control-plane run acceptance:baseline)"
+          echo "counters=$baseline" >>"$GITHUB_OUTPUT"
+          echo "$baseline"
       - name: Exercise transparent enrollment, isolation, HTTPS, WSS, and cleanup
         env:
           CLOUDFLARED_BIN: ${{ runner.temp }}/cloudflared
@@ -43,4 +52,9 @@ jobs:
         if: always()
         env:
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          REMOTE_HOST_SUFFIX: ${{ vars.REMOTE_HOST_SUFFIX }}
+          RESIDUE_BASELINE: ${{ steps.baseline.outputs.counters }}
         run: npm --prefix control-plane run acceptance:residue

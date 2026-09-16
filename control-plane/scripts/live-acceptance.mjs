@@ -107,13 +107,32 @@ await new Promise((resolve) => server.listen(18766, "127.0.0.1", resolve));
 try {
   const nonceA = `live-a-${process.env.GITHUB_RUN_ID}-${crypto.randomUUID()}`;
   const nonceB = `live-b-${process.env.GITHUB_RUN_ID}-${crypto.randomUUID()}`;
-  const first = await call("/v1/installations/enroll", { method: "POST", body: { nonce: nonceA } });
-  const replay = await call("/v1/installations/enroll", { method: "POST", body: { nonce: nonceA } });
-  const second = await call("/v1/installations/enroll", { method: "POST", body: { nonce: nonceB } });
-  assert.equal(first.status, 201);
+  // Register every successfully enrolled installation for cleanup the instant
+  // it exists. Asserting first would leak an installation whenever a later
+  // enrollment is denied, because the finally block only revokes what it knows.
+  const enroll = async (nonce) => {
+    const response = await call("/v1/installations/enroll", { method: "POST", body: { nonce } });
+    if (response.status === 201 && typeof response.payload?.installationId === "string"
+      && !installations.some((item) => item.installationId === response.payload.installationId)) {
+      installations.push(response.payload);
+    }
+    return response;
+  };
+  const first = await enroll(nonceA);
+  const replay = await enroll(nonceA);
+  const second = await enroll(nonceB);
+  assert.equal(
+    first.status,
+    201,
+    `enrollment was denied (${first.status}); this source's 3-per-24h enrollment quota may be exhausted by an earlier acceptance run`,
+  );
   assert.equal(replay.status, 201);
-  assert.equal(second.status, 201);
-  installations.push(first.payload, second.payload);
+  assert.equal(
+    second.status,
+    201,
+    `second enrollment was denied (${second.status}); this source's 3-per-24h enrollment quota may be exhausted by an earlier acceptance run`,
+  );
+  assert.equal(installations.length, 2);
   assert.equal(replay.payload.installationId, first.payload.installationId);
   assert.notEqual(first.payload.installationId, second.payload.installationId);
   assert.notEqual(first.payload.installationCredential, second.payload.installationCredential);
@@ -197,25 +216,38 @@ try {
   for (const connector of connectors) connector.kill("SIGTERM");
   await wait(11_000);
   report.cleanup = [];
+  // Retry revocation. A single transient provider failure must not strand a
+  // disposable installation, because the deployed Worker exposes no route that
+  // enumerates installations — an unrecorded, unrevoked ID is unrecoverable.
   for (const installation of installations) {
-    try {
-      const revoked = await lifecycle(installation, "revoke", { method: "POST", body: {} });
-      report.cleanup.push({
-        installationId: installation.installationId,
-        status: revoked.status,
-        phase: revoked.payload.phase,
-        revoked: revoked.payload.revoked,
-      });
-    } catch {
-      report.cleanup.push({ installationId: installation.installationId, status: "failed" });
+    let receipt = { installationId: installation.installationId, status: "failed" };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) await wait(5_000);
+      try {
+        const revoked = await lifecycle(installation, "revoke", { method: "POST", body: {} });
+        receipt = {
+          installationId: installation.installationId,
+          status: revoked.status,
+          phase: revoked.payload.phase,
+          revoked: revoked.payload.revoked,
+        };
+        if (revoked.status === 200 && revoked.payload.revoked === true) break;
+      } catch {
+        // Keep the failed receipt and retry.
+      }
     }
+    report.cleanup.push(receipt);
   }
   for (const tokenFile of tokenFiles) fs.rmSync(tokenFile, { force: true });
   server.close();
-  // Emit the revocation receipts unconditionally. A failed assertion above must
-  // still leave a machine-readable record proving every disposable installation
-  // was revoked and no residue remains.
+  // Emit the receipts unconditionally, including every enrolled installation ID.
+  // A failed assertion above must still leave an operator an exact, actionable
+  // record for revoke-control-plane-live-installation.yml.
   console.log(`CLEANUP_RECEIPTS ${JSON.stringify(report.cleanup)}`);
+  const stranded = report.cleanup.filter((item) => item.revoked !== true).map((item) => item.installationId);
+  if (stranded.length) {
+    console.log(`STRANDED_INSTALLATIONS ${JSON.stringify(stranded)}`);
+  }
 }
 
 assert(report.cleanup.every((item) => item.status === 200 && item.phase === "disabled" && item.revoked === true));
