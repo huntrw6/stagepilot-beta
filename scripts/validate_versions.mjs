@@ -50,6 +50,25 @@ for (const file of ["desktop/src-tauri/tauri.release.conf.json", "desktop/src-ta
   }
 }
 
+// `uv.lock` records the project version in PEP 440 normalized form, so it is
+// checked separately from the semantic-version sources above. If it drifts,
+// every `uv sync --locked` step fails with "The lockfile at `uv.lock` needs to
+// be updated" — on the native runners, after the expensive toolchain install.
+// Catching it here keeps that failure on the cheap Linux validate job.
+const pep440 = (() => {
+  const match = /^(\d+\.\d+\.\d+)(?:-(alpha|beta|rc)\.(\d+))?$/.exec(version);
+  if (!match) throw new Error(`Cannot map ${version} to a PEP 440 version.`);
+  const [, release, phase, number] = match;
+  if (!phase) return release;
+  return `${release}${phase === "alpha" ? "a" : phase === "beta" ? "b" : "rc"}${number}`;
+})();
+const lockVersion = matchVersion("backend/uv.lock", /name = "stagepilot"\r?\nversion = "([^"]+)"/);
+if (lockVersion !== pep440) {
+  throw new Error(
+    `backend/uv.lock records stagepilot ${lockVersion} but version ${version} normalizes to ${pep440}. Run \`uv lock\` in backend/.`,
+  );
+}
+
 const tracked = process.env.STAGEPILOT_TRACKED_FILES?.split("\n").filter(Boolean) ?? [];
 if (tracked.some((file) => /\.(key|pem)$/i.test(file))) {
   throw new Error("A private key-like file is tracked by git.");

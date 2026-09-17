@@ -14,6 +14,19 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
   throw new Error(`Invalid semantic version: ${version}`);
 }
 
+// `uv` stores the project version in PEP 440 normalized form, not the raw
+// semantic-version string. A pre-release like 1.1.103-beta.3 is normalized to
+// 1.1.103b3, so writing the semver text into uv.lock leaves the lockfile stale
+// and every `uv sync --locked` step in CI fails with
+// "The lockfile at `uv.lock` needs to be updated".
+const pep440Version = (semver) => {
+  const match = /^(\d+\.\d+\.\d+)(?:-(alpha|beta|rc)\.(\d+))?$/.exec(semver);
+  if (!match) throw new Error(`Cannot map ${semver} to a PEP 440 version.`);
+  const [, release, phase, number] = match;
+  if (!phase) return release;
+  return `${release}${phase === "alpha" ? "a" : phase === "beta" ? "b" : "rc"}${number}`;
+};
+
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const write = (file, content) => fs.writeFileSync(path.join(root, file), content, "utf8");
 const currentVersion = JSON.parse(read("desktop/src-tauri/tauri.conf.json")).version;
@@ -75,13 +88,17 @@ const replacements = [
   ],
   [
     "backend/src/stagepilot/core/config.py",
-    /^\s+version: str = "[^"]+"/m,
-    `    version: str = "${version}"`,
+    // `^\s+` is unsafe on this CRLF file: JS treats a bare \r as a line
+    // terminator under /m, so `^` matches between \r and \n and greedy \s+
+    // swallows the newline, merging this line into the one above it. Anchor on
+    // an explicit line break and match only horizontal whitespace instead.
+    /(\r?\n)[ \t]+version: str = "[^"]+"/,
+    `$1    version: str = "${version}"`,
   ],
   [
     "backend/uv.lock",
     /(name = "stagepilot"\r?\nversion = ")[^"]+(")/,
-    `$1${version}$2`,
+    `$1${pep440Version(version)}$2`,
   ],
   [
     "desktop/src-tauri/Cargo.lock",
@@ -95,26 +112,35 @@ for (const [file, pattern, replacement] of replacements) {
   write(file, replaceOnce(content, pattern, replacement, file));
 }
 
-let readme = read("README.md");
-readme = replaceOnce(
-  readme,
-  /^## Download StagePilot [^\r\n]+/m,
-  `## Download StagePilot ${version}`,
-  "README.md",
-);
-readme = readme.replace(
-  /https:\/\/github\.com\/huntrw6\/stagepilot\/releases\/(?:tag|download)\/v\d+\.\d+\.\d+/g,
-  (url) => url.replace(/v\d+\.\d+\.\d+$/, `v${version}`),
-);
-readme = readme.replace(
-  /\[StagePilot v\d+\.\d+\.\d+ release\]/,
-  `[StagePilot v${version} release]`,
-);
-readme = readme.replace(
-  /StagePilot_\d+\.\d+\.\d+_/g,
-  `StagePilot_${version}_`,
-);
-write("README.md", readme);
+// README's download section advertises the STABLE channel from
+// github.com/huntrw6/stagepilot. A pre-release ships through the private beta
+// channel instead, so rewriting these links would publish URLs to a main-repo
+// tag that does not exist. Only stable versions update the download section.
+const isPreRelease = version.includes("-");
+if (isPreRelease) {
+  console.log(`Left README.md download links on the stable channel; ${version} is a pre-release.`);
+} else {
+  let readme = read("README.md");
+  readme = replaceOnce(
+    readme,
+    /^## Download StagePilot [^\r\n]+/m,
+    `## Download StagePilot ${version}`,
+    "README.md",
+  );
+  readme = readme.replace(
+    /https:\/\/github\.com\/huntrw6\/stagepilot\/releases\/(?:tag|download)\/v\d+\.\d+\.\d+/g,
+    (url) => url.replace(/v\d+\.\d+\.\d+$/, `v${version}`),
+  );
+  readme = readme.replace(
+    /\[StagePilot v\d+\.\d+\.\d+ release\]/,
+    `[StagePilot v${version} release]`,
+  );
+  readme = readme.replace(
+    /StagePilot_\d+\.\d+\.\d+_/g,
+    `StagePilot_${version}_`,
+  );
+  write("README.md", readme);
+}
 
 if (currentVersion === version) {
   console.log(`StagePilot is already version ${version}; verified and refreshed all version sources.`);

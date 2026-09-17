@@ -1,6 +1,6 @@
 # Updating StagePilot
 
-> **Private beta 1.1.103-beta.3: in-app update is off.** The release broker is
+> **Private beta 1.1.103-beta.4: in-app update is off.** The release broker is
 > not deployed for the beta by operator decision, so an installed beta build's
 > update check finds no endpoint and no Update button appears. Beta testers get
 > a newer build by downloading the installer from the new GitHub Release. The

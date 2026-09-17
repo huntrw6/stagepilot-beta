@@ -306,21 +306,32 @@ Verify the release allowlist variable before tagging:
 gh variable get BETA_RELEASE_VERSIONS --repo huntrw6/stagepilot-beta --env stagepilot-control-plane
 ```
 
-`BETA_RELEASE_VERSIONS` must include `1.1.103-beta.3`.
+`BETA_RELEASE_VERSIONS` must include `1.1.103-beta.4`.
 
-## Step 3 — Release 1: `v1.1.103-beta.3`
+## Step 3 — Release 1: `v1.1.103-beta.4`
 
-Set every application version to `1.1.103-beta.3`, then:
+Set every application version to `1.1.103-beta.4`, then:
 
 ```sh
-node scripts/validate_versions.mjs v1.1.103-beta.3
+node scripts/set-release-version.mjs 1.1.103-beta.4
+(cd backend && uv lock --check)   # must pass; see note below
+node scripts/validate_versions.mjs v1.1.103-beta.4
 node scripts/audit_beta_release.mjs source
 git add -A
-git commit -m "chore(release): StagePilot 1.1.103-beta.3"
+git commit -m "chore(release): StagePilot 1.1.103-beta.4"
 git push beta HEAD:refs/heads/main
-git tag -a v1.1.103-beta.3 -m "StagePilot 1.1.103-beta.3"
-git push beta v1.1.103-beta.3
+git tag -a v1.1.103-beta.4 -m "StagePilot 1.1.103-beta.4"
+git push beta v1.1.103-beta.4
 ```
+
+> **Why `uv lock --check` is mandatory.** `uv` records the project version in
+> PEP 440 normalized form (`1.1.103b4`), not the semantic-version text
+> (`1.1.103-beta.4`). `v1.1.103-beta.3` was burned because the version bump
+> wrote the semver string into `backend/uv.lock`, leaving the lockfile stale, so
+> the `uv sync --locked` step failed in every native job *after* the expensive
+> toolchain install. `scripts/set-release-version.mjs` now normalizes correctly
+> and `scripts/validate_versions.mjs` fails fast on any drift, on the cheap
+> Linux `validate` job rather than on three native runners.
 
 The tag push triggers `release-macos.yml`. Watch it:
 
@@ -332,17 +343,17 @@ gh run watch "$(gh run list --repo huntrw6/stagepilot-beta \
 Expected published assets on the release (standalone `.sig` files are staging
 inputs and are deliberately **not** published):
 
-- `StagePilot_1.1.103-beta.3_aarch64.dmg`
-- `StagePilot_1.1.103-beta.3_x64.dmg`
-- `StagePilot_1.1.103-beta.3_aarch64.app.tar.gz`
-- `StagePilot_1.1.103-beta.3_x64.app.tar.gz`
-- `StagePilot_1.1.103-beta.3_x64-setup.exe`
+- `StagePilot_1.1.103-beta.4_aarch64.dmg`
+- `StagePilot_1.1.103-beta.4_x64.dmg`
+- `StagePilot_1.1.103-beta.4_aarch64.app.tar.gz`
+- `StagePilot_1.1.103-beta.4_x64.app.tar.gz`
+- `StagePilot_1.1.103-beta.4_x64-setup.exe`
 - `latest.json`
 
 Read back:
 
 ```sh
-gh release view v1.1.103-beta.3 --repo huntrw6/stagepilot-beta \
+gh release view v1.1.103-beta.4 --repo huntrw6/stagepilot-beta \
   --json tagName,isDraft,assets -q '{tag:.tagName,draft:.isDraft,assets:[.assets[].name]}'
 ```
 
@@ -359,7 +370,7 @@ On each of Windows x64, macOS arm64, and macOS x64, with a fresh account:
 
 ```sh
 python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer \
-  --platform PLATFORM --version 1.1.103-beta.3 --file INSTALLER
+  --platform PLATFORM --version 1.1.103-beta.4 --file INSTALLER
 ```
 
 Then record every check name, one command each:
@@ -391,7 +402,7 @@ broker variable to repoint or redeploy:
 
 - Keep the bad tag and release immutable. Never delete, move, or reuse a
   version.
-- Unpublish the bad Release (`gh release edit v1.1.103-beta.3 --repo
+- Unpublish the bad Release (`gh release edit v1.1.103-beta.4 --repo
   huntrw6/stagepilot-beta --draft` marks it a draft, hiding it from the
   Releases page for download while preserving the tag and assets for audit).
 - Fix the problem, bump to the next version, and publish a new release
