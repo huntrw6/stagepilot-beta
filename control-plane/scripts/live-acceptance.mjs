@@ -198,18 +198,14 @@ try {
   report.wssBelowThreshold = true;
 
   await wait(11_000);
-  // Batch the flood concurrently for the same reason as the WSS flood below:
-  // sequential fetches can drift past the 10-second rate-limit window under
-  // runner scheduling jitter, letting the edge counter reset before the
-  // ceiling is reached.
-  const httpCodes = [];
-  const HTTP_BATCH = 10;
-  for (let index = 0; index < 70; index += HTTP_BATCH) {
-    const batch = await Promise.all(
-      Array.from({ length: Math.min(HTTP_BATCH, 70 - index) }, () => httpsStatus(installations[0].hostname)),
-    );
-    httpCodes.push(...batch);
-  }
+  // Fire the entire flood at once (not just in small batches): with only 60
+  // requests permitted per colo per 10 seconds, any gap between batches risks
+  // spreading the flood across window boundaries or letting keep-alive reuse
+  // route requests to different edge colos one at a time. A single burst
+  // matches how a real abusive client would actually trip this rule.
+  const httpCodes = await Promise.all(
+    Array.from({ length: 70 }, () => httpsStatus(installations[0].hostname)),
+  );
   assert(httpCodes.slice(0, 10).includes(200));
   assert(httpCodes.includes(429));
   assert.notEqual(await httpsStatus("illuminary.studio"), 429);
@@ -217,20 +213,13 @@ try {
   report.unrelatedZoneHostUnaffected = true;
 
   await wait(11_000);
-  // Each WSS probe opens a brand-new TLS handshake, unlike the HTTPS flood's
-  // reused keep-alive connections. Issuing them sequentially can take longer
-  // than the 10-second rate-limit window, letting the edge counter reset
-  // before the limit is ever hit. Fire them concurrently in small batches so
-  // the whole flood lands inside one window, the same way a real abusive
-  // client's rapid reconnects would.
-  const websocketCodes = [];
-  const WSS_BATCH = 10;
-  for (let index = 0; index < 70; index += WSS_BATCH) {
-    const batch = await Promise.all(
-      Array.from({ length: Math.min(WSS_BATCH, 70 - index) }, () => wssStatus(installations[0].hostname)),
-    );
-    websocketCodes.push(...batch);
-  }
+  // Fire the entire WSS flood at once, for the same reason as the HTTPS
+  // flood above: sequential or lightly-batched fresh TLS handshakes can
+  // spread across the 10-second rate-limit window under runner scheduling
+  // jitter, letting the edge counter reset before the ceiling is reached.
+  const websocketCodes = await Promise.all(
+    Array.from({ length: 70 }, () => wssStatus(installations[0].hostname)),
+  );
   assert(websocketCodes.slice(0, 10).includes(101));
   assert(websocketCodes.includes(429));
   report.wssUpgradesCountedAndBlocked = true;
