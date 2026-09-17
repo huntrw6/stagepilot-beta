@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
-import os
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -13,6 +11,7 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, Field
 
+from stagepilot.file_lock import exclusive_lock
 from stagepilot.remote_files import ControlConfig, DesiredRemote, atomic_write
 from stagepilot.remote_provider import CloudflareProvider, ProviderError, TunnelProvider
 
@@ -35,12 +34,8 @@ class RemoteControl:
 
     def apply(self, action: str) -> dict[str, object]:
         self.config.control_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        lock = os.open(self.config.control_dir / "control.lock", os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with exclusive_lock(self.config.control_dir / "control.lock"):
             return self._apply(action)
-        finally:
-            os.close(lock)
 
     def _apply(self, action: str) -> dict[str, object]:
         try:

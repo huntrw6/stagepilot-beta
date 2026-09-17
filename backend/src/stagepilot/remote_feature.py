@@ -7,7 +7,6 @@ The supervisor alone publishes the trusted listener origin. Files are private.
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -17,6 +16,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from stagepilot.file_lock import exclusive_lock
 from stagepilot.remote_files import DesiredRemote, atomic_write, read_desired
 
 
@@ -38,30 +38,8 @@ class RemoteFeature:
     @contextmanager
     def locked(self) -> Iterator[None]:
         self.control.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd = os.open(self.control.with_name("access.lock"), os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                if os.fstat(fd).st_size == 0:
-                    os.write(fd, b"\0")
-                os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
-                try:
-                    yield
-                finally:
-                    os.lseek(fd, 0, os.SEEK_SET)
-                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
-            else:
-                import fcntl
-
-                fcntl.flock(fd, fcntl.LOCK_EX)
-                try:
-                    yield
-                finally:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
+        with exclusive_lock(self.control.with_name("access.lock")):
+            yield
 
     def intent(self) -> RemoteIntent:
         try:

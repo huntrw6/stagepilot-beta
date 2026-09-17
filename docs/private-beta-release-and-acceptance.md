@@ -86,9 +86,11 @@ the preserved Windows and macOS jobs skipped without acquiring a runner.
 
 ## Deterministic versions and assets
 
-The earlier failed release attempt already occupies immutable tag
-`v1.1.103-beta.1`, so release 1 is `v1.1.103-beta.2` and release 2 is
-`v1.1.103-beta.3`. Never move or reuse any of these tags/versions.
+The earlier failed release attempts already occupy immutable tags
+`v1.1.103-beta.1` (bootstrap failure) and `v1.1.103-beta.2` (failed on a
+cross-platform mypy defect and an unusable signing key), so **release 1 is
+`v1.1.103-beta.3`** and the next available version is `v1.1.103-beta.4`. Never
+move or reuse any of these tags/versions.
 
 Each release staging directory must contain exactly:
 
@@ -127,7 +129,24 @@ inside StagePilot.
 
 ## Signing recovery and rollback
 
-Before release 1, verify without printing values that GitHub contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, the configured updater public key is not a placeholder, and two independently recoverable encrypted offline copies of the private key/password exist. On an isolated local copy, sign a disposable file with the recovered key and verify it with the configured public key using the pinned Tauri CLI. Delete the disposable file. Never rotate the updater key between beta releases; installed clients trust only the embedded public key.
+The updater signing key was **regenerated on 2026-09-17** before release 1. The
+material previously stored as `TAURI_SIGNING_PRIVATE_KEY` was an RSA PEM
+keypair, not a Tauri/minisign key, so `tauri build` could never sign with it
+(`failed to decode base64 secret key`) and the embedded `pubkey` could never
+have verified anything. This was safe to replace because **no release had ever
+published an asset**, so no installed client trusted the old public key. The
+current key is a real `rsign`/minisign Ed25519 keypair; its public half is
+embedded in `desktop/src-tauri/tauri.conf.json` and it was proven to sign and
+verify (and to reject a tampered payload) before the secrets were set. The old
+RSA material is retained, unused, under `~/.tauri/legacy-rsa-unusable/`.
+
+Before each release, verify without printing values that GitHub contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, the configured updater public key is not a placeholder, and two independently recoverable encrypted offline copies of the private key/password exist. On an isolated local copy, sign a disposable file with the recovered key and verify it with the configured public key using the pinned Tauri CLI. Delete the disposable file. Never rotate the updater key between beta releases; installed clients trust only the embedded public key.
+
+> **Outstanding operator action:** the current private key and its password live
+> only at `~/.tauri/stagepilot-updater.key` and
+> `~/.tauri/stagepilot-updater.password` on the release host. Take two
+> independently recoverable encrypted offline backups before distributing
+> release 1 widely.
 
 If the signing key is lost, no future build can be accepted by an installed
 updater-enabled copy. Recovery is then a new key plus a fresh installer
@@ -151,21 +170,21 @@ Use fresh isolated accounts/machines for:
 - macOS arm64 12+
 - macOS x64 12+
 
-For each platform, record both release installers first:
+For each platform, record the release-1 installer:
 
 ```text
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer --platform PLATFORM --version 1.1.103-beta.2 --file INSTALLER
 python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer --platform PLATFORM --version 1.1.103-beta.3 --file INSTALLER
 ```
 
-Install beta 1 and record secret-free receipts for every check name: `local_health`, `transparent_enrollment`, `first_operator`, `https_wss_roles`, `restart_recovery`, `reboot_recovery`, `disable_reenable_provider_cleanup`, `updater_discovery`, `updater_install_relaunch`, and `final_cleanup`. Use:
+Install beta 1 and record secret-free receipts for every release-1 check name: `local_health`, `transparent_enrollment`, `first_operator`, `https_wss_roles`, `restart_recovery`, `reboot_recovery`, `disable_reenable_provider_cleanup`, and `final_cleanup`. Use:
 
 ```text
 python scripts/beta_release_acceptance.py --report PRIVATE_REPORT check --platform PLATFORM --name CHECK --evidence "short local receipt"
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT verify --from-version 1.1.103-beta.2 --to-version 1.1.103-beta.3
 ```
 
-The operator must observe: installer hash/version; loopback local health; no-auth transparent enrollment; exactly one first Operator; Viewer/Operator HTTPS and WSS policy; app/connector restart; actual machine reboot; disable, re-enable with a new generation, and exact provider cleanup; beta 2 discovery; signed download/install/relaunch with version read-back; then revocation/removal of disposable DNS, tunnel, sessions, credentials, test users, installers, and private evidence as policy requires. The harness rejects obvious credential-bearing evidence strings but the operator must still inspect the report before sharing it.
+`updater_discovery`, `updater_install_relaunch`, and the two-release `verify --from-version … --to-version …` gate are **not part of release 1** — they belong to the deferred update-acceptance path and need a second release that this beta does not publish.
+
+The operator must observe: installer hash/version; loopback local health; no-auth transparent enrollment; exactly one first Operator; Viewer/Operator HTTPS and WSS policy; app/connector restart; actual machine reboot; disable, re-enable with a new generation, and exact provider cleanup; then revocation/removal of disposable DNS, tunnel, sessions, credentials, test users, installers, and private evidence as policy requires. The harness rejects obvious credential-bearing evidence strings but the operator must still inspect the report before sharing it.
 
 No local mock, CI build, service restart, or prior Linux/LXC proof substitutes for this physical matrix.
 

@@ -1,13 +1,13 @@
-# Private beta release 2 — v1.1.103-beta.3
+# Private beta release 2 — v1.1.103-beta.4 (deferred, not published)
 
 ## Summary
 
-Second signed StagePilot private beta, used to prove discovery, signature verification, installation, and relaunch from v1.1.103-beta.2.
+Second signed StagePilot private beta. **Deferred by operator decision — the beta ships exactly one release (v1.1.103-beta.3).** This template is kept so a future promoted release can prove update discovery, signature verification, installation, and relaunch from v1.1.103-beta.3.
 
 ## Changes since beta 1
 
 - Describe the focused beta fixes here before publication.
-- Do not publish beta 2 until beta 1 fresh-install checks are complete on all three native targets.
+- Do not publish beta 2 until an operator explicitly reverses the one-release decision and beta 1 fresh-install checks are complete on all three native targets.
 
 ## Verification
 

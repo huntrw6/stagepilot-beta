@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal
 from uuid import uuid4
 
 import httpx
 from pydantic import BaseModel, Field
 
+from stagepilot.file_lock import exclusive_lock
 from stagepilot.remote_files import BetaControlConfig, DesiredRemote, atomic_write
 from stagepilot.remote_provider import ProviderError
 
@@ -35,35 +35,8 @@ class BetaProvisionState(BaseModel):
 def _exclusive_lock(path: Path) -> Iterator[None]:
     """Hold a one-byte process lock on Unix and Windows."""
 
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        if os.name == "nt":
-            import msvcrt
-
-            windows_lock = cast(Any, msvcrt)
-            if os.fstat(descriptor).st_size == 0:
-                os.write(descriptor, b"\0")
-            os.lseek(descriptor, 0, os.SEEK_SET)
-            windows_lock.locking(descriptor, windows_lock.LK_LOCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if os.name == "nt":
-                import msvcrt
-
-                windows_lock = cast(Any, msvcrt)
-                os.lseek(descriptor, 0, os.SEEK_SET)
-                windows_lock.locking(descriptor, windows_lock.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-    finally:
-        os.close(descriptor)
+    with exclusive_lock(path):
+        yield
 
 
 class BetaRemoteControl:
