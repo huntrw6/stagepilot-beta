@@ -144,7 +144,9 @@ try {
   const pubkey = config.plugins.updater.pubkey;
   assert(typeof pubkey === "string" && pubkey.length > 40, "updater public key is missing");
   assert(!/REQUIRED|PLACEHOLDER|CHANGEME|TODO/i.test(pubkey), "updater public key is still a placeholder");
-  assert.deepEqual(config.plugins.updater.endpoints, [`${MAIN.replace("/download", "")}/latest/download/latest.json`]);
+  assert.deepEqual(config.plugins.updater.endpoints, [
+    "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json",
+  ]);
   assert.deepEqual(windows.plugins.updater.endpoints, [`${BROKER}/latest.json`]);
   assert.deepEqual(macos.plugins.updater.endpoints, [`${BROKER}/latest.json`]);
   proven.push("public_key_and_endpoint_configuration");
