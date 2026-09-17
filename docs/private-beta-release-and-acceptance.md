@@ -194,6 +194,27 @@ environment. Its public half is embedded in
 payload, verify against that embedded public key, and reject a tampered payload
 before the repository secrets were rotated to match.
 
+### 2026-09-17: rotated to a shared main/beta signing key (key id `E8F63599150A54AC`)
+
+To let a single installed main-app public key verify both channels, the
+operator authorized generating a **new shared** minisign keypair and setting
+it as `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in
+both `tage-ilot/stagepilot` and `tage-ilot/stagepilot-beta` Actions secrets
+(confirmed by read-back 2026-09-17T20:40Z), replacing the beta-only
+`9DAF99548D6D7D77` pair above. `desktop/src-tauri/tauri.conf.json` `pubkey`
+was updated to the new shared key
+(`RWSsVAoVmTX26LIj3tWtVLLY/iE7DOfeg6owbzgyrNf8du7yJ0Ru3tva`), and a new beta
+release (`v1.1.103-beta.7`) was cut so its artifacts are signed with it.
+
+**Consequence:** `v1.1.103-beta.1` through `v1.1.103-beta.6`, and stable
+`v1.1.102` and earlier, were signed with the retired keys and will **not**
+verify against a client carrying the new shared public key. Those installs
+do not auto-update onto anything built after this rotation; affected users
+must install the new build manually once. Every release cut after
+2026-09-17T20:40Z verifies normally in both channels. No private key
+material was generated, read, or committed by this task; the private key
+lives only in GitHub Actions secrets.
+
 > **Never run `tauri signer --help` (or any `tauri signer` subcommand with
 > `--help`) while the signing environment variables are exported.** The CLI
 > renders secret values inline in its help text. Pass the key by path with `-f`
