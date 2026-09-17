@@ -55,31 +55,28 @@ jobs:
           fi
 
   build:
-    name: DEFERRED — Build — ${{ matrix.name }}
+    name: Build — ${{ matrix.name }}
     needs: validate
-    # Native sign/package work is preserved but cannot run until matching
-    # self-hosted Windows and macOS machines are available and validated.
-    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: macOS Apple Silicon
-            runner: stagepilot-macos-arm64
+            runner: macos-15
             platform: darwin-aarch64
             suffix: aarch64
             command: build:mac
           - name: macOS Intel
-            runner: stagepilot-macos-x64
+            runner: macos-15-intel
             platform: darwin-x86_64
             suffix: x64
             command: build:mac
           - name: Windows x64
-            runner: stagepilot-windows-x64
+            runner: windows-latest
             platform: windows-x86_64
             suffix: x64
             command: build
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
+    runs-on: ${{ matrix.runner }}
     env:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:

@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Semantically validate that active Actions jobs stay on StagePilot runners."""
+"""Semantically validate that Actions jobs use the correct runner policy.
+
+Policy: Linux jobs must stay pinned to the self-hosted Linux runner
+(`[self-hosted, stagepilot-linux]`) — that runner is free, fast, and already
+proven, so Linux jobs must never silently drift onto a paid hosted
+`ubuntu-*` runner. Native Windows/macOS jobs, however, run on GitHub-hosted
+runners now that the repository is public (hosted Actions minutes are free
+and unlimited for public repos on standard runners), so those jobs may use
+hosted `windows-*`/`macos-*` labels.
+"""
 
 from __future__ import annotations
 
@@ -12,14 +21,14 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 LINUX_LABELS = ["self-hosted", "stagepilot-linux"]
-DISABLED = "${{ false }}"
-HOSTED_LABEL = re.compile(r"^(?:ubuntu|windows|macos)-", re.IGNORECASE)
+UBUNTU_LABEL = re.compile(r"^ubuntu-", re.IGNORECASE)
+NATIVE_LABEL = re.compile(r"^(?:windows|macos)-", re.IGNORECASE)
 REQUIRED_ACTIONS = {
     "actions/checkout",
     "actions/setup-node",
     "astral-sh/setup-uv",
 }
-EXPECTED_DEFERRED = {
+EXPECTED_NATIVE = {
     "ci.yml:desktop",
     "ci.yml:desktop-macos-lifecycle",
     "release-macos.yml:build",
@@ -36,8 +45,8 @@ def labels(value: object) -> list[str]:
 
 
 def main() -> None:
-    active: list[str] = []
-    deferred: list[str] = []
+    linux_jobs: list[str] = []
+    native_jobs: list[str] = []
     actions: set[str] = set()
 
     workflow_paths = sorted(WORKFLOWS.glob("*.yml"))
@@ -54,36 +63,36 @@ def main() -> None:
             key = f"{workflow_path.name}:{job_id}"
             job_labels = labels(job.get("runs-on"))
             for label in job_labels:
-                assert not HOSTED_LABEL.match(label), f"{key}: hosted runner label is forbidden: {label}"
-
-            if job.get("if") == DISABLED:
-                deferred.append(key)
-                assert str(job.get("name", "")).startswith("DEFERRED —"), (
-                    f"{key}: disabled native job name must make deferral explicit"
+                assert not UBUNTU_LABEL.match(label), (
+                    f"{key}: Linux jobs must never move to a hosted ubuntu-* runner: {label}"
                 )
-                assert "self-hosted" in job_labels, f"{key}: native definition must remain self-hosted"
+
+            if key in EXPECTED_NATIVE:
+                native_jobs.append(key)
                 assert any(
-                    label.startswith(("stagepilot-windows-", "stagepilot-macos-"))
-                    or "matrix.runner" in label
+                    NATIVE_LABEL.match(label) or "matrix.runner" in label
                     for label in job_labels
-                ), f"{key}: deferred job must name a future StagePilot native runner"
+                ), f"{key}: native job must use a hosted windows-*/macos-* runner label, got {job_labels}"
+                assert "self-hosted" not in job_labels, (
+                    f"{key}: native job must run on a GitHub-hosted runner, not self-hosted"
+                )
             else:
-                active.append(key)
+                linux_jobs.append(key)
                 assert job_labels == LINUX_LABELS, (
-                    f"{key}: active job must use exactly {LINUX_LABELS}, got {job_labels}"
+                    f"{key}: Linux job must use exactly {LINUX_LABELS}, got {job_labels}"
                 )
 
             for step in job.get("steps", []):
                 if isinstance(step, dict) and isinstance(step.get("uses"), str):
                     actions.add(step["uses"].split("@", 1)[0])
 
-    assert set(deferred) == EXPECTED_DEFERRED, (
-        f"deferred native inventory changed: expected {sorted(EXPECTED_DEFERRED)}, got {deferred}"
+    assert set(native_jobs) == EXPECTED_NATIVE, (
+        f"native job inventory changed: expected {sorted(EXPECTED_NATIVE)}, got {native_jobs}"
     )
     missing_actions = REQUIRED_ACTIONS - actions
     assert not missing_actions, f"required bootstrap actions are no longer allowed/present: {sorted(missing_actions)}"
 
-    print(json.dumps({"active_self_hosted_jobs": active, "deferred_native_jobs": deferred}, indent=2))
+    print(json.dumps({"linux_jobs": linux_jobs, "native_hosted_jobs": native_jobs}, indent=2))
 
 
 if __name__ == "__main__":

@@ -15,10 +15,8 @@ permissions:
 
 jobs:
   build:
-    name: DEFERRED — Windows x64 installer
-    # Manual native workflow retained for a future self-hosted Windows runner.
-    if: ${{ false }}
-    runs-on: [self-hosted, stagepilot-windows-x64]
+    name: Windows x64 installer
+    runs-on: windows-latest
 
     steps:
       - name: Check out repository

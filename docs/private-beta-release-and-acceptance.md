@@ -34,7 +34,7 @@ The base Tauri configuration retains the main `huntrw6/stagepilot` endpoint. Onl
 
 ## CI runner boundary
 
-All active jobs in `.github/workflows/*.yml` use exactly
+Linux jobs in `.github/workflows/*.yml` use exactly
 `runs-on: [self-hosted, stagepilot-linux]`. This includes backend, frontend,
 MultiTracks, Linux-compatible Cargo/Tauri checks, release source validation,
 release manifest/publication logic, control-plane verification/deployment, live
@@ -42,15 +42,12 @@ transparent-enrollment acceptance, and revocation. The normal bootstrap actions
 `actions/checkout`, `actions/setup-node`, and `astral-sh/setup-uv` remain allowed
 on that runner.
 
-Windows x64 packaging and macOS arm64/x64 packaging/lifecycle jobs remain in the
-workflows for later native self-hosted machines, but each is named `DEFERRED` and
-has the unambiguous job condition `if: ${{ false }}`. Their future labels are
-`stagepilot-windows-x64`, `stagepilot-macos-arm64`, and
-`stagepilot-macos-x64`; none is a GitHub-hosted label. A tag push can run Linux
-release source/security validation, but the deferred native build causes the
-dependent publication job to skip, so a tag cannot publish an incomplete native
-release. Do not remove the disabled condition or claim native validation until
-matching self-hosted machines exist and the physical acceptance matrix passes.
+Windows x64 packaging and macOS arm64/x64 packaging/lifecycle jobs now run on
+GitHub-hosted `windows-latest`, `macos-15`, and `macos-15-intel` runners: the
+repository is temporarily public, so hosted Actions minutes on standard
+runners are free and unlimited, removing the need for native self-hosted
+machines. See [`native-completion-runbook.md`](native-completion-runbook.md)
+for the current PROVEN/DEFERRED status of the native build/sign/publish path.
 
 Validate this boundary with a YAML parser before enabling repository Actions:
 

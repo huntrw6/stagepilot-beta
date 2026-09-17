@@ -19,16 +19,25 @@ for the guardrail thresholds.
 
 | Label | Machine | Status |
 |---|---|---|
-| `stagepilot-linux` | `stagepilot-ci` (Linux X64) | Registered and online |
-| `stagepilot-windows-x64` | — | **Not registered.** Blocks release 1. |
-| `stagepilot-macos-arm64` | — | **Not registered.** Blocks release 1. |
-| `stagepilot-macos-x64` | — | **Not registered.** Blocks release 1. |
+| `stagepilot-linux` | `stagepilot-ci` (Linux X64) | Registered and online (self-hosted, stays self-hosted) |
+| `windows-latest` | GitHub-hosted | Available — public repo, unlimited free minutes on standard runners |
+| `macos-15` | GitHub-hosted | Available — public repo, unlimited free minutes on standard runners |
+| `macos-15-intel` | GitHub-hosted | Available — public repo, unlimited free minutes on standard runners |
 
-Every active workflow job uses exactly `runs-on: [self-hosted, stagepilot-linux]`.
-Every native job is named `DEFERRED — …` and carries `if: ${{ false }}`. Enforced
-by parsed YAML in `scripts/validate_workflow_runners.py`, which runs in CI and
-fails on any hosted `ubuntu-*`/`windows-*`/`macos-*` label or any change to the
-deferred inventory.
+`huntrw6/stagepilot-beta` is **temporarily public** so that GitHub-hosted
+Windows/macOS Actions minutes are free and unlimited on standard runners.
+This is what unblocks the native path below without spending any paid
+allowance. The repository will be made private again later once the native
+path is proven; whoever reads this after that should not be surprised that
+the native jobs ran on hosted runners while the repo was public.
+
+Linux jobs use exactly `runs-on: [self-hosted, stagepilot-linux]` and must
+never move to a hosted `ubuntu-*` runner. Native Windows/macOS jobs use
+GitHub-hosted `windows-*`/`macos-*` labels. Enforced by parsed YAML in
+`scripts/validate_workflow_runners.py`, which runs in CI and fails if a
+Linux job drifts to a hosted `ubuntu-*` label, if a native job's `runs-on`
+isn't a hosted `windows-*`/`macos-*` label, or if the native job inventory
+changes.
 
 ## PROVEN on self-hosted Linux
 
@@ -38,7 +47,7 @@ rather than trusting this table alone.
 | # | Capability | Proof |
 |---|---|---|
 | P1 | Backend, frontend, MultiTracks CLI, and Linux desktop-shell checks (Cargo fmt/check/test) | `ci.yml` jobs `backend`, `frontend`, `multitracks-cues`, `desktop-linux-checks` |
-| P2 | Runner boundary: no hosted runner label anywhere; deferred native inventory unchanged | `ci.yml:desktop-linux-checks` → `scripts/validate_workflow_runners.py` |
+| P2 | Runner boundary: Linux jobs never move to a hosted `ubuntu-*` runner; native job inventory unchanged | `ci.yml:desktop-linux-checks` → `scripts/validate_workflow_runners.py` |
 | P3 | `latest.json` generation and schema/date/version validation | `ci.yml:updater-chain` → `scripts/updater_chain_proof.mjs` |
 | P4 | Signature embedding taken from the `.sig` sidecar, never invented | same |
 | P5 | Missing artifact, missing signature, and empty signature each abort before publication | same |
@@ -55,14 +64,14 @@ rather than trusting this table alone.
 
 ## DEFERRED — not proven, required for release 1, with the exact evidence still required
 
-Never describe any of these as validated. All eight remain in scope for the
-beta release-1 native path (see the runbook below): registering the native
-runners clears the blocking condition for every row here.
+Never describe any of these as validated. D1–D2 are cleared by a green CI run
+on GitHub-hosted runners (see below); D3–D8 remain in scope for the beta but
+need genuine physical hardware and cannot be proven by CI.
 
 | # | Item | Blocked by | Evidence required to clear it |
 |---|---|---|---|
-| D1 | Windows x64 installer builds and is signed | `stagepilot-windows-x64` runner | `ci.yml:desktop` green with a real `*-setup.exe` and `.sig` artifact |
-| D2 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build and verify | `stagepilot-macos-*` runners | `release-macos.yml:build` green; `scripts/verify_macos_release_bundle.sh` passes `--app`, `--dmg`, `--archive` |
+| D1 | Windows x64 installer builds and is signed | Not yet run this session | `ci.yml:desktop` green with a real `*-setup.exe` and `.sig` artifact |
+| D2 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build and verify | Not yet run this session | `release-macos.yml:build` green; `scripts/verify_macos_release_bundle.sh` passes `--app`, `--dmg`, `--archive` |
 | D3 | Fresh-machine install on each platform | native hardware | `beta_release_acceptance.py installer` + `check --name local_health` receipts |
 | D4 | No-auth transparent enrollment from an installed build | native hardware | `check --name transparent_enrollment` and `first_operator` receipts |
 | D5 | Viewer/Operator HTTPS + WSS policy from an installed build | native hardware | `check --name https_wss_roles` receipt |
@@ -231,72 +240,27 @@ an operator/runner-provisioning action, not a code change.
 
 Execute top to bottom. Every command is copy-pasteable and requires no
 rediscovery. Do not skip a read-back. This is exactly the release-1 native
-path: register runners, enable native jobs, confirm signing secrets,
+path: enable native jobs on GitHub-hosted runners, confirm signing secrets,
 build/sign/publish release 1, native acceptance for release 1, rollback. The
 release-broker deploy, release 2, and update acceptance are out of scope — see
 "Deferred by operator choice" above.
 
-## Step 0 — Register the native runners (one time, per machine)
-
-On each native machine, register a repository runner with the exact label. The
-label must match exactly; a mismatch leaves the job queued forever.
-
-```sh
-# Obtain a short-lived registration token (expires in ~1 hour).
-gh api -X POST repos/huntrw6/stagepilot-beta/actions/runners/registration-token --jq .token
-```
-
-Windows x64 (PowerShell, in the runner directory):
-
-```powershell
-./config.cmd --url https://github.com/huntrw6/stagepilot-beta --token <TOKEN> `
-  --labels stagepilot-windows-x64 --name stagepilot-win-x64 --unattended
-./run.cmd
-```
-
-macOS Apple Silicon:
-
-```sh
-./config.sh --url https://github.com/huntrw6/stagepilot-beta --token <TOKEN> \
-  --labels stagepilot-macos-arm64 --name stagepilot-mac-arm64 --unattended
-./run.sh
-```
-
-macOS Intel:
-
-```sh
-./config.sh --url https://github.com/huntrw6/stagepilot-beta --token <TOKEN> \
-  --labels stagepilot-macos-x64 --name stagepilot-mac-x64 --unattended
-./run.sh
-```
-
-Each machine needs Node 22, Python 3.12 via `uv`, and a stable Rust toolchain;
-macOS additionally needs the Xcode command line tools (`xcode-select
---install`). Verify all four runners are online and idle (not `busy`):
-
-```sh
-gh api repos/huntrw6/stagepilot-beta/actions/runners \
-  --jq '.runners[] | "\(.name) \(.status) busy=\(.busy) \(.labels | map(.name) | join(","))"'
-```
-
-Expect `stagepilot-ci`, `stagepilot-win-x64`, `stagepilot-mac-arm64`, and
-`stagepilot-mac-x64`, all `status: online` and `busy: false`.
-
 ## Step 1 — Enable the native jobs
 
-The four deferred jobs stay unschedulable until the runners exist. Once
-Step 0 reads back all four runners online, remove **only** the
-`if: ${{ false }}` line from each of these jobs, and update
-`EXPECTED_DEFERRED` in `scripts/validate_workflow_runners.py` to match:
+The native jobs now run on GitHub-hosted `windows-latest`/`macos-15`/
+`macos-15-intel` runners since the repository is public. Remove the
+`if: ${{ false }}` line from each job, point `runs-on` at the hosted label,
+and update the runner-policy validator's expected native-job inventory to
+match:
 
-- `.github/workflows/ci.yml` → `desktop`
-- `.github/workflows/ci.yml` → `desktop-macos-lifecycle`
-- `.github/workflows/release-macos.yml` → `build`
-- `.github/workflows/release-windows.yml` → `build`
+- `.github/workflows/ci.yml` → `desktop` (`windows-latest`)
+- `.github/workflows/ci.yml` → `desktop-macos-lifecycle` (`macos-15` / `macos-15-intel`)
+- `.github/workflows/release-macos.yml` → `build` (`macos-15` / `macos-15-intel` / `windows-latest`)
+- `.github/workflows/release-windows.yml` → `build` (`windows-latest`)
 
-Also drop the `DEFERRED — ` name prefix on each. Change nothing else: do not
-alter a `runs-on` list, a signing step, a secret reference, the source audit,
-the immutable-tag guard, or the `latest.json` ordering.
+Also drop the `DEFERRED — ` name prefix on each, restoring the original job
+names. Change nothing else: do not alter a signing step, a secret reference,
+the source audit, the immutable-tag guard, or the `latest.json` ordering.
 
 Validate and push:
 

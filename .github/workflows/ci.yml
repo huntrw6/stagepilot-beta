@@ -186,11 +186,8 @@ jobs:
         run: node scripts/updater_chain_proof.mjs
 
   desktop:
-    name: DEFERRED — Desktop installer — Windows x64
-    # Native packaging stays defined for a future matching self-hosted runner.
-    # Keep it unschedulable until that runner exists and native validation resumes.
-    if: ${{ false }}
-    runs-on: [self-hosted, stagepilot-windows-x64]
+    name: Desktop installer — Windows x64
+    runs-on: windows-latest
 
     steps:
       - name: Check out repository
@@ -250,18 +247,16 @@ jobs:
           if-no-files-found: error
 
   desktop-macos-lifecycle:
-    name: DEFERRED — Desktop lifecycle — ${{ matrix.name }}
-    # Native lifecycle checks cannot be represented by the Linux runner.
-    if: ${{ false }}
+    name: Desktop lifecycle — ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: macOS Apple Silicon
-            runner: stagepilot-macos-arm64
+            runner: macos-15
           - name: macOS Intel
-            runner: stagepilot-macos-x64
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Check out repository
