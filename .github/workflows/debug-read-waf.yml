@@ -1,0 +1,19 @@
+name: Debug Read WAF
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  read:
+    runs-on: [self-hosted, stagepilot-linux]
+    environment: stagepilot-control-plane
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: npm ci --prefix control-plane
+      - run: node control-plane/scripts/waf-rate-limit.mjs read
+        env:
+          CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          REMOTE_HOST_SUFFIX: ${{ vars.REMOTE_HOST_SUFFIX }}
