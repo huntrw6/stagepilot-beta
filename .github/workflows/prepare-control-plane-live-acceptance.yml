@@ -1,0 +1,41 @@
+name: Run Transparent Enrollment Live Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: stagepilot-control-plane
+    env:
+      CONTROL_PLANE_ORIGIN: https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: control-plane/package-lock.json
+      - run: npm ci --prefix control-plane
+      - name: Install checksummed Linux acceptance connector
+        shell: bash
+        env:
+          CLOUDFLARED_BIN: ${{ runner.temp }}/cloudflared
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            --output "$CLOUDFLARED_BIN" \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-linux-amd64
+          printf '%s  %s\n' \
+            03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc \
+            "$CLOUDFLARED_BIN" | sha256sum --check
+          chmod 700 "$CLOUDFLARED_BIN"
+          "$CLOUDFLARED_BIN" --version
+      - name: Exercise transparent enrollment, isolation, HTTPS, WSS, and cleanup
+        env:
+          CLOUDFLARED_BIN: ${{ runner.temp }}/cloudflared
+        run: npm --prefix control-plane run acceptance:live

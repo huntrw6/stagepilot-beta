@@ -412,3 +412,21 @@ export interface ProPresenterOperationResponse {
   message: string;
   propresenter: ProPresenterStatusResponse;
 }
+
+/** UI affordances supplied by the backend; never a substitute for server authorization. */
+export interface AccessCapabilities {
+  canRead: boolean;
+  canOperate: boolean;
+  canConfigure: boolean;
+  canActivateServices: boolean;
+}
+
+export interface DashboardAccess {
+  mode: "desktop" | "lan" | "remote";
+  authentication: "none" | "pin" | "password";
+  authenticated: boolean;
+  capabilities: AccessCapabilities;
+  user: { email: string; role: "Viewer" | "Operator" } | null;
+  expires_at: number | null;
+  csrf_token: string | null;
+}

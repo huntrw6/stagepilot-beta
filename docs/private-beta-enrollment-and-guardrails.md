@@ -1,0 +1,30 @@
+# Transparent beta enrollment and Cloudflare abuse guardrails
+
+## Decision
+
+Possession of the private beta is sufficient authorization to enroll. There is no GitHub verification, OAuth, StagePilot account, invite code, administrator-created bundle, or private bundle delivery. On first local enable, the app creates a random nonce and retains it only while enrollment is incomplete, receives a random installation identity and unique machine credential, then removes the nonce from ordinary local state and stores the credential only in Windows Credential Manager or macOS Keychain. Every later lifecycle call requires that credential.
+
+A public endpoint cannot prove private-repository possession. The binary is not treated as a secret. Abuse is contained through finite server-side ceilings, revocation, aggregate observability, and fail-closed behavior. No Cloudflare, administrator, signing, GitHub, or reusable tunnel credential ships in the app.
+
+## Implemented controls and thresholds
+
+- Enrollment: 3 new installations per canonical source IPv4 or IPv6 /64 per 24 hours. The source is HMAC-hashed with server-only key material; raw addresses are not stored. Source records expire after 24 hours and the retained index is capped at 2,000 entries.
+- Replay: a valid nonce replay returns the same installation and credential before any quota check and does not consume quota.
+- Global gate: 500 active installations by default, configurable with `BETA_INSTALLATION_LIMIT`; `ENROLLMENT_ENABLED=false` stops only new enrollment.
+- Installation API: 120 status requests and 20 lifecycle mutations per installation per 60 seconds. Status never invokes Cloudflare. Confirmed provision responses are cached in memory for 30 seconds so rapid reconcile/provision replay is provider-free.
+- Provider API: all requests are serialized in the singleton Durable Object. The total ceiling is 600 calls per 5 minutes; ordinary provisioning and enabled reconciliation stop at 480, reserving 120 calls for disable, revoke, and recovery. This is below Cloudflare's documented 1,200 calls per 5 minutes and 200 calls per second per IP.
+- Client: enrollment and lifecycle requests make at most three attempts for 429/503 responses, honor bounded `Retry-After` values, and add exponential backoff with jitter.
+- Edge: exactly one Free-plan `http_ratelimit` rule with ref `stagepilot_remote_beta_rate_limit_v1`, expression `(http.host wildcard "sp-*.illuminary.studio")`, 60 requests per source IP/colo per 10 seconds, and a 10-second block. WSS messages are not counted as HTTP requests; initial upgrades and reconnects are.
+- Observability: the administrator metrics route exposes only aggregate active/enrollment and denial counters. It emits no raw IP, keyed source hash, installation ID, hostname, provider body, or credential.
+
+Quota and capacity denials return sanitized 429 or 503 responses plus `Retry-After`. They create no installation identity, tunnel, DNS record, or Cloudflare provider state. Managed DDoS remains in its separate Cloudflare phases, and the WAF deployment helper refuses to replace an unrelated rate-limit rule.
+
+## Operations and rollback
+
+The manual protected deployment workflow supplies `ENROLLMENT_ENABLED` and `BETA_INSTALLATION_LIMIT` and deploys the Worker. An independently authorized zone-WAF operator runs `node control-plane/scripts/waf-rate-limit.mjs apply` and reads back the exact rule; the narrower Worker/tunnel token intentionally cannot edit WAF. Monitor `GET /v1/admin/metrics` with the administrator credential and Cloudflare Security Events. Tune only after measuring ordinary HTTPS polling and WSS upgrade/reconnect rates.
+
+Emergency enrollment rollback is `ENROLLMENT_ENABLED=false` followed by a manual Worker deployment; existing authenticated lifecycle and cleanup continue. WAF rollback deletes only the exact StagePilot rule/ruleset in the zone `http_ratelimit` phase and verifies that managed DDoS and all other phases and hosts remain unchanged. Code rollback must preserve the existing Durable Object class/binding and forward-only migration history.
+
+## Limitations
+
+The private binary can be copied, so enrollment is abuse-contained rather than identity-verified. Cloudflare Free permits one zone rate-limit rule and coarse IP-based characteristics; shared NAT sources may share a quota, while distributed sources may each consume quota. Rate limiting is not an exact request counter because edge enforcement may lag briefly. Final native reboot proof still requires reboot-capable Windows x64 and macOS arm64/x64 hardware; this change does not alter the accepted desktop MIDI or local-production path.

@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { describe, it } from "vitest";
+
+import {
+  RUNTIME_SECRET_NAMES,
+  validateDeploymentEnvironment,
+  verifyRuntimeSecrets,
+} from "./deployment-config.mjs";
+
+function deploymentEnvironment(overrides = {}) {
+  return {
+    CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
+    CLOUDFLARE_ZONE_ID: "b".repeat(32),
+    REMOTE_HOST_SUFFIX: "remote.example.com",
+    REMOTE_PORT: "18766",
+    ENROLLMENT_ENABLED: "true",
+    BETA_INSTALLATION_LIMIT: "500",
+    CLOUDFLARE_API_TOKEN: "provider-token-with-narrow-scope",
+    ADMIN_API_TOKEN: "admin-token-with-at-least-thirty-two-characters",
+    INSTALLATION_SIGNING_KEY: "independent-signing-key-at-least-thirty-two-characters",
+    ...overrides,
+  };
+}
+
+
+describe("deployment configuration", () => {
+  it("validates protected deployment values and all independent runtime secrets", () => {
+    assert.deepEqual(validateDeploymentEnvironment(deploymentEnvironment()), {
+      accountId: "a".repeat(32),
+      zoneId: "b".repeat(32),
+      hostnameSuffix: "remote.example.com",
+      remotePort: 18766,
+      enrollmentEnabled: "true",
+      installationLimit: 500,
+    });
+  });
+
+  it("fails before deployment when any runtime secret is missing", () => {
+    for (const name of RUNTIME_SECRET_NAMES) {
+      assert.throws(
+        () => validateDeploymentEnvironment(deploymentEnvironment({ [name]: "" })),
+        new RegExp(`Missing required deployment value: ${name}`),
+      );
+    }
+  });
+
+  it("requires Wrangler read-back to contain every runtime secret name", () => {
+    const complete = JSON.stringify(RUNTIME_SECRET_NAMES.map((name) => ({ name, type: "secret_text" })));
+    assert.deepEqual(verifyRuntimeSecrets(complete), RUNTIME_SECRET_NAMES);
+    assert.throws(() => verifyRuntimeSecrets(JSON.stringify([{ name: RUNTIME_SECRET_NAMES[0] }])), /Missing Worker runtime secret bindings/);
+  });
+
+  it("keeps deployment manual and supplies every protected value without tracked placeholders", () => {
+    const repository = path.resolve(import.meta.dirname, "../..");
+    const workflow = fs.readFileSync(path.join(repository, ".github/workflows/deploy-control-plane.yml"), "utf8");
+    const wrangler = fs.readFileSync(path.join(repository, "control-plane/wrangler.toml"), "utf8");
+    assert.match(workflow, /workflow_dispatch:/);
+    assert.doesNotMatch(workflow, /\bpush:/);
+    for (const name of ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ZONE_ID", "REMOTE_HOST_SUFFIX", "REMOTE_PORT", "ENROLLMENT_ENABLED", "BETA_INSTALLATION_LIMIT"]) {
+      assert.match(workflow, new RegExp(`vars\\.${name}`));
+      assert.match(workflow, new RegExp(`--var ${name}:`));
+    }
+    for (const name of RUNTIME_SECRET_NAMES) {
+      assert.match(workflow, new RegExp(`secrets\\.${name}`));
+      assert.match(workflow, new RegExp(`^ {12}${name}$`, "m"));
+    }
+    assert.match(workflow, /secret list --format json/);
+    assert.doesNotMatch(wrangler, /REPLACE_WITH_|example\.invalid/);
+  });
+});

@@ -30,7 +30,7 @@ test("Tauri updater configuration preserves stable identity and trusted endpoint
     "Tauri's trailing /** pattern matches directories rather than resource files",
   );
   assert.deepEqual(config.plugins.updater.endpoints, [
-    "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
+    "https://github.com/huntrw6/stagepilot-beta/releases/latest/download/latest.json",
   ]);
   assert.ok(config.plugins.updater.pubkey);
   assert.equal(
@@ -75,6 +75,39 @@ test("desktop capability is narrow and contains updater lifecycle permissions", 
   for (const dangerous of ["shell:allow-execute", "shell:allow-open", "fs:default"]) {
     assert.ok(!capability.permissions.includes(dangerous));
   }
+});
+
+test("desktop Remote packages cloudflared and uses only native platform credential stores", () => {
+  const windows = JSON.parse(read("desktop/src-tauri/tauri.release.conf.json"));
+  const windowsCI = JSON.parse(read("desktop/src-tauri/tauri.ci.conf.json"));
+  const macOS = JSON.parse(read("desktop/src-tauri/tauri.macos.conf.json"));
+  const cargo = read("desktop/src-tauri/Cargo.toml");
+  const broker = read("desktop/src-tauri/src/native_credentials.rs");
+  const bootstrap = read("backend/src/stagepilot/remote_bootstrap.py");
+  const connector = read("backend/src/stagepilot/remote_connector.py");
+  const specification = read("backend/stagepilot.spec");
+  assert.equal(windows.bundle.resources["resources/cloudflared.exe"], "cloudflared.exe");
+  assert.equal(
+    windowsCI.bundle.resources["resources/cloudflared.exe"],
+    "cloudflared.exe",
+    "the CI installer must exercise the same self-contained Remote runtime",
+  );
+  assert.equal(macOS.bundle.resources["resources/cloudflared"], "cloudflared");
+  for (const resources of [
+    windows.bundle.resources,
+    windowsCI.bundle.resources,
+    macOS.bundle.resources,
+  ]) {
+    assert.ok(!Object.keys(resources).some((name) => /bootstrap|credential|token|secret|\.pem$/i.test(name)));
+  }
+  assert.match(cargo, /features = \["windows-native"\]/);
+  assert.match(cargo, /features = \["apple-native"\]/);
+  assert.match(broker, /org\.stagepilot\.desktop\.remote/);
+  assert.match(broker, /Cache-Control: no-store/);
+  assert.doesNotMatch(bootstrap, /import keyring|keyring\.get_password|keyring\.set_password/);
+  assert.match(connector, /token_arguments = \["--token", self\.token_provider\(\)\]/);
+  assert.doesNotMatch(connector, /atomic_write\(token/);
+  assert.match(specification, /keyring/, "other desktop integrations still use Python keyring");
 });
 
 test("release workflow requires secrets and publishes latest.json last", () => {
