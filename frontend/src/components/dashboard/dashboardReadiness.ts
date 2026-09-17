@@ -45,13 +45,25 @@ export function buildConnectionCardViews({
   midi,
   propresenter,
   lights,
+  stateOnly = false,
 }: {
   state: ApplicationState;
+  stateOnly?: boolean;
   settings: SettingsResponse | null;
   midi: MidiInputsResponse | null;
   propresenter: ProPresenterStatusResponse | null;
   lights: LightsStatusResponse | null;
 }): DashboardIntegrationViews {
+  if (stateOnly) {
+    // No configuration inference: Viewers see only the backend's live projection.
+    const reported = (status: ConnectionStatus): ConnectionCardView => ({
+      status, detail: statusDetail(status, null), configured: false, mode: "real",
+    });
+    return {
+      planningCenter: reported(state.planning_center_status), midi: reported(state.midi_status),
+      propresenter: reported(state.propresenter_status), lights: reported(state.lights_status),
+    };
+  }
   const modes = settings?.settings.integration_modes;
   const serviceIsDemo = modes?.service_source === "demo" || (!modes && Boolean(state.plugins.demo));
   const midiIsSimulated = modes?.midi_source === "simulated" || (!modes && Boolean(state.plugins.demo));
@@ -178,13 +190,27 @@ export function buildReadinessChecks({
   propresenter,
   live,
   views,
+  stateOnly = false,
 }: {
   state: ApplicationState;
+  stateOnly?: boolean;
   settings: SettingsResponse | null;
   propresenter: ProPresenterStatusResponse | null;
   live: boolean;
   views: DashboardIntegrationViews;
 }): ReadinessCheck[] {
+  if (stateOnly) {
+    return [
+      ...Object.entries(views).map(([id, view]) => ({
+        id, label: `${({ planningCenter: "Planning Center", midi: "MIDI", propresenter: "ProPresenter", lights: "Lights" } as Record<string, string>)[id]} ${view.status}`,
+        passed: view.status === "connected", required: true, severity: "info" as const,
+        status: view.status === "connecting" ? "disconnected" as const : view.status,
+        detail: "Live status reported by StagePilot. Configuration is not available in this view.",
+      })),
+      { id: "backend", label: live ? "Live state connected" : "Live state disconnected",
+        passed: live, required: true, severity: "info", status: live ? "connected" : "disconnected" },
+    ];
+  }
   const plan = state.plan;
   const productionPlan = settings?.settings.integration_modes.service_source === "planning_center";
   const servicePlanReady = Boolean(

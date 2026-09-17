@@ -8,14 +8,19 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from stagepilot.api.access import router as access_router
 from stagepilot.api.dashboard_auth import router as dashboard_auth_router
 from stagepilot.api.dashboard_auth_middleware import DashboardAuthMiddleware
+from stagepilot.api.remote_auth import router as remote_auth_router
+from stagepilot.api.remote_feature import router as remote_feature_router
+from stagepilot.api.remote_ingress import RemoteAccess
 from stagepilot.api.routes import router as api_router
 from stagepilot.api.websocket import router as websocket_router
 from stagepilot.core.config import MidiSource, ServiceSource, Settings, TimerOutput, get_settings
@@ -43,6 +48,7 @@ from stagepilot.plugins.planning_center import (
 from stagepilot.plugins.propresenter import ProPresenterClientFactory, ProPresenterPlugin
 from stagepilot.services.dashboard_auth import DashboardSessionStore
 from stagepilot.services.planning_center_setup import PlanningCenterSetupService
+from stagepilot.services.remote_auth import RemoteStore
 from stagepilot.services.startup_activation import StartupActivationService
 from stagepilot.services.state_service import StateService
 
@@ -79,9 +85,15 @@ def create_app(
     settings_service: SettingsService | None = None,
     dashboard_auth_enforced: bool | None = None,
     plan_cache_store: PlanCacheStore | None = None,
+    remote_store: RemoteStore | None = None,
     web_root: Path | None = None,
 ) -> FastAPI:
     """Create an independently testable StagePilot application instance."""
+
+    desktop_remote_root = os.environ.get("STAGEPILOT_DESKTOP_REMOTE_ROOT")
+    cloudflared_binary = os.environ.get("STAGEPILOT_CLOUDFLARED_BINARY")
+    if remote_store is None and desktop_remote_root and cloudflared_binary:
+        remote_store = RemoteStore(Path(desktop_remote_root) / "identity.sqlite3")
 
     resolved_settings_service = settings_service or (
         SettingsService.ephemeral(settings) if settings is not None else SettingsService.default()
@@ -220,6 +232,7 @@ def create_app(
         version=resolved_settings.version,
         lifespan=lifespan,
     )
+    application.state.remote_access = RemoteAccess(remote_store) if remote_store else None
     application.state.runtime = runtime
     application.state.dashboard_sessions = DashboardSessionStore()
     application.state.dashboard_auth_enforced = (
@@ -236,12 +249,25 @@ def create_app(
             "tauri://localhost",
         ],
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT"],
-        allow_headers=["Content-Type"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Content-Type", "X-StagePilot-Remote", "X-CSRF-Token", "Idempotency-Key"],
     )
+    application.include_router(access_router)
     application.include_router(api_router)
     application.include_router(dashboard_auth_router)
+    application.include_router(remote_auth_router)
+    application.include_router(remote_feature_router)
     application.include_router(websocket_router)
+    if desktop_remote_root and cloudflared_binary and remote_store is not None:
+        from stagepilot.remote_desktop import DesktopRemoteManager, attach_desktop_remote
+
+        manager = DesktopRemoteManager(
+            Path(desktop_remote_root),
+            Path(cloudflared_binary),
+            revoke_sessions=lambda: remote_store.installation_generation(str(uuid4())),
+            lan_port=resolved_settings.bind_port,
+        )
+        attach_desktop_remote(application, manager)
     dashboard_root = web_root or default_web_root()
     if dashboard_root is not None and (dashboard_root / "index.html").is_file():
         application.mount(

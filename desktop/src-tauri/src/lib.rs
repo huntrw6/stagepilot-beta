@@ -15,6 +15,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent, WebviewWindow, WebviewWindowBuilder,
 };
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
@@ -23,6 +24,11 @@ use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 #[cfg(target_os = "windows")]
 mod windows_jump_list;
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod native_credentials;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use native_credentials::NativeCredentialBroker;
 
 const DEFAULT_PORT: u16 = 8765;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -564,13 +570,38 @@ fn start_backend(app: &tauri::AppHandle, supervisor: BackendSupervisor) -> Resul
     } else {
         "127.0.0.1"
     };
-    let command = app
+    let mut command = app
         .shell()
         .sidecar("stagepilot-backend")
         .map_err(|error| format!("Unable to locate the packaged backend sidecar: {error}"))?
         .env("STAGEPILOT_HOST", bind_host)
         .env("STAGEPILOT_PORT", port.to_string())
-        .env("STAGEPILOT_SETTINGS_PATH", settings_path());
+        .env("STAGEPILOT_SETTINGS_PATH", settings_path())
+        .env(
+            "STAGEPILOT_DESKTOP_REMOTE_ROOT",
+            app.path()
+                .app_data_dir()
+                .map_err(|error| format!("Unable to resolve desktop Remote state: {error}"))?
+                .join("remote"),
+        )
+        .env(
+            "STAGEPILOT_CLOUDFLARED_BINARY",
+            app.path()
+                .resource_dir()
+                .map_err(|error| format!("Unable to resolve bundled cloudflared: {error}"))?
+                .join(if cfg!(target_os = "windows") {
+                    "cloudflared.exe"
+                } else {
+                    "cloudflared"
+                }),
+        );
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        let broker = app.state::<NativeCredentialBroker>();
+        command = command
+            .env("STAGEPILOT_CREDENTIAL_BROKER_ORIGIN", &broker.origin)
+            .env("STAGEPILOT_CREDENTIAL_BROKER_TOKEN", &broker.authorization);
+    }
     let (mut events, child) = command
         .spawn()
         .map_err(|error| format!("Unable to start the packaged backend sidecar: {error}"))?;
@@ -755,6 +786,17 @@ async fn prepare_for_update(
 }
 
 #[tauri::command]
+fn set_remote_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let manager = app.autolaunch();
+    if enabled {
+        manager.enable()
+    } else {
+        manager.disable()
+    }
+    .map_err(|error| format!("Could not update Remote restart recovery: {error}"))
+}
+
+#[tauri::command]
 fn hide_application_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -921,7 +963,14 @@ pub fn run() {
     let port = configured_port();
     let supervisor = BackendSupervisor::new(port);
     let shutdown_supervisor = supervisor.clone();
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        let credential_broker =
+            NativeCredentialBroker::start().expect("failed to start the native credential broker");
+        builder = builder.manage(credential_broker);
+    }
+    let app = builder
         .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             if let Some(action) = stagepilot_launch_action(&arguments) {
                 perform_launch_action(app, action);
@@ -930,6 +979,11 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -959,6 +1013,7 @@ pub fn run() {
             backend_supervisor_status,
             restart_managed_backend,
             prepare_for_update,
+            set_remote_autostart,
             hide_application_window
         ])
         .setup(move |app| {

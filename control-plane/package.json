@@ -1,0 +1,16 @@
+{
+  "name": "stagepilot-beta-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "validate:deployment": "node scripts/deployment-config.mjs validate",
+    "enroll:bootstrap": "node scripts/enroll-bootstrap.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260317.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}

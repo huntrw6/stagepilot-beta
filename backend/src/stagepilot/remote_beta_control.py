@@ -1,0 +1,282 @@
+"""Installation-side client for the authenticated private-beta control plane."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Literal, cast
+from uuid import uuid4
+
+import httpx
+from pydantic import BaseModel, Field
+
+from stagepilot.remote_files import BetaControlConfig, DesiredRemote, atomic_write
+from stagepilot.remote_provider import ProviderError
+
+
+class InstallationRevokedError(ProviderError):
+    """The installation capability is no longer accepted by the control plane."""
+
+
+class BetaProvisionState(BaseModel):
+    phase: Literal["disabled", "enabling", "enabled", "revoking"] = "disabled"
+    generation: str = ""
+    binding: dict[str, str | int] = Field(default_factory=dict)
+    retire: bool = False
+
+
+@contextmanager
+def _exclusive_lock(path: Path) -> Iterator[None]:
+    """Hold a one-byte process lock on Unix and Windows."""
+
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            windows_lock = cast(Any, msvcrt)
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            windows_lock.locking(descriptor, windows_lock.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                import msvcrt
+
+                windows_lock = cast(Any, msvcrt)
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                windows_lock.locking(descriptor, windows_lock.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
+class BetaRemoteControl:
+    def __init__(
+        self,
+        config: BetaControlConfig,
+        client: httpx.Client,
+        *,
+        credential_provider: Callable[[], str] | None = None,
+    ) -> None:
+        self.config = config
+        self.client = client
+        self.credential_provider = credential_provider
+        self.connector_token: str | None = None
+        self.state_path = config.state_dir / "state.json"
+        self.desired_path = config.installation_dir / "remote.json"
+        # Cleanup-only compatibility path for tokens written by older beta builds.
+        self.token_path = config.installation_dir / "connector.token"
+
+    def apply(self, action: str) -> dict[str, object]:
+        self.config.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with _exclusive_lock(self.config.state_dir / "control.lock"):
+            return self._apply(action)
+
+    def _apply(self, action: str) -> dict[str, object]:
+        if action != "status":
+            self.connector_token = None
+        try:
+            state = (
+                BetaProvisionState.model_validate_json(self.state_path.read_text())
+                if self.state_path.exists()
+                else BetaProvisionState()
+            )
+        except (OSError, ValueError):
+            if action == "disable":
+                self._write_disabled_marker()
+                self.token_path.unlink(missing_ok=True)
+            raise
+        binding: dict[str, str | int] = {
+            "control_plane": self.config.control_plane_url.rstrip("/"),
+            "installation": self.config.installation_id,
+            "hostname": self.config.hostname,
+            "port": self.config.remote_port,
+            "export": str(self.config.installation_dir),
+        }
+        if state.binding and state.binding != binding:
+            raise ProviderError("Configuration changed; preserve the original beta control state")
+        state.binding = binding
+        if action == "status":
+            return self._status(state)
+        if action not in {"enable", "disable", "revoke", "reconcile"}:
+            raise ValueError("Unknown Remote operation")
+
+        if action == "enable":
+            if state.phase == "revoking":
+                raise ProviderError("Finish retrying disable before re-enabling")
+            if state.phase == "disabled":
+                state.generation = str(uuid4())
+                state.phase = "enabling"
+                state.retire = False
+                self._write_disabled_marker()
+                atomic_write(self.state_path, state.model_dump_json())
+            return self._provision(state)
+
+        if action in {"disable", "revoke"} or state.phase == "revoking":
+            return self._disable(state, retire=action == "revoke" or state.retire)
+        if state.phase == "enabling":
+            return self._provision(state)
+        if action == "reconcile" and state.phase == "enabled":
+            return self._provision(state, operation="reconcile")
+        return self._status(state)
+
+    def _provision(
+        self, state: BetaProvisionState, *, operation: str = "provision"
+    ) -> dict[str, object]:
+        if not state.generation:
+            raise ProviderError("Missing installation generation")
+        response = self._request(
+            "POST",
+            f"/v1/installations/{self.config.installation_id}/{operation}",
+            {"generation": state.generation},
+        )
+        if (
+            response.get("installationId") != self.config.installation_id
+            or response.get("hostname") != self.config.hostname
+            or response.get("generation") != state.generation
+            or response.get("phase") != "provisioned"
+        ):
+            raise ProviderError("Control-plane identity response did not match")
+        token = response.get("tunnelToken")
+        if (
+            not isinstance(token, str)
+            or len(token) < 20
+            or any(character.isspace() for character in token)
+        ):
+            raise ProviderError("Installation tunnel credential unavailable")
+        atomic_write(
+            self.desired_path,
+            DesiredRemote(
+                enabled=True,
+                generation=state.generation,
+                public_origin=f"https://{self.config.hostname}",
+                port=self.config.remote_port,
+            ).model_dump_json(),
+        )
+        state.phase = "enabled"
+        atomic_write(self.state_path, state.model_dump_json())
+        self.connector_token = token
+        return self._status(state)
+
+    def _disable(self, state: BetaProvisionState, *, retire: bool) -> dict[str, object]:
+        if state.phase != "disabled" or retire:
+            state.phase = "revoking"
+        state.retire = retire
+        atomic_write(self.state_path, state.model_dump_json())
+        self._write_disabled_marker()
+        self.token_path.unlink(missing_ok=True)
+        if state.generation or retire:
+            operation = "revoke" if retire else "disable"
+            response = self._request(
+                "POST",
+                f"/v1/installations/{self.config.installation_id}/{operation}",
+                {},
+            )
+            if (
+                response.get("installationId") != self.config.installation_id
+                or response.get("hostname") != self.config.hostname
+                or response.get("phase") != "disabled"
+                or (retire and response.get("revoked") is not True)
+            ):
+                raise ProviderError("Control-plane revocation response did not match")
+        state.phase = "disabled"
+        state.generation = ""
+        atomic_write(self.state_path, state.model_dump_json())
+        return self._status(state)
+
+    def _write_disabled_marker(self) -> None:
+        atomic_write(
+            self.desired_path,
+            DesiredRemote(
+                public_origin=f"https://{self.config.hostname}",
+                port=self.config.remote_port,
+            ).model_dump_json(),
+        )
+
+    def _credential(self) -> str:
+        if self.credential_provider is not None:
+            token = self.credential_provider().strip()
+            expected_prefix = f"spi_{self.config.installation_id}."
+            if not token.startswith(expected_prefix) or any(
+                character.isspace() for character in token
+            ):
+                raise ProviderError("Installation credential is invalid")
+            return token
+        if self.config.credential_file is None:
+            raise ProviderError("Installation credential unavailable")
+        try:
+            if self.config.credential_file.is_symlink():
+                raise ProviderError("Installation credential file must not be a symlink")
+            if self.config.credential_file.stat().st_mode & 0o077:
+                raise ProviderError("Installation credential file must be private (0600)")
+            token = self.config.credential_file.read_text().strip()
+        except OSError as exc:
+            raise ProviderError("Installation credential unavailable") from exc
+        expected_prefix = f"spi_{self.config.installation_id}."
+        if not token.startswith(expected_prefix) or any(character.isspace() for character in token):
+            raise ProviderError("Installation credential is invalid")
+        return token
+
+    def _request(self, method: str, path: str, payload: dict[str, object]) -> dict[str, object]:
+        try:
+            response = self.client.request(
+                method,
+                path,
+                headers={"Authorization": f"Bearer {self._credential()}"},
+                json=payload,
+            )
+            if response.status_code in {401, 403}:
+                raise InstallationRevokedError("Installation enrollment is expired or revoked")
+            if not response.is_success:
+                raise ProviderError(f"Beta control request failed (HTTP {response.status_code})")
+            value = response.json()
+            if not isinstance(value, dict):
+                raise ProviderError("Beta control response was invalid")
+            return value
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError("Beta control plane unavailable; retry reconciliation") from exc
+
+    def _status(self, state: BetaProvisionState) -> dict[str, object]:
+        return {
+            "phase": state.phase,
+            "installation": self.config.installation_id,
+            "hostname": self.config.hostname,
+            "generation": state.generation,
+        }
+
+
+def run() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=["enable", "disable", "revoke", "reconcile", "status"])
+    parser.add_argument("--config", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        config = BetaControlConfig.model_validate_json(args.config.read_text())
+        with httpx.Client(
+            base_url=config.control_plane_url,
+            timeout=20,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
+            result = BetaRemoteControl(config, client).apply(args.action)
+        print(json.dumps(result))
+    except (OSError, ValueError, ProviderError):
+        parser.exit(1, "Remote operation incomplete; check private configuration and retry.\n")
+
+
+if __name__ == "__main__":
+    run()
