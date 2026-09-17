@@ -198,19 +198,7 @@ jobs:
           node scripts/generate_updater_manifest.mjs release-assets "$RELEASE_TAG" "$BETA_DOWNLOAD_BASE"
           node scripts/validate_updater_manifest.mjs release-assets/latest.json release-assets "$BETA_DOWNLOAD_BASE"
           node scripts/audit_beta_release.mjs assets release-assets "${RELEASE_TAG#v}"
-      - name: Create draft release and upload artifacts
+      - name: Create release and upload artifacts
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; immutable beta assets will not be replaced." >&2
-            exit 1
-          fi
-          gh release create "$RELEASE_TAG" --verify-tag --draft --latest=false --title "StagePilot $RELEASE_TAG" --notes-file release-assets/release-notes.md
-          # Signatures must remain in the staging directory while latest.json is
-          # generated and validated, but latest.json embeds their contents. Do
-          # not publish standalone .sig files as user-facing release downloads.
-          find release-assets -maxdepth 1 -type f ! -name latest.json ! -name release-notes.md ! -name '*.sig' -print0 |
-            xargs -0 gh release upload "$RELEASE_TAG"
-          gh release upload "$RELEASE_TAG" release-assets/latest.json
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish_release.mjs "$RELEASE_TAG" release-assets

@@ -123,7 +123,7 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.match(workflow, /validate_updater_manifest\.mjs/);
   assert.match(workflow, /audit_beta_release\.mjs source/);
   assert.match(workflow, /audit_beta_release\.mjs assets/);
-  assert.match(workflow, /gh release create "\$RELEASE_TAG" --verify-tag/);
+  assert.match(workflow, /node scripts\/publish_release\.mjs "\$RELEASE_TAG" release-assets/);
   assert.equal((workflow.match(/ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/g) ?? []).length, 3);
   assert.match(workflow, /refs\/tags\/\$RELEASE_TAG\^\{commit\}/);
   assert.match(workflow, /MACOSX_DEPLOYMENT_TARGET: "12\.0"/);
@@ -146,24 +146,41 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   assert.doesNotMatch(workflow, /notarytool|notariz/);
   assert.match(workflow, /Copy-Item \$installer\.FullName/);
   assert.match(workflow, /Copy-Item "\$\(\$installer\.FullName\)\.sig"/);
+  // The publish job runs on the self-hosted Linux runner, which has no `gh`
+  // CLI, so the release is created through the REST API by this script. The
+  // invariants it must preserve are asserted directly against its source.
+  const publisher = read("scripts/publish_release.mjs");
+  assert.doesNotMatch(workflow, /\bgh release\b/, "the publish job must not depend on the gh CLI");
   assert.match(
-    workflow,
-    /find release-assets .* ! -name '\*\.sig'/,
+    publisher,
+    /!name\.endsWith\("\.sig"\)/,
     "standalone updater signatures must not be published as user-facing release assets",
   );
-  assert.match(workflow, /Release \$RELEASE_TAG already exists; immutable beta assets will not be replaced/);
+  assert.match(publisher, /Release \$\{tag\} already exists; immutable beta assets will not be replaced/);
+  assert.match(publisher, /process\.exit\(1\)/, "an existing release must abort publication");
+  assert.ok(
+    publisher.includes('filter((n) => n !== "latest.json"), ...entries.filter((n) => n === "latest.json")'),
+    "latest.json must be uploaded after every artifact it references",
+  );
+  assert.match(publisher, /draft: true/, "the release must be created as a draft");
+  assert.match(publisher, /draft: false/, "the release must be published only after all uploads succeed");
   assert.doesNotMatch(workflow, /--clobber/);
   // The release broker/in-app updater are deferred for this beta: no
   // STAGEPILOT_RELEASE_TOKEN Actions secret is issued, and the deploy
   // workflow must never require or reference one.
   assert.doesNotMatch(deployWorkflow, /STAGEPILOT_RELEASE_TOKEN/);
   assert.doesNotMatch(deployWorkflow, /GITHUB_RELEASE_TOKEN/);
-  const latestUpload = 'gh release upload "$RELEASE_TAG" release-assets/latest.json';
+  // The publisher uploads every other asset first, then latest.json, and only
+  // then flips the draft off — so no client can ever see a manifest that
+  // references an asset the release does not yet carry.
   assert.ok(
-    workflow.indexOf('! -name latest.json') < workflow.indexOf(latestUpload),
+    publisher.indexOf("uploaded ${name}") < publisher.indexOf("draft: false"),
+    "assets must all be uploaded before the release leaves draft",
   );
   assert.ok(
-    workflow.indexOf(latestUpload) < workflow.indexOf("--draft=false --latest"),
+    publisher.indexOf("latest.json is missing from the staging directory") <
+      publisher.indexOf("draft: false"),
+    "publication must abort when latest.json was never generated",
   );
 });
 

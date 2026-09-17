@@ -48,7 +48,7 @@ const directories = [];
 
 try {
   // 1. latest.json generation and validation against the beta broker base.
-  const betaVersion = "1.1.103-beta.5";
+  const betaVersion = "1.1.103-beta.6";
   const beta = stage(betaVersion);
   directories.push(beta);
   generate(beta, `v${betaVersion}`, BROKER);
@@ -152,9 +152,9 @@ try {
   // 12. Every reserved beta version is distinct and well formed, so no release
   //     can ever reuse an earlier immutable tag. beta.1 and beta.2 are burned
   //     by failed attempts; beta.4 is release 1.
-  const burned = ["1.1.103-beta.1", "1.1.103-beta.2", "1.1.103-beta.3", "1.1.103-beta.4"];
+  const burned = ["1.1.103-beta.1", "1.1.103-beta.2", "1.1.103-beta.3", "1.1.103-beta.4", "1.1.103-beta.5"];
   assert(!burned.includes(betaVersion), "release 1 must not reuse a burned tag");
-  assert.equal(new Set([...burned, betaVersion, "1.1.103-beta.6"]).size, 6);
+  assert.equal(new Set([...burned, betaVersion, "1.1.103-beta.7"]).size, 7);
   for (const version of [...burned, betaVersion]) {
     assert.match(version, /^\d+\.\d+\.\d+-beta\.\d+$/);
   }
