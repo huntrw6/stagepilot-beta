@@ -198,8 +198,18 @@ try {
   report.wssBelowThreshold = true;
 
   await wait(11_000);
+  // Batch the flood concurrently for the same reason as the WSS flood below:
+  // sequential fetches can drift past the 10-second rate-limit window under
+  // runner scheduling jitter, letting the edge counter reset before the
+  // ceiling is reached.
   const httpCodes = [];
-  for (let index = 0; index < 70; index += 1) httpCodes.push(await httpsStatus(installations[0].hostname));
+  const HTTP_BATCH = 10;
+  for (let index = 0; index < 70; index += HTTP_BATCH) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(HTTP_BATCH, 70 - index) }, () => httpsStatus(installations[0].hostname)),
+    );
+    httpCodes.push(...batch);
+  }
   assert(httpCodes.slice(0, 10).includes(200));
   assert(httpCodes.includes(429));
   assert.notEqual(await httpsStatus("illuminary.studio"), 429);
