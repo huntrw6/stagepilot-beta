@@ -207,8 +207,20 @@ try {
   report.unrelatedZoneHostUnaffected = true;
 
   await wait(11_000);
+  // Each WSS probe opens a brand-new TLS handshake, unlike the HTTPS flood's
+  // reused keep-alive connections. Issuing them sequentially can take longer
+  // than the 10-second rate-limit window, letting the edge counter reset
+  // before the limit is ever hit. Fire them concurrently in small batches so
+  // the whole flood lands inside one window, the same way a real abusive
+  // client's rapid reconnects would.
   const websocketCodes = [];
-  for (let index = 0; index < 70; index += 1) websocketCodes.push(await wssStatus(installations[0].hostname));
+  const WSS_BATCH = 10;
+  for (let index = 0; index < 70; index += WSS_BATCH) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(WSS_BATCH, 70 - index) }, () => wssStatus(installations[0].hostname)),
+    );
+    websocketCodes.push(...batch);
+  }
   assert(websocketCodes.slice(0, 10).includes(101));
   assert(websocketCodes.includes(429));
   report.wssUpgradesCountedAndBlocked = true;
