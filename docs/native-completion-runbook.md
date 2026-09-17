@@ -61,17 +61,28 @@ rather than trusting this table alone.
 | P13 | Zero Cloudflare residue: no `sp-<id>.<suffix>` DNS record and no `stagepilot-<id>-<generation>` tunnel survives an acceptance run | `sweep-control-plane-residue.yml` (report mode) |
 | P14 | Release-1 dry run at `main`/`8ce2da9`: `validate_versions.mjs v1.1.103-beta.2`, `audit_beta_release.mjs source` (428 tracked files, zero leaks), `npm --prefix desktop run release:test` (15/15) pass without tagging or publishing | manual local run on this host, see "Release 1 dry run" below |
 | P15 | Live enrollment/guardrail acceptance against the deployed Worker: transparent enrollment, idempotent nonce replay, isolated machine credentials, per-installation status quota with `retry-after`, two-tunnel HTTPS isolation, edge HTTPS/WSS abuse limits actually tripped and an unrelated zone host unaffected, zero disposable residue after cleanup | `prepare-control-plane-live-acceptance.yml` run [`35176046446`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35176046446) on `stagepilot-ci`, commit `4dadbaa`. The developer-network enrollment exemption (`ENROLLMENT_EXEMPT_SOURCES`, see `docs/private-beta-enrollment-and-guardrails.md`) is what removed the 3-per-24h enrollment-source quota as a scheduling constraint on `stagepilot-ci`'s own address. |
+| P16 | Native compile/build proof on GitHub-hosted runners, repo now public: Windows x64 unsigned CI installer builds clean (the previously failing "Run packaged Remote lifecycle on Windows" pytest step now passes — the failure was specific to the retired self-hosted Windows setup, not a code defect) and macOS Apple Silicon + macOS Intel Cargo fmt/check/test lifecycle checks pass | `ci.yml` jobs `desktop`, `desktop-macos-lifecycle` on `main`/`3deba13`, run [`35195305370`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35195305370): `Desktop installer — Windows x64` on `windows-latest` success, `Desktop lifecycle — macOS Apple Silicon` on `macos-15` success, `Desktop lifecycle — macOS Intel` on `macos-15-intel` success; artifact `stagepilot-windows-installer` (54,340,679 bytes) uploaded |
 
 ## DEFERRED — not proven, required for release 1, with the exact evidence still required
 
-Never describe any of these as validated. D1–D2 are cleared by a green CI run
-on GitHub-hosted runners (see below); D3–D8 remain in scope for the beta but
-need genuine physical hardware and cannot be proven by CI.
+Never describe any of these as validated. D1 and D2 are narrowed by P16
+above (unsigned Windows build and macOS compile/lifecycle checks are now
+proven green on hosted runners) but not fully cleared: `ci.yml:desktop`
+builds with `tauri.ci.conf.json`, which sets `createUpdaterArtifacts: false`
+and produces an **unsigned** installer, and `ci.yml:desktop-macos-lifecycle`
+only compiles and runs Cargo tests — it does not invoke `tauri build` to
+produce a `.dmg`/`.app.tar.gz`. Real signed artifacts only come from
+`release-macos.yml:build` and `release-windows.yml:build`, both gated behind
+an existing release tag (`validate` job verifies `HEAD` matches
+`refs/tags/$RELEASE_TAG`) — creating that tag and publishing the release is
+explicitly Milestone C's job (card `t_1807ef4f`), not this card's, so this
+card does not run them. D3–D8 remain in scope for the beta but need genuine
+physical hardware and cannot be proven by CI.
 
 | # | Item | Blocked by | Evidence required to clear it |
 |---|---|---|---|
-| D1 | Windows x64 installer builds and is signed | Not yet run this session | `ci.yml:desktop` green with a real `*-setup.exe` and `.sig` artifact |
-| D2 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build and verify | Not yet run this session | `release-macos.yml:build` green; `scripts/verify_macos_release_bundle.sh` passes `--app`, `--dmg`, `--archive` |
+| D1 | Windows x64 installer builds **signed** | Release tag required by `release-windows.yml`/`release-macos.yml:validate`; tagging is Milestone C's job | `release-windows.yml:build` or `release-macos.yml:build` (Windows leg) green at a real tag, with a `.sig`-bearing `*-setup.exe` |
+| D2 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build, sign, and verify | Release tag required by `release-macos.yml:validate`; tagging is Milestone C's job | `release-macos.yml:build` (macOS legs) green at a real tag; `scripts/verify_macos_release_bundle.sh` passes `--app`, `--dmg`, `--archive` |
 | D3 | Fresh-machine install on each platform | native hardware | `beta_release_acceptance.py installer` + `check --name local_health` receipts |
 | D4 | No-auth transparent enrollment from an installed build | native hardware | `check --name transparent_enrollment` and `first_operator` receipts |
 | D5 | Viewer/Operator HTTPS + WSS policy from an installed build | native hardware | `check --name https_wss_roles` receipt |
