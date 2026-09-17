@@ -193,7 +193,7 @@ jobs:
           } > release-assets/release-notes.md
       - name: Generate and validate latest.json
         env:
-          BETA_DOWNLOAD_BASE: https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases
+          BETA_DOWNLOAD_BASE: https://github.com/tage-ilot/stagepilot-beta/releases/download
         run: |
           node scripts/generate_updater_manifest.mjs release-assets "$RELEASE_TAG" "$BETA_DOWNLOAD_BASE"
           node scripts/validate_updater_manifest.mjs release-assets/latest.json release-assets "$BETA_DOWNLOAD_BASE"
