@@ -13,15 +13,19 @@ not require Apple Developer ID or notarization. See
 ## Private beta channel
 
 The beta ships from `huntrw6/stagepilot-beta` only; never tag, push, or release
-`huntrw6/stagepilot` for a beta. Five earlier attempts already burned immutable
-tags — `v1.1.103-beta.1` (bootstrap failure), `v1.1.103-beta.2` (failed on a
-cross-platform mypy defect and an unusable signing key), `v1.1.103-beta.3`
-(failed because `backend/uv.lock` carried a stale project version, so every
-`uv sync --locked` step aborted), `v1.1.103-beta.4` (failed on five
-Windows-only backend test failures) and `v1.1.103-beta.5` (signed builds all
-passed; publication failed because the self-hosted runner has no `gh` CLI) — so
-release 1 is
-`v1.1.103-beta.6`. Follow
+`huntrw6/stagepilot` for a beta.
+
+**Release 1 is published: `v1.1.103-beta.6`** —
+https://github.com/huntrw6/stagepilot-beta/releases/tag/v1.1.103-beta.6 at
+commit `e7af35a7c2e9e0bd53cec90eacb77c0511699058`. The next available version is
+`v1.1.103-beta.7`.
+
+Five earlier attempts burned immutable tags and are left in place, unmoved:
+`v1.1.103-beta.1` (bootstrap failure), `v1.1.103-beta.2` (cross-platform mypy
+defect and an unusable signing key), `v1.1.103-beta.3` (stale `backend/uv.lock`
+aborted every `uv sync --locked`), `v1.1.103-beta.4` (five Windows-only backend
+test failures) and `v1.1.103-beta.5` (all signed builds passed; publication
+failed because the self-hosted runner has no `gh` CLI). Follow
 [the private beta release and acceptance plan](private-beta-release-and-acceptance.md)
 and the authoritative
 [native completion runbook](native-completion-runbook.md).

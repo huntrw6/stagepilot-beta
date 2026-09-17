@@ -109,15 +109,52 @@ Each release staging directory must contain exactly:
 
 Run `node scripts/audit_beta_release.mjs source` before release and `node scripts/audit_beta_release.mjs assets RELEASE_ASSETS VERSION` after building. Preserve the JSON output as the asset-size/SHA-256 inventory. Standalone `.sig` files are staging inputs and remain omitted from user-facing GitHub assets because their contents are embedded in `latest.json`.
 
+## Release 1 — shipped
+
+**`v1.1.103-beta.6` is published.**
+
+| | |
+|---|---|
+| Release URL | https://github.com/huntrw6/stagepilot-beta/releases/tag/v1.1.103-beta.6 |
+| Release ID | `390773788` |
+| Tag commit | `e7af35a7c2e9e0bd53cec90eacb77c0511699058` |
+| Published | 2026-09-17T14:09:10Z |
+| Build/publish run | https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636 |
+| Exact-head CI | https://github.com/huntrw6/stagepilot-beta/actions/runs/35227555657 (8/8 green) |
+| Updater key id | `9DAF99548D6D7D77` |
+
+Published asset inventory, SHA-256 (standalone `.sig` files are intentionally
+absent; their contents are embedded in `latest.json`):
+
+| Asset | Bytes | SHA-256 |
+|---|---|---|
+| `StagePilot_1.1.103-beta.6_x64-setup.exe` | 54,334,610 | `49253fe72f5180a5ddf4072c3dc7396ee04c3ec3f4a42ea4d5a0e6f574a92fc1` |
+| `StagePilot_1.1.103-beta.6_aarch64.dmg` | 61,582,282 | `6ada3997ccafce0e16e3379747767363fc16a8679dc5801fd8b79355a4faadba` |
+| `StagePilot_1.1.103-beta.6_x64.dmg` | 64,718,555 | `b7ce0ecaf75ceb0fed302a9dcf87a740dac13a3300417d3f6e76dac17d83643a` |
+| `StagePilot_1.1.103-beta.6_aarch64.app.tar.gz` | 61,504,698 | `855926c9aa08cb1aea6931defe13966aed76f497fe0964dde1e73b07db45e949` |
+| `StagePilot_1.1.103-beta.6_x64.app.tar.gz` | 64,527,503 | `c760790e2e92fd2ce84b187d2b41f1b5953e02bafeb577b669c773fb4c9412e3` |
+| `latest.json` | 3,623 | `9d05519d8e5346cba38b1b543ca4f0f57d20fcdd5541a01cc963d8b941585dad` |
+
+Verified after publication by unauthenticated download (no token, exactly as a
+tester or an installed client would fetch): every asset returned HTTP 200, and
+each of the three updater signatures in `latest.json` verifies against the
+public key embedded in `desktop/src-tauri/tauri.conf.json`, while a tampered
+artifact is rejected. `huntrw6/stagepilot` was confirmed unchanged at
+`f58f91ee320e13d956ff97473e83df4c23199653`, still on v1.1.102.
+
 ## Friend download instructions
 
 While `huntrw6/stagepilot-beta` is public, a tester needs no invitation and no
 GitHub account: send them the exact immutable release URL and tell them to
 download only the installer matching their platform.
 
-- Windows x64: `StagePilot_VERSION_x64-setup.exe`
-- macOS Apple Silicon: `StagePilot_VERSION_aarch64.dmg`
-- macOS Intel: `StagePilot_VERSION_x64.dmg`
+- Windows x64: `StagePilot_1.1.103-beta.6_x64-setup.exe`
+- macOS Apple Silicon: `StagePilot_1.1.103-beta.6_aarch64.dmg`
+- macOS Intel: `StagePilot_1.1.103-beta.6_x64.dmg`
+
+The `.app.tar.gz` archives are updater payloads, not downloads — testers should
+ignore them. In-app update is off for this beta, so a newer build is delivered
+as a new release and a fresh installer download.
 
 If the repository is made private again, first invite each tester with read
 access; the same release URL then requires them to sign in to GitHub.

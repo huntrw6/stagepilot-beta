@@ -308,7 +308,21 @@ gh variable get BETA_RELEASE_VERSIONS --repo huntrw6/stagepilot-beta --env stage
 
 `BETA_RELEASE_VERSIONS` must include `1.1.103-beta.6`.
 
-## Step 3 — Release 1: `v1.1.103-beta.6`
+## Step 3 — Release 1: `v1.1.103-beta.6` — DONE
+
+**Completed 2026-09-17.** Release 1 is published at
+https://github.com/huntrw6/stagepilot-beta/releases/tag/v1.1.103-beta.6
+(release id `390773788`) from commit
+`e7af35a7c2e9e0bd53cec90eacb77c0511699058`, built and signed in run
+https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636 after
+exact-head CI run
+https://github.com/huntrw6/stagepilot-beta/actions/runs/35227555657 passed all
+eight jobs. The published inventory, SHA-256 hashes and post-publication
+signature verification are recorded in
+[`private-beta-release-and-acceptance.md`](private-beta-release-and-acceptance.md).
+The next available version is `v1.1.103-beta.7`.
+
+The procedure below is retained for the next release.
 
 Set every application version to `1.1.103-beta.6`, then:
 
