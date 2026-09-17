@@ -267,7 +267,7 @@ class PlanningCenterSettings(BaseModel):
     upcoming_lookahead_days: int = Field(default=30, ge=0, le=365)
     request_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     user_agent: str = Field(
-        default="StagePilot/1.1.103-beta.6 (https://github.com/huntrw6/stagepilot)",
+        default="StagePilot/1.1.103-beta.6 (https://github.com/tage-ilot/stagepilot-beta)",
         min_length=1,
         max_length=256,
     )

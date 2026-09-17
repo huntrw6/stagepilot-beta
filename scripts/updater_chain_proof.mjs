@@ -13,7 +13,7 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const BROKER = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases";
-const MAIN = "https://github.com/huntrw6/stagepilot/releases/download";
+const MAIN = "https://github.com/tage-ilot/stagepilot/releases/download";
 
 const generate = (directory, tag, base) => execFileSync(process.execPath, [
   path.join(root, "scripts/generate_updater_manifest.mjs"), directory, tag, base,

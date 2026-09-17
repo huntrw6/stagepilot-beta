@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [assetsDirectory, tag, downloadBase = "https://github.com/huntrw6/stagepilot/releases/download"] = process.argv.slice(2);
+const [assetsDirectory, tag, downloadBase = "https://github.com/tage-ilot/stagepilot/releases/download"] = process.argv.slice(2);
 if (!assetsDirectory || !tag) throw new Error("Usage: node scripts/generate_updater_manifest.mjs ASSETS_DIR vVERSION [DOWNLOAD_BASE_URL]");
 const version = tag.replace(/^v/, "");
 if (`v${version}` !== tag) throw new Error(`Invalid release tag: ${tag}`);

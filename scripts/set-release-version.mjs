@@ -83,8 +83,8 @@ const replacements = [
   ["backend/src/stagepilot/__init__.py", /^__version__ = "[^"]+"/m, `__version__ = "${version}"`],
   [
     "backend/src/stagepilot/core/config.py",
-    /default="StagePilot\/[^ ]+ \(https:\/\/github\.com\/huntrw6\/stagepilot\)"/,
-    `default="StagePilot/${version} (https://github.com/huntrw6/stagepilot)"`,
+    /default="StagePilot\/[^ ]+ \(https:\/\/github\.com\/tage-ilot\/stagepilot-beta\)"/,
+    `default="StagePilot/${version} (https://github.com/tage-ilot/stagepilot-beta)"`,
   ],
   [
     "backend/src/stagepilot/core/config.py",
@@ -113,7 +113,7 @@ for (const [file, pattern, replacement] of replacements) {
 }
 
 // README's download section advertises the STABLE channel from
-// github.com/huntrw6/stagepilot. A pre-release ships through the private beta
+// github.com/tage-ilot/stagepilot. A pre-release ships through the private beta
 // channel instead, so rewriting these links would publish URLs to a main-repo
 // tag that does not exist. Only stable versions update the download section.
 const isPreRelease = version.includes("-");
@@ -128,7 +128,7 @@ if (isPreRelease) {
     "README.md",
   );
   readme = readme.replace(
-    /https:\/\/github\.com\/huntrw6\/stagepilot\/releases\/(?:tag|download)\/v\d+\.\d+\.\d+/g,
+    /https:\/\/github\.com\/tage-ilot\/stagepilot\/releases\/(?:tag|download)\/v\d+\.\d+\.\d+/g,
     (url) => url.replace(/v\d+\.\d+\.\d+$/, `v${version}`),
   );
   readme = readme.replace(

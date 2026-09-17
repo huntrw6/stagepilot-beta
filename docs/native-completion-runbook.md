@@ -24,7 +24,7 @@ for the guardrail thresholds.
 | `macos-15` | GitHub-hosted | Available — public repo, unlimited free minutes on standard runners |
 | `macos-15-intel` | GitHub-hosted | Available — public repo, unlimited free minutes on standard runners |
 
-`huntrw6/stagepilot-beta` is **temporarily public** so that GitHub-hosted
+`tage-ilot/stagepilot-beta` is **temporarily public** so that GitHub-hosted
 Windows/macOS Actions minutes are free and unlimited on standard runners.
 This is what unblocks the native path below without spending any paid
 allowance. The repository will be made private again later once the native
@@ -60,17 +60,17 @@ rather than trusting this table alone.
 | P12 | Control-plane enrollment, isolation, quota, provider-lane, and fail-closed behaviour at unit level | `ci.yml:updater-chain` → `npm --prefix control-plane test` |
 | P13 | Zero Cloudflare residue: no `sp-<id>.<suffix>` DNS record and no `stagepilot-<id>-<generation>` tunnel survives an acceptance run | `sweep-control-plane-residue.yml` (report mode) |
 | P14 | Release-1 dry run at `main`/`8ce2da9`: `validate_versions.mjs v1.1.103-beta.2`, `audit_beta_release.mjs source` (428 tracked files, zero leaks), `npm --prefix desktop run release:test` (15/15) pass without tagging or publishing | manual local run on this host, see "Release 1 dry run" below |
-| P15 | Live enrollment/guardrail acceptance against the deployed Worker: transparent enrollment, idempotent nonce replay, isolated machine credentials, per-installation status quota with `retry-after`, two-tunnel HTTPS isolation, edge HTTPS/WSS abuse limits actually tripped and an unrelated zone host unaffected, zero disposable residue after cleanup | `prepare-control-plane-live-acceptance.yml` run [`35176046446`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35176046446) on `stagepilot-ci`, commit `4dadbaa`. The developer-network enrollment exemption (`ENROLLMENT_EXEMPT_SOURCES`, see `docs/private-beta-enrollment-and-guardrails.md`) is what removed the 3-per-24h enrollment-source quota as a scheduling constraint on `stagepilot-ci`'s own address. |
-| P16 | Native compile/build proof on GitHub-hosted runners, repo now public: Windows x64 unsigned CI installer builds clean (the previously failing "Run packaged Remote lifecycle on Windows" pytest step now passes — the failure was specific to the retired self-hosted Windows setup, not a code defect) and macOS Apple Silicon + macOS Intel Cargo fmt/check/test lifecycle checks pass | `ci.yml` jobs `desktop`, `desktop-macos-lifecycle` on `main`/`3deba13`, run [`35195305370`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35195305370): `Desktop installer — Windows x64` on `windows-latest` success, `Desktop lifecycle — macOS Apple Silicon` on `macos-15` success, `Desktop lifecycle — macOS Intel` on `macos-15-intel` success; artifact `stagepilot-windows-installer` (54,340,679 bytes) uploaded |
-| P17 | Windows x64 installer builds and publishes **signed** (release 1, real tag) | `release-macos.yml:build` (Windows leg, `runs-on: windows-latest`) and `release-macos.yml:publish` (`runs-on: [self-hosted, stagepilot-linux]`) green at tag `v1.1.103-beta.6`, release run [`35229334636`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636); published asset `StagePilot_1.1.103-beta.6_x64-setup.exe` plus signed `latest.json` entry |
-| P18 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build, sign, and publish (release 1, real tag) | `release-macos.yml:build` macOS legs (`macos-15` for Apple Silicon, `macos-15-intel` for Intel) and `release-macos.yml:publish` (`runs-on: [self-hosted, stagepilot-linux]`) green at tag `v1.1.103-beta.6`, release run [`35229334636`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636); published assets `StagePilot_1.1.103-beta.6_aarch64.dmg`, `StagePilot_1.1.103-beta.6_aarch64.app.tar.gz`, `StagePilot_1.1.103-beta.6_x64.dmg`, `StagePilot_1.1.103-beta.6_x64.app.tar.gz` plus signed `latest.json` entries |
+| P15 | Live enrollment/guardrail acceptance against the deployed Worker: transparent enrollment, idempotent nonce replay, isolated machine credentials, per-installation status quota with `retry-after`, two-tunnel HTTPS isolation, edge HTTPS/WSS abuse limits actually tripped and an unrelated zone host unaffected, zero disposable residue after cleanup | `prepare-control-plane-live-acceptance.yml` run [`35176046446`](https://github.com/tage-ilot/stagepilot-beta/actions/runs/35176046446) on `stagepilot-ci`, commit `4dadbaa`. The developer-network enrollment exemption (`ENROLLMENT_EXEMPT_SOURCES`, see `docs/private-beta-enrollment-and-guardrails.md`) is what removed the 3-per-24h enrollment-source quota as a scheduling constraint on `stagepilot-ci`'s own address. |
+| P16 | Native compile/build proof on GitHub-hosted runners, repo now public: Windows x64 unsigned CI installer builds clean (the previously failing "Run packaged Remote lifecycle on Windows" pytest step now passes — the failure was specific to the retired self-hosted Windows setup, not a code defect) and macOS Apple Silicon + macOS Intel Cargo fmt/check/test lifecycle checks pass | `ci.yml` jobs `desktop`, `desktop-macos-lifecycle` on `main`/`3deba13`, run [`35195305370`](https://github.com/tage-ilot/stagepilot-beta/actions/runs/35195305370): `Desktop installer — Windows x64` on `windows-latest` success, `Desktop lifecycle — macOS Apple Silicon` on `macos-15` success, `Desktop lifecycle — macOS Intel` on `macos-15-intel` success; artifact `stagepilot-windows-installer` (54,340,679 bytes) uploaded |
+| P17 | Windows x64 installer builds and publishes **signed** (release 1, real tag) | `release-macos.yml:build` (Windows leg, `runs-on: windows-latest`) and `release-macos.yml:publish` (`runs-on: [self-hosted, stagepilot-linux]`) green at tag `v1.1.103-beta.6`, release run [`35229334636`](https://github.com/tage-ilot/stagepilot-beta/actions/runs/35229334636); published asset `StagePilot_1.1.103-beta.6_x64-setup.exe` plus signed `latest.json` entry |
+| P18 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build, sign, and publish (release 1, real tag) | `release-macos.yml:build` macOS legs (`macos-15` for Apple Silicon, `macos-15-intel` for Intel) and `release-macos.yml:publish` (`runs-on: [self-hosted, stagepilot-linux]`) green at tag `v1.1.103-beta.6`, release run [`35229334636`](https://github.com/tage-ilot/stagepilot-beta/actions/runs/35229334636); published assets `StagePilot_1.1.103-beta.6_aarch64.dmg`, `StagePilot_1.1.103-beta.6_aarch64.app.tar.gz`, `StagePilot_1.1.103-beta.6_x64.dmg`, `StagePilot_1.1.103-beta.6_x64.app.tar.gz` plus signed `latest.json` entries |
 
 ## DEFERRED — not proven, required for release 1, with the exact evidence still required
 
 Never describe any of these as validated. D1 and D2 (real signed Windows
 installer and signed macOS bundles) were cleared by release 1: see P17 and
 P18 above, both proven at tag `v1.1.103-beta.6`, release run
-[`35229334636`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636).
+[`35229334636`](https://github.com/tage-ilot/stagepilot-beta/actions/runs/35229334636).
 D3–D8 remain in scope for the beta but need genuine physical hardware and
 cannot be proven by CI.
 
@@ -112,7 +112,7 @@ If this network's ISP-assigned addresses change, refresh the exemption:
 read `https://cloudflare.com/cdn-cgi/trace` and
 `curl -4 https://cloudflare.com/cdn-cgi/trace`, normalize the IPv6 address
 to its `/64`, then `gh variable set ENROLLMENT_EXEMPT_SOURCES --repo
-huntrw6/stagepilot-beta --env stagepilot-control-plane` with the updated
+tage-ilot/stagepilot-beta --env stagepilot-control-plane` with the updated
 comma-separated list, and redeploy via `deploy-control-plane.yml`.
 
 ## Recovering a stranded disposable installation
@@ -127,21 +127,21 @@ exact IDs.
 
    ```sh
    gh workflow run revoke-control-plane-live-installation.yml \
-     --repo huntrw6/stagepilot-beta --ref main -f installation=<32-hex-id>
+     --repo tage-ilot/stagepilot-beta --ref main -f installation=<32-hex-id>
    ```
 
 2. Confirm no provider residue remains (this is the residue that costs money,
    holds DNS, or stays reachable):
 
    ```sh
-   gh workflow run sweep-control-plane-residue.yml --repo huntrw6/stagepilot-beta \
+   gh workflow run sweep-control-plane-residue.yml --repo tage-ilot/stagepilot-beta \
      --ref main -f apply=report
    ```
 
 3. Only if the report lists disposable objects, delete them:
 
    ```sh
-   gh workflow run sweep-control-plane-residue.yml --repo huntrw6/stagepilot-beta \
+   gh workflow run sweep-control-plane-residue.yml --repo tage-ilot/stagepilot-beta \
      --ref main -f apply=apply
    ```
 
@@ -278,7 +278,7 @@ git push beta HEAD:refs/heads/main
 ## Step 2 — Confirm the release-1 signing secrets exist
 
 ```sh
-gh secret list --repo huntrw6/stagepilot-beta
+gh secret list --repo tage-ilot/stagepilot-beta
 ```
 
 Required for release 1, and never printed:
@@ -296,7 +296,7 @@ release 1 on it.
 Verify the release allowlist variable before tagging:
 
 ```sh
-gh variable get BETA_RELEASE_VERSIONS --repo huntrw6/stagepilot-beta --env stagepilot-control-plane
+gh variable get BETA_RELEASE_VERSIONS --repo tage-ilot/stagepilot-beta --env stagepilot-control-plane
 ```
 
 `BETA_RELEASE_VERSIONS` must include `1.1.103-beta.6`.
@@ -304,12 +304,12 @@ gh variable get BETA_RELEASE_VERSIONS --repo huntrw6/stagepilot-beta --env stage
 ## Step 3 — Release 1: `v1.1.103-beta.6` — DONE
 
 **Completed 2026-09-17.** Release 1 is published at
-https://github.com/huntrw6/stagepilot-beta/releases/tag/v1.1.103-beta.6
+https://github.com/tage-ilot/stagepilot-beta/releases/tag/v1.1.103-beta.6
 (release id `390773788`) from commit
 `e7af35a7c2e9e0bd53cec90eacb77c0511699058`, built and signed in run
-https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636 after
+https://github.com/tage-ilot/stagepilot-beta/actions/runs/35229334636 after
 exact-head CI run
-https://github.com/huntrw6/stagepilot-beta/actions/runs/35227555657 passed all
+https://github.com/tage-ilot/stagepilot-beta/actions/runs/35227555657 passed all
 eight jobs. The published inventory, SHA-256 hashes and post-publication
 signature verification are recorded in
 [`private-beta-release-and-acceptance.md`](private-beta-release-and-acceptance.md).
@@ -354,7 +354,7 @@ git push beta v1.1.103-beta.6
 The tag push triggers `release-macos.yml`. Watch it:
 
 ```sh
-gh run watch "$(gh run list --repo huntrw6/stagepilot-beta \
+gh run watch "$(gh run list --repo tage-ilot/stagepilot-beta \
   --workflow release-macos.yml --limit 1 --json databaseId -q '.[0].databaseId')"
 ```
 
@@ -371,7 +371,7 @@ inputs and are deliberately **not** published):
 Read back:
 
 ```sh
-gh release view v1.1.103-beta.6 --repo huntrw6/stagepilot-beta \
+gh release view v1.1.103-beta.6 --repo tage-ilot/stagepilot-beta \
   --json tagName,isDraft,assets -q '{tag:.tagName,draft:.isDraft,assets:[.assets[].name]}'
 ```
 
@@ -421,7 +421,7 @@ broker variable to repoint or redeploy:
 - Keep the bad tag and release immutable. Never delete, move, or reuse a
   version.
 - Unpublish the bad Release (`gh release edit v1.1.103-beta.6 --repo
-  huntrw6/stagepilot-beta --draft` marks it a draft, hiding it from the
+  tage-ilot/stagepilot-beta --draft` marks it a draft, hiding it from the
   Releases page for download while preserving the tag and assets for audit).
 - Fix the problem, bump to the next version, and publish a new release
   following Steps 3–4 again. Point any download instructions at the new tag.

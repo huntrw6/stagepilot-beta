@@ -468,7 +468,7 @@ describe('private-beta control plane', () => {
           draft: false,
           assets: [{
             name: 'latest.json',
-            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/101',
+            url: 'https://api.github.com/repos/tage-ilot/stagepilot-beta/releases/assets/101',
             size: manifest.length,
             state: 'uploaded',
             content_type: 'application/json',
@@ -502,9 +502,9 @@ describe('private-beta control plane', () => {
       version: '1.1.103-beta.1',
       pub_date: '2026-09-15T00:00:00Z',
       platforms: {
-        'darwin-aarch64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/a', signature: 'a' },
-        'darwin-x86_64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/b', signature: 'b' },
-        'windows-x86_64': { url: 'https://github.com/huntrw6/stagepilot/releases/download/v1.1.103/c', signature: 'c' },
+        'darwin-aarch64': { url: 'https://github.com/tage-ilot/stagepilot/releases/download/v1.1.103/a', signature: 'a' },
+        'darwin-x86_64': { url: 'https://github.com/tage-ilot/stagepilot/releases/download/v1.1.103/b', signature: 'b' },
+        'windows-x86_64': { url: 'https://github.com/tage-ilot/stagepilot/releases/download/v1.1.103/c', signature: 'c' },
       },
     });
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
@@ -515,7 +515,7 @@ describe('private-beta control plane', () => {
           draft: false,
           assets: [{
             name: 'latest.json',
-            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/103',
+            url: 'https://api.github.com/repos/tage-ilot/stagepilot-beta/releases/assets/103',
             size: manifest.length,
             state: 'uploaded',
           }],
@@ -538,7 +538,7 @@ describe('private-beta control plane', () => {
           draft: false,
           assets: [{
             name: filename,
-            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/104',
+            url: 'https://api.github.com/repos/tage-ilot/stagepilot-beta/releases/assets/104',
             size: 1,
             state: 'uploaded',
           }],
@@ -583,7 +583,7 @@ describe('private-beta control plane', () => {
           draft: false,
           assets: [{
             name: 'latest.json',
-            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/105',
+            url: 'https://api.github.com/repos/tage-ilot/stagepilot-beta/releases/assets/105',
             size: manifest.length,
             state: 'uploaded',
           }],
@@ -619,7 +619,7 @@ describe('private-beta control plane', () => {
           draft: false,
           assets: [{
             name: filename,
-            url: 'https://api.github.com/repos/huntrw6/stagepilot-beta/releases/assets/102',
+            url: 'https://api.github.com/repos/tage-ilot/stagepilot-beta/releases/assets/102',
             size: 1,
             state: 'uploaded',
           }],

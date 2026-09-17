@@ -31,7 +31,7 @@ test("Tauri updater configuration isolates main and beta release channels", () =
     "Tauri's trailing /** pattern matches directories rather than resource files",
   );
   assert.deepEqual(config.plugins.updater.endpoints, [
-    "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json",
+    "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json",
   ]);
   const betaEndpoint = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
   assert.deepEqual(windowsConfig.plugins.updater.endpoints, [betaEndpoint]);
@@ -202,7 +202,7 @@ test("release automation suggests the next published patch and confirms with YES
   const releaseScript = read("scripts/create-release.ps1");
   assert.match(
     releaseScript,
-    /gh api repos\/huntrw6\/stagepilot\/tags --paginate --jq '\.\[\]\.name'/,
+    /gh api repos\/tage-ilot\/stagepilot\/tags --paginate --jq '\.\[\]\.name'/,
   );
   assert.match(releaseScript, /Sort-Object -Property Version -Descending/);
   assert.match(
