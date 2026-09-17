@@ -51,10 +51,11 @@ rather than trusting this table alone.
 | P12 | Control-plane enrollment, isolation, quota, provider-lane, and fail-closed behaviour at unit level | `ci.yml:updater-chain` → `npm --prefix control-plane test` |
 | P13 | Zero Cloudflare residue: no `sp-<id>.<suffix>` DNS record and no `stagepilot-<id>-<generation>` tunnel survives an acceptance run | `sweep-control-plane-residue.yml` (report mode) |
 | P14 | Release-1 dry run at `main`/`8ce2da9`: `validate_versions.mjs v1.1.103-beta.2`, `audit_beta_release.mjs source` (428 tracked files, zero leaks), `npm --prefix desktop run release:test` (15/15) pass without tagging or publishing | manual local run on this host, see "Release 1 dry run" below |
+| P15 | Live enrollment/guardrail acceptance against the deployed Worker: transparent enrollment, idempotent nonce replay, isolated machine credentials, per-installation status quota with `retry-after`, two-tunnel HTTPS isolation, edge HTTPS/WSS abuse limits actually tripped and an unrelated zone host unaffected, zero disposable residue after cleanup | `prepare-control-plane-live-acceptance.yml` run [`35176046446`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35176046446) on `stagepilot-ci`, commit `4dadbaa`. The developer-network enrollment exemption (`ENROLLMENT_EXEMPT_SOURCES`, see `docs/private-beta-enrollment-and-guardrails.md`) is what removed the 3-per-24h enrollment-source quota as a scheduling constraint on `stagepilot-ci`'s own address. |
 
 ## DEFERRED — not proven, required for release 1, with the exact evidence still required
 
-Never describe any of these as validated. All nine remain in scope for the
+Never describe any of these as validated. All eight remain in scope for the
 beta release-1 native path (see the runbook below): registering the native
 runners clears the blocking condition for every row here.
 
@@ -68,71 +69,38 @@ runners clears the blocking condition for every row here.
 | D6 | App/connector restart and real machine reboot recovery | native hardware | `check --name restart_recovery`, `reboot_recovery` receipts |
 | D7 | Disable, re-enable with a new generation, exact provider cleanup | native hardware | `check --name disable_reenable_provider_cleanup` receipt |
 | D8 | Gatekeeper / SmartScreen behaviour on unsigned-publisher builds | native hardware | Recorded operator observation per platform |
-| D9 | Live enrollment/guardrail acceptance against the deployed Worker | enrollment source quota (below); window observed exhausted 2026-09-16, reopens ~2026-09-17 16:40Z at the latest | `prepare-control-plane-live-acceptance.yml` green with a full `report` object and `CLEANUP_RECEIPTS` showing every installation revoked |
 
-### D9 operational note — enrollment source quota
+### Developer-network enrollment exemption (cleared the former D9 scheduling constraint)
 
-The live acceptance run is itself subject to the production guardrail it
-verifies: **3 new installations per canonical source IPv4/IPv6-/64 per 24
-hours** (`ENROLLMENTS_PER_SOURCE`). Each full run consumes 2. The self-hosted
-runner presents a single source address, so **at most one full acceptance run
-per 24 hours is possible from `stagepilot-ci`**, and a failed run that already
-enrolled still consumes quota.
+Live acceptance runs enroll installations and are subject to the same
+production guardrail they verify: **3 new installations per canonical
+source IPv4/IPv6-/64 per 24 hours** (`ENROLLMENTS_PER_SOURCE`). Because
+`stagepilot-ci` always presents the same one or two developer-network
+source addresses, this used to allow at most one full acceptance run per
+24 hours and repeatedly stalled iteration on this runbook (see run
+`35122372776`, 2026-09-16, exhausted at `enrollments=12`,
+`enrollmentDenied` rising).
 
-Once the window is exhausted, enrollment correctly returns `429` and the run
-fails at its first assertion. That is the guardrail working, not a regression.
-Either wait out the 24-hour window or run the acceptance from a different
-source address. Do not raise `ENROLLMENTS_PER_SOURCE` to make a test pass.
+That scheduling constraint is now removed by an explicit, narrowly scoped
+exemption rather than by weakening the guardrail: the optional Worker
+variable `ENROLLMENT_EXEMPT_SOURCES` (see
+`docs/private-beta-enrollment-and-guardrails.md` for the full mechanism,
+security properties, and refresh procedure) lists this development
+network's normalized IPv4 and IPv6-/64 sources. An exempt source skips
+only the per-source enrollment quota; `ENROLLMENT_ENABLED`, the global
+`BETA_INSTALLATION_LIMIT`, `MAX_SOURCE_QUOTAS` pressure, nonce idempotency,
+and every downstream status/mutation/provider quota still apply in full,
+and exempt enrollments still count toward `enrollments`/`activeInstallations`
+so capacity stays observable. `ENROLLMENTS_PER_SOURCE` itself was not
+changed. This must never list a beta user's address — only trusted
+developer networks.
 
-Check the remaining budget before dispatching:
-
-```sh
-gh workflow run sweep-control-plane-residue.yml --repo huntrw6/stagepilot-beta \
-  --ref main -f apply=report
-```
-
-The workflow's **Read enrollment budget counters** step prints the
-aggregate-only admin metrics. Reading them consumes no quota. A rising
-`enrollmentDenied` counter with a flat `enrollments` counter means the window
-is exhausted.
-
-#### Observed exhaustion, 2026-09-16
-
-Four acceptance attempts ran between 16:06Z and 16:31Z, and the counters read
-back by run `35122372776` pin the state exactly:
-
-| Reading | `enrollments` | `enrollmentDenied` | `activeInstallations` |
-|---|---|---|---|
-| Baseline, 16:31:03Z | 12 | 2 | 2 |
-| After the run, 16:31:16Z | 12 | 5 | 2 |
-
-`enrollments` did not move while `enrollmentDenied` rose by exactly 3 — one per
-enrollment attempt in the run (`nonceA`, its replay, `nonceB`). Every attempt
-was refused at the quota gate; none reached installation creation. This is the
-textbook exhausted-window signature, and it is the guardrail working.
-
-Two independent facts confirm the refusal is the quota and not a regression:
-
-- `activeInstallations` held at 2 across the baseline and the post-run reading,
-  so the run created nothing. The 2 are pre-existing, not residue from these
-  attempts.
-- The provider sweep read `disposableHostnames: []` and `disposableTunnels: []`
-  directly from Cloudflare at 16:41Z. Nothing was provisioned, so there is
-  nothing to strand.
-
-The quota window is keyed to each source's first enrollment in the window, not
-to a wall clock the operator controls, and the admin surface is aggregate-only:
-it exposes no per-source counter and no window start. So the exact reopening
-time is **not readable** — it can only be bounded. The 24-hour window covering
-the denials at 16:31Z started no earlier than the first enrollment in that
-window, so the window reopens at roughly **2026-09-17 16:40Z at the latest**,
-and possibly earlier. Do not treat that timestamp as precise. Re-read the
-counters first; dispatch the acceptance run only once `enrollments` can move
-again.
-
-Do not attempt the acceptance run before then. A premature attempt is not free:
-each denied attempt increments `enrollmentDenied` but leaves the window's start
-untouched, so it costs a CI run and buys nothing.
+If this network's ISP-assigned addresses change, refresh the exemption:
+read `https://cloudflare.com/cdn-cgi/trace` and
+`curl -4 https://cloudflare.com/cdn-cgi/trace`, normalize the IPv6 address
+to its `/64`, then `gh variable set ENROLLMENT_EXEMPT_SOURCES --repo
+huntrw6/stagepilot-beta --env stagepilot-control-plane` with the updated
+comma-separated list, and redeploy via `deploy-control-plane.yml`.
 
 ## Recovering a stranded disposable installation
 
