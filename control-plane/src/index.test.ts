@@ -286,7 +286,7 @@ describe('private-beta control plane', () => {
       {
         ...env,
         ENROLLMENT_EXEMPT_SOURCES:
-          '067.049.024.009,2001:db8:1:4:0000:0000:0000:0000/64,2603:8000:8300:1b15::/64',
+          '192.000.002.010,2001:0db8:0001:0004:0000:0000:0000:0000/64,2001:db8:1:5::/64',
       } as never,
     );
     for (const nonce of ['spoof-0001', 'spoof-0002', 'spoof-0003']) {
