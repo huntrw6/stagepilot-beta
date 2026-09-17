@@ -15,7 +15,12 @@ from pathlib import Path
 
 import httpx
 
-from stagepilot.remote_files import DesiredRemote, read_desired, safe_status
+from stagepilot.remote_files import (
+    DesiredRemote,
+    is_group_or_world_readable,
+    read_desired,
+    safe_status,
+)
 
 
 class Connector:
@@ -73,7 +78,11 @@ class Connector:
                 if self.token_provider is not None:
                     token_arguments = ["--token", self.token_provider()]
                 else:
-                    if token.is_symlink() or not token.is_file() or token.stat().st_mode & 0o077:
+                    if (
+                        token.is_symlink()
+                        or not token.is_file()
+                        or is_group_or_world_readable(token)
+                    ):
                         raise OSError("Installation token is missing or not private")
                     token_arguments = ["--token-file", str(token)]
                 # Do not mistake another local service's /ready for our connector.

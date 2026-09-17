@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from stagepilot.remote_control import RemoteControl
-from stagepilot.remote_files import ControlConfig, read_desired
+from stagepilot.remote_files import ControlConfig, is_group_or_world_readable, read_desired
 from stagepilot.remote_provider import CloudflareProvider, ProviderError
 
 
@@ -98,8 +98,11 @@ def test_fresh_enable_retry_disable_reenable_persisted(tmp_path: Path) -> None:
     first = control.apply("enable")
     desired = read_desired(control.desired_path)
     assert first["phase"] == "enabled" and desired.enabled
-    assert control.token_path.stat().st_mode & 0o077 == 0
-    assert control.desired_path.stat().st_mode & 0o077 == 0
+    # Windows synthesizes st_mode from the read-only attribute, so the POSIX
+    # permission bits are meaningless there; privacy comes from the profile
+    # directory ACL. Assert the same contract the product code enforces.
+    assert not is_group_or_world_readable(control.token_path)
+    assert not is_group_or_world_readable(control.desired_path)
     for _ in range(3):
         assert RemoteControl(control.config, control.provider).apply("enable") == first
     assert fake.created == fake.dns_created == 1

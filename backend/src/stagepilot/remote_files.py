@@ -39,6 +39,22 @@ class DesiredRemote(BaseModel):
         return self
 
 
+def is_group_or_world_readable(path: Path) -> bool:
+    """Report whether POSIX permission bits expose a private file to others.
+
+    Windows does not implement POSIX permission bits: `os.stat` synthesizes
+    `st_mode` from the read-only attribute alone, so a normal file always
+    reports 0o666 and a naive `st_mode & 0o077` check is unconditionally true.
+    Privacy there comes from the ACL on the per-user profile directory that
+    holds these files, so the bit test is POSIX-only and must never be used to
+    conclude that a Windows file is exposed.
+    """
+
+    if sys.platform == "win32":
+        return False
+    return bool(path.stat().st_mode & 0o077)
+
+
 def atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, name = tempfile.mkstemp(prefix=".remote-", dir=path.parent)

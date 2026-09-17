@@ -16,7 +16,12 @@ import httpx
 from pydantic import BaseModel, Field
 
 from stagepilot.file_lock import exclusive_lock
-from stagepilot.remote_files import BetaControlConfig, DesiredRemote, atomic_write
+from stagepilot.remote_files import (
+    BetaControlConfig,
+    DesiredRemote,
+    atomic_write,
+    is_group_or_world_readable,
+)
 from stagepilot.remote_provider import ProviderError
 
 
@@ -200,7 +205,7 @@ class BetaRemoteControl:
         try:
             if self.config.credential_file.is_symlink():
                 raise ProviderError("Installation credential file must not be a symlink")
-            if self.config.credential_file.stat().st_mode & 0o077:
+            if is_group_or_world_readable(self.config.credential_file):
                 raise ProviderError("Installation credential file must be private (0600)")
             token = self.config.credential_file.read_text().strip()
         except OSError as exc:

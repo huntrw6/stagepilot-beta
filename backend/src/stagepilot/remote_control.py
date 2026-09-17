@@ -12,7 +12,12 @@ import httpx
 from pydantic import BaseModel, Field
 
 from stagepilot.file_lock import exclusive_lock
-from stagepilot.remote_files import ControlConfig, DesiredRemote, atomic_write
+from stagepilot.remote_files import (
+    ControlConfig,
+    DesiredRemote,
+    atomic_write,
+    is_group_or_world_readable,
+)
 from stagepilot.remote_provider import CloudflareProvider, ProviderError, TunnelProvider
 
 
@@ -140,7 +145,7 @@ def run() -> None:
         token = ""
         if args.action != "status":
             try:
-                if config.api_token_file.stat().st_mode & 0o077:
+                if is_group_or_world_readable(config.api_token_file):
                     raise ProviderError("Account token file must be private (0600)")
                 token = config.api_token_file.read_text().strip()
                 if not token or any(c.isspace() for c in token):

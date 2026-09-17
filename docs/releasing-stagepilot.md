@@ -13,12 +13,13 @@ not require Apple Developer ID or notarization. See
 ## Private beta channel
 
 The beta ships from `huntrw6/stagepilot-beta` only; never tag, push, or release
-`huntrw6/stagepilot` for a beta. Three earlier attempts already burned immutable
+`huntrw6/stagepilot` for a beta. Four earlier attempts already burned immutable
 tags — `v1.1.103-beta.1` (bootstrap failure), `v1.1.103-beta.2` (failed on a
-cross-platform mypy defect and an unusable signing key) and `v1.1.103-beta.3`
+cross-platform mypy defect and an unusable signing key), `v1.1.103-beta.3`
 (failed because `backend/uv.lock` carried a stale project version, so every
-`uv sync --locked` step aborted) — so release 1 is
-`v1.1.103-beta.4`. Follow
+`uv sync --locked` step aborted) and `v1.1.103-beta.4` (failed on five
+Windows-only backend test failures) — so release 1 is
+`v1.1.103-beta.5`. Follow
 [the private beta release and acceptance plan](private-beta-release-and-acceptance.md)
 and the authoritative
 [native completion runbook](native-completion-runbook.md).

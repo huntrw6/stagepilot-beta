@@ -88,11 +88,12 @@ the preserved Windows and macOS jobs skipped without acquiring a runner.
 
 The earlier failed release attempts already occupy immutable tags
 `v1.1.103-beta.1` (bootstrap failure), `v1.1.103-beta.2` (failed on a
-cross-platform mypy defect and an unusable signing key) and `v1.1.103-beta.3`
+cross-platform mypy defect and an unusable signing key), `v1.1.103-beta.3`
 (failed because `backend/uv.lock` recorded a stale project version, so every
-`uv sync --locked` step aborted), so **release 1 is `v1.1.103-beta.4`** and the
-next available version is `v1.1.103-beta.5`. Never move or reuse any of these
-tags/versions.
+`uv sync --locked` step aborted) and `v1.1.103-beta.4` (failed on five
+Windows-only backend test failures that only the release job's full pytest run
+exercises), so **release 1 is `v1.1.103-beta.5`** and the next available version
+is `v1.1.103-beta.6`. Never move or reuse any of these tags/versions.
 
 Each release staging directory must contain exactly:
 
@@ -193,7 +194,7 @@ Use fresh isolated accounts/machines for:
 For each platform, record the release-1 installer:
 
 ```text
-python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer --platform PLATFORM --version 1.1.103-beta.4 --file INSTALLER
+python scripts/beta_release_acceptance.py --report PRIVATE_REPORT installer --platform PLATFORM --version 1.1.103-beta.5 --file INSTALLER
 ```
 
 Install beta 1 and record secret-free receipts for every release-1 check name: `local_health`, `transparent_enrollment`, `first_operator`, `https_wss_roles`, `restart_recovery`, `reboot_recovery`, `disable_reenable_provider_cleanup`, and `final_cleanup`. Use:

@@ -2,13 +2,27 @@ from __future__ import annotations
 
 import json
 import socket
+import sys
 import time
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from stagepilot.remote_connector import Connector
 from stagepilot.remote_files import DesiredRemote, atomic_write
 from test_remote_server import unused_port
+
+# These tests spawn a substitute connector written as a `#!/usr/bin/python3`
+# script and made executable with `chmod(0o700)`. Windows has no shebang
+# support and no POSIX execute bit, so the child can never start there and the
+# test would assert on the harness rather than on StagePilot. The product code
+# under test is platform-independent and is covered on Windows by the packaged
+# Remote lifecycle job in ci.yml.
+posix_child_process = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="substitute connector relies on a POSIX shebang and execute bit",
+)
 
 
 def connector_fixture(tmp_path: Path) -> tuple[Connector, DesiredRemote]:
@@ -55,6 +69,7 @@ def wait_connected(connector: Connector) -> None:
     raise AssertionError("Local substitute connector did not recover")
 
 
+@posix_child_process
 def test_child_crash_restart_disable_reenable_and_supervisor_restart(tmp_path: Path) -> None:
     connector, desired = connector_fixture(tmp_path)
     try:
@@ -88,6 +103,7 @@ def test_child_crash_restart_disable_reenable_and_supervisor_restart(tmp_path: P
         connector.stop()
 
 
+@posix_child_process
 def test_missing_insecure_token_and_metrics_conflict_fail_closed(tmp_path: Path) -> None:
     connector, _ = connector_fixture(tmp_path)
     token = connector.control.with_name("connector.token")
@@ -107,6 +123,7 @@ def test_missing_insecure_token_and_metrics_conflict_fail_closed(tmp_path: Path)
         connector.stop()
 
 
+@posix_child_process
 def test_desktop_token_is_passed_directly_without_creating_a_file(tmp_path: Path) -> None:
     connector, _ = connector_fixture(tmp_path)
     token = connector.control.with_name("connector.token")

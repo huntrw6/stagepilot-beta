@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
+
+import pytest
 
 from stagepilot.remote_feature import RemoteFeature
 from stagepilot.remote_files import read_desired
 from stagepilot.remote_quick import QuickConnector
 from test_remote_server import unused_port
 
+# These tests spawn a substitute connector written as a `#!/usr/bin/python3`
+# script and made executable with `chmod(0o700)`. Windows has no shebang
+# support and no POSIX execute bit, so the child can never start there and the
+# test would assert on the harness rather than on StagePilot. The product code
+# under test is platform-independent and is covered on Windows by the packaged
+# Remote lifecycle job in ci.yml.
+posix_child_process = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="substitute connector relies on a POSIX shebang and execute bit",
+)
 
+
+@posix_child_process
 def test_quick_child_lifecycle_without_account_token(tmp_path: Path) -> None:
     binary = tmp_path / "quick-substitute"
     binary.write_text(
