@@ -12,11 +12,11 @@ not require Apple Developer ID or notarization. See
 
 ## Private beta channel
 
-The beta ships from `huntrw6/stagepilot-beta` only; never tag, push, or release
-`huntrw6/stagepilot` for a beta.
+The beta ships from `tage-ilot/stagepilot-beta` only; never tag, push, or release
+`tage-ilot/stagepilot` for a beta.
 
 **Release 1 is published: `v1.1.103-beta.6`** —
-https://github.com/huntrw6/stagepilot-beta/releases/tag/v1.1.103-beta.6 at
+https://github.com/tage-ilot/stagepilot-beta/releases/tag/v1.1.103-beta.6 at
 commit `e7af35a7c2e9e0bd53cec90eacb77c0511699058`. The next available version is
 `v1.1.103-beta.7`.
 
@@ -60,8 +60,8 @@ from accepting future updates.
 Configure GitHub without printing either secret:
 
 ```powershell
-gh secret set TAURI_SIGNING_PRIVATE_KEY --repo huntrw6/stagepilot-beta < "$env:USERPROFILE\.tauri\stagepilot-updater.key"
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo huntrw6/stagepilot-beta
+gh secret set TAURI_SIGNING_PRIVATE_KEY --repo tage-ilot/stagepilot-beta < "$env:USERPROFILE\.tauri\stagepilot-updater.key"
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo tage-ilot/stagepilot-beta
 ```
 
 The second command prompts securely. The release fails before building if

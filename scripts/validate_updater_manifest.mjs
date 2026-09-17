@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [manifestPath, assetsDirectory, downloadBase = "https://github.com/huntrw6/stagepilot/releases/download"] = process.argv.slice(2);
+const [manifestPath, assetsDirectory, downloadBase = "https://github.com/tage-ilot/stagepilot/releases/download"] = process.argv.slice(2);
 if (!manifestPath || !assetsDirectory) throw new Error("Usage: node scripts/validate_updater_manifest.mjs MANIFEST ASSETS_DIR [DOWNLOAD_BASE_URL]");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 if (!/^\d+\.\d+\.\d+(?:[-+].+)?$/.test(manifest.version)) throw new Error("Invalid manifest version.");

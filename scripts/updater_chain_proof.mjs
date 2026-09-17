@@ -13,7 +13,7 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const BROKER = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases";
-const MAIN = "https://github.com/huntrw6/stagepilot/releases/download";
+const MAIN = "https://github.com/tage-ilot/stagepilot/releases/download";
 
 const generate = (directory, tag, base) => execFileSync(process.execPath, [
   path.join(root, "scripts/generate_updater_manifest.mjs"), directory, tag, base,
@@ -144,7 +144,9 @@ try {
   const pubkey = config.plugins.updater.pubkey;
   assert(typeof pubkey === "string" && pubkey.length > 40, "updater public key is missing");
   assert(!/REQUIRED|PLACEHOLDER|CHANGEME|TODO/i.test(pubkey), "updater public key is still a placeholder");
-  assert.deepEqual(config.plugins.updater.endpoints, [`${MAIN.replace("/download", "")}/latest/download/latest.json`]);
+  assert.deepEqual(config.plugins.updater.endpoints, [
+    "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json",
+  ]);
   assert.deepEqual(windows.plugins.updater.endpoints, [`${BROKER}/latest.json`]);
   assert.deepEqual(macos.plugins.updater.endpoints, [`${BROKER}/latest.json`]);
   proven.push("public_key_and_endpoint_configuration");

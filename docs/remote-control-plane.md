@@ -206,7 +206,7 @@ must have Worker Scripts deployment for the target account plus Account
 Cloudflare Tunnel Edit and Zone DNS Edit for only the chosen zone. The independent
 WAF operator must have Zone WAF Edit only for the chosen zone. The admin token and signing key are independent random values of at least 32 bytes.
 If the release broker is ever promoted out of deferral, its GitHub token must be
-read-only for `huntrw6/stagepilot-beta` contents/releases, never returned to
+read-only for `tage-ilot/stagepilot-beta` contents/releases, never returned to
 clients, and never reused for repository writes.
 
 Dispatch the workflow manually and approve the protected environment when an

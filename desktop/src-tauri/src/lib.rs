@@ -35,7 +35,7 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_INTERVAL: Duration = Duration::from_millis(250);
 const RECENT_BACKEND_LINES: usize = 32;
 const BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
-const STAGEPILOT_GITHUB_URL: &str = "https://github.com/huntrw6/stagepilot";
+const STAGEPILOT_GITHUB_URL: &str = "https://github.com/tage-ilot/stagepilot";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StagePilotMenuAction {
@@ -1097,7 +1097,7 @@ mod tests {
         assert_eq!(macos["bundle"]["macOS"]["minimumSystemVersion"], "12.0");
         assert_eq!(
             config["plugins"]["updater"]["endpoints"][0],
-            "https://github.com/huntrw6/stagepilot/releases/latest/download/latest.json"
+            "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json"
         );
         let windows: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();

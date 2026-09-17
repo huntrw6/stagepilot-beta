@@ -1,4 +1,15 @@
-# StagePilot
+# StagePilot (beta channel)
+
+This repository carries **pre-release builds of StagePilot**. It ships beta
+versions ahead of the main channel so they can be tested before promotion.
+Existing users opt in to receiving these builds via the beta-updates toggle in
+the main app (see `BackendSetupPanel.tsx` in
+[tage-ilot/stagepilot](https://github.com/tage-ilot/stagepilot)); everyone
+else can download a beta installer directly from this repo's
+[Releases page](https://github.com/tage-ilot/stagepilot-beta/releases). Beta
+builds are less tested than the main channel and may contain regressions —
+use them for early feedback, not production-critical services, unless you
+understand the risk.
 
 StagePilot brings the moving parts of a live production into one dependable dashboard. It loads service plans from Planning Center, listens for MIDI cues from MultiTracks Playback, keeps a ProPresenter countdown in sync, and sends scheduled MIDI cues to a lighting controller such as Lightkey.
 
@@ -9,11 +20,11 @@ the logo only when a newer signed release is available.
 
 ## Download StagePilot 1.1.102
 
-Download the installer for your computer from the [StagePilot v1.1.102 release](https://github.com/huntrw6/stagepilot/releases/tag/v1.1.102):
+Download the installer for your computer from the [StagePilot v1.1.102 release](https://github.com/tage-ilot/stagepilot/releases/tag/v1.1.102):
 
-- [Windows x64 installer](https://github.com/huntrw6/stagepilot/releases/download/v1.1.102/StagePilot_1.1.102_x64-setup.exe)
-- [Intel Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.102/StagePilot_1.1.102_x64.dmg)
-- [Apple Silicon Mac DMG](https://github.com/huntrw6/stagepilot/releases/download/v1.1.102/StagePilot_1.1.102_aarch64.dmg)
+- [Windows x64 installer](https://github.com/tage-ilot/stagepilot/releases/download/v1.1.102/StagePilot_1.1.102_x64-setup.exe)
+- [Intel Mac DMG](https://github.com/tage-ilot/stagepilot/releases/download/v1.1.102/StagePilot_1.1.102_x64.dmg)
+- [Apple Silicon Mac DMG](https://github.com/tage-ilot/stagepilot/releases/download/v1.1.102/StagePilot_1.1.102_aarch64.dmg)
 
 On **Windows**, run the installer and open StagePilot from the Start menu.
 
@@ -137,7 +148,7 @@ If something fails:
 1. Open the affected connection card and run its connection test.
 2. Review **Recent Event Stream** for the specific operation that failed.
 3. Set the backend log level to `DEBUG`, restart StagePilot, and reproduce the issue once.
-4. Attach `stagepilot-backend.log` to a [GitHub issue](https://github.com/huntrw6/stagepilot/issues).
+4. Attach `stagepilot-backend.log` to a [GitHub issue](https://github.com/tage-ilot/stagepilot/issues).
 
 On macOS, the native **Help** menu searches the StagePilot documentation that
 was bundled with the installed application. Enter a connection, setup, MIDI,

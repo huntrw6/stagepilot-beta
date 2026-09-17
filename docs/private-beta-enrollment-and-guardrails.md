@@ -36,7 +36,7 @@ Emergency enrollment rollback is `ENROLLMENT_ENABLED=false` followed by a manual
 `ENROLLMENT_EXEMPT_SOURCES` is set on the `stagepilot-control-plane` GitHub
 environment as a comma-separated list and deployed by `deploy-control-plane.yml`
 (`gh variable set ENROLLMENT_EXEMPT_SOURCES --env stagepilot-control-plane
---repo huntrw6/stagepilot-beta --body "<ipv4>,<ipv6-/64>"`, then dispatch the
+--repo tage-ilot/stagepilot-beta --body "<ipv4>,<ipv6-/64>"`, then dispatch the
 workflow). Both entries are ISP-assigned and can change. To refresh:
 
 1. Re-read the current developer-network sources:
