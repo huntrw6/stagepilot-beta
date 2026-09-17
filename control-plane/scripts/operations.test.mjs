@@ -22,7 +22,6 @@ function deploymentEnvironment(overrides = {}) {
     CLOUDFLARE_API_TOKEN: "provider-token-with-narrow-scope",
     ADMIN_API_TOKEN: "admin-token-with-at-least-thirty-two-characters",
     INSTALLATION_SIGNING_KEY: "independent-signing-key-at-least-thirty-two-characters",
-    GITHUB_RELEASE_TOKEN: "github-release-token-server-side-only",
     ...overrides,
   };
 }
@@ -76,13 +75,14 @@ describe("deployment configuration", () => {
       assert.match(workflow, new RegExp(`--var ${name}:`));
     }
     for (const name of RUNTIME_SECRET_NAMES) {
-      const actionSecret = name === "GITHUB_RELEASE_TOKEN"
-        ? "STAGEPILOT_RELEASE_TOKEN"
-        : name;
-      assert.match(workflow, new RegExp(`secrets\\.${actionSecret}`));
+      assert.match(workflow, new RegExp(`secrets\\.${name}`));
       assert.match(workflow, new RegExp(`^ {12}${name}$`, "m"));
     }
-    assert.doesNotMatch(workflow, /secrets\.GITHUB_RELEASE_TOKEN/);
+    // The release broker/in-app updater are deferred for this beta: no
+    // STAGEPILOT_RELEASE_TOKEN is issued, and GITHUB_RELEASE_TOKEN must
+    // never be a required deployment value.
+    assert.doesNotMatch(workflow, /STAGEPILOT_RELEASE_TOKEN/);
+    assert.doesNotMatch(workflow, /GITHUB_RELEASE_TOKEN/);
     assert.match(workflow, /secret list --format json/);
     assert.doesNotMatch(wrangler, /REPLACE_WITH_|example\.invalid/);
   });

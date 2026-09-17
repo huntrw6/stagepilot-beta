@@ -174,7 +174,7 @@ describe('private-beta control plane', () => {
   });
 
   it('fails closed when any required Worker runtime secret is missing', async () => {
-    for (const name of ['CLOUDFLARE_API_TOKEN', 'ADMIN_API_TOKEN', 'INSTALLATION_SIGNING_KEY', 'GITHUB_RELEASE_TOKEN'] as const) {
+    for (const name of ['CLOUDFLARE_API_TOKEN', 'ADMIN_API_TOKEN', 'INSTALLATION_SIGNING_KEY'] as const) {
       registry = new Registry(
         { storage } as unknown as DurableObjectState,
         { ...env, [name]: undefined } as never,
@@ -187,6 +187,17 @@ describe('private-beta control plane', () => {
     }
     expect(storage.values.size).toBe(0);
     expect(provider.fetch).not.toHaveBeenCalled();
+  });
+
+  it('still enrolls when the deferred GITHUB_RELEASE_TOKEN binding is absent', async () => {
+    registry = new Registry(
+      { storage } as unknown as DurableObjectState,
+      { ...env, GITHUB_RELEASE_TOKEN: undefined } as never,
+    );
+    const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, {
+      nonce: 'no-release-token-test',
+    }));
+    expect(response.status).toBe(201);
   });
 
   it('enrolls durable random identities idempotently and issues isolated credentials', async () => {
@@ -418,6 +429,20 @@ describe('private-beta control plane', () => {
     expect(response.status).toBe(503);
     expect(JSON.stringify(await json(response))).not.toContain(providerBody);
     expect(JSON.stringify(error.mock.calls)).not.toContain(providerBody);
+  });
+
+  it('rejects release-asset requests without ever calling GitHub when the token is absent', async () => {
+    registry = new Registry(
+      { storage } as unknown as DurableObjectState,
+      { ...env, GITHUB_RELEASE_TOKEN: undefined } as never,
+    );
+    const github = vi.fn();
+    vi.stubGlobal('fetch', github);
+
+    const response = await registry.fetch(request('/v1/releases/latest.json'));
+
+    expect(response.status).toBe(503);
+    expect(github).not.toHaveBeenCalled();
   });
 
   it('serves only allowlisted private-release metadata through the public broker', async () => {

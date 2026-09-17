@@ -153,11 +153,11 @@ test("release workflow requires secrets and publishes latest.json last", () => {
   );
   assert.match(workflow, /Release \$RELEASE_TAG already exists; immutable beta assets will not be replaced/);
   assert.doesNotMatch(workflow, /--clobber/);
-  assert.match(
-    deployWorkflow,
-    /GITHUB_RELEASE_TOKEN: \$\{\{ secrets\.STAGEPILOT_RELEASE_TOKEN \}\}/,
-  );
-  assert.doesNotMatch(deployWorkflow, /secrets\.GITHUB_RELEASE_TOKEN/);
+  // The release broker/in-app updater are deferred for this beta: no
+  // STAGEPILOT_RELEASE_TOKEN Actions secret is issued, and the deploy
+  // workflow must never require or reference one.
+  assert.doesNotMatch(deployWorkflow, /STAGEPILOT_RELEASE_TOKEN/);
+  assert.doesNotMatch(deployWorkflow, /GITHUB_RELEASE_TOKEN/);
   const latestUpload = 'gh release upload "$RELEASE_TAG" release-assets/latest.json';
   assert.ok(
     workflow.indexOf('! -name latest.json') < workflow.indexOf(latestUpload),

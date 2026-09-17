@@ -22,7 +22,8 @@ Private beta administrator
 
 Cloudflare Worker + singleton Registry Durable Object
   server-only account/zone IDs, CLOUDFLARE_API_TOKEN,
-  ADMIN_API_TOKEN, INSTALLATION_SIGNING_KEY, GITHUB_RELEASE_TOKEN
+  ADMIN_API_TOKEN, INSTALLATION_SIGNING_KEY (GITHUB_RELEASE_TOKEN optional,
+  absent while the release broker is deferred)
   -> exact named tunnel/configuration/DNS lifecycle
 
 Enrolled StagePilot installation
@@ -192,9 +193,11 @@ repository placeholders):
   `BETA_INSTALLATION_LIMIT`, `BETA_RELEASE_VERSIONS`,
   `BETA_LATEST_RELEASE_VERSION`;
 - environment secrets: `CLOUDFLARE_API_TOKEN`, `ADMIN_API_TOKEN`,
-  `INSTALLATION_SIGNING_KEY`, `STAGEPILOT_RELEASE_TOKEN`. The deploy workflow
-  maps `STAGEPILOT_RELEASE_TOKEN` to the Worker's `GITHUB_RELEASE_TOKEN` binding
-  because GitHub reserves the `GITHUB_` prefix for Actions secret names.
+  `INSTALLATION_SIGNING_KEY`. The release broker/in-app updater are deferred
+  for this beta (see `docs/native-completion-runbook.md`), so no
+  `STAGEPILOT_RELEASE_TOKEN` Actions secret is set and the Worker's optional
+  `GITHUB_RELEASE_TOKEN` binding is intentionally absent; the deploy workflow
+  no longer maps or requires it.
 
 The account and zone IDs are 32 lowercase hexadecimal characters. The suffix is
 the DNS suffix under which generated installation hostnames may be created. The
@@ -202,17 +205,18 @@ dedicated port is 1024-65535 and must not be local port 8765. The provider token
 must have Worker Scripts deployment for the target account plus Account
 Cloudflare Tunnel Edit and Zone DNS Edit for only the chosen zone. The independent
 WAF operator must have Zone WAF Edit only for the chosen zone. The admin token and signing key are independent random values of at least 32 bytes.
-The GitHub token is read-only for `huntrw6/stagepilot-beta` contents/releases,
-is never returned to clients, and must not be reused for repository writes.
+If the release broker is ever promoted out of deferral, its GitHub token must be
+read-only for `huntrw6/stagepilot-beta` contents/releases, never returned to
+clients, and never reused for repository writes.
 
 Dispatch the workflow manually and approve the protected environment when an
 environment reviewer is configured. It runs
 tests and TypeScript build, validates every value without printing secrets, builds
-a Wrangler dry-run preview, supplies all eight vars on the command line, installs
-all four Worker runtime secrets through Wrangler, deploys the tracked Durable
+a Wrangler dry-run preview, supplies all nine vars on the command line, installs
+all three Worker runtime secrets through Wrangler, deploys the tracked Durable
 Object migration/binding, then reads `wrangler secret list --format json` and
-fails unless all four secret names are present. No secret value is printed. Read
-back the deployed Worker version, `REGISTRY` binding, eight vars, secret names,
+fails unless all three secret names are present. No secret value is printed. Read
+back the deployed Worker version, `REGISTRY` binding, nine vars, secret names,
 custom HTTPS origin, and `/health` before enrollment. Configure the custom Worker
 hostname narrowly in Cloudflare if it is not already attached; do not alter
 unrelated DNS records.

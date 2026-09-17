@@ -6,7 +6,11 @@ interface Env {
   REMOTE_HOST_SUFFIX: string;
   ADMIN_API_TOKEN: string;
   INSTALLATION_SIGNING_KEY: string;
-  GITHUB_RELEASE_TOKEN: string;
+  // Optional: the release-broker/in-app updater is deferred for this beta
+  // (see docs/native-completion-runbook.md). No STAGEPILOT_RELEASE_TOKEN is
+  // issued, so this binding is absent in production; release-asset routes
+  // then respond 503 instead of ever making an unauthenticated GitHub call.
+  GITHUB_RELEASE_TOKEN?: string;
   REMOTE_PORT?: string;
   ENROLLMENT_ENABLED?: string;
   BETA_INSTALLATION_LIMIT?: string;
@@ -343,7 +347,7 @@ export class Registry {
     if (typeof this.env.CLOUDFLARE_API_TOKEN !== 'string' || this.env.CLOUDFLARE_API_TOKEN.length < 20
       || typeof this.env.ADMIN_API_TOKEN !== 'string' || this.env.ADMIN_API_TOKEN.length < 32
       || typeof this.env.INSTALLATION_SIGNING_KEY !== 'string' || this.env.INSTALLATION_SIGNING_KEY.length < 32
-      || typeof this.env.GITHUB_RELEASE_TOKEN !== 'string' || this.env.GITHUB_RELEASE_TOKEN.length < 20
+      || (this.env.GITHUB_RELEASE_TOKEN !== undefined && this.env.GITHUB_RELEASE_TOKEN.length < 20)
       || this.env.ADMIN_API_TOKEN === this.env.INSTALLATION_SIGNING_KEY) {
       throw new Error('invalid authentication configuration');
     }
@@ -416,6 +420,11 @@ export class Registry {
 
   private async releaseAsset(request: Request, version: string, filename: string): Promise<Response> {
     if (!this.allowedReleaseAsset(version, filename)) return reply({ error: 'not found' }, 404);
+    if (typeof this.env.GITHUB_RELEASE_TOKEN !== 'string' || this.env.GITHUB_RELEASE_TOKEN.length < 20) {
+      // The release broker is deferred for this beta: no GITHUB_RELEASE_TOKEN
+      // is configured, so respond 503 without ever calling GitHub.
+      return reply({ error: 'release unavailable' }, 503, 60);
+    }
     await this.takeReleaseRate(request, filename === 'latest.json' ? 'metadata' : 'download');
     const release = await this.githubRelease(version);
     if (!release) return reply({ error: 'release unavailable' }, 503, 60);
