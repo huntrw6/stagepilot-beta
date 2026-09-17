@@ -12,13 +12,22 @@ not require Apple Developer ID or notarization. See
 
 ## Private beta channel
 
-Private GitHub Releases cannot be read by an unauthenticated installed client.
-The beta Windows/macOS release overlays therefore use the narrowly allowlisted
-control-plane broker while the base/main configuration keeps the public main
-release endpoint. Never put a GitHub PAT in Tauri, frontend code, or an artifact.
-Because the failed bootstrap attempt already occupies `v1.1.103-beta.1`, use
-`v1.1.103-beta.2` for release 1 and `v1.1.103-beta.3` for the update proof,
-then follow [the private beta release and acceptance plan](private-beta-release-and-acceptance.md).
+The beta ships from `huntrw6/stagepilot-beta` only; never tag, push, or release
+`huntrw6/stagepilot` for a beta. Because the failed bootstrap attempt already
+occupies `v1.1.103-beta.1`, release 1 is `v1.1.103-beta.2`. Follow
+[the private beta release and acceptance plan](private-beta-release-and-acceptance.md)
+and the authoritative
+[native completion runbook](native-completion-runbook.md).
+
+In-app update is **off for this beta by operator decision**: the release broker
+is not deployed and no `STAGEPILOT_RELEASE_TOKEN` is issued. Distribution is the
+direct GitHub Release download. The beta Windows/macOS release overlays still
+point at the narrowly allowlisted control-plane broker endpoint and `latest.json`
+is still generated and signature-validated, so the path stays promotable, but
+nothing consumes it during the beta. The base/main configuration keeps the
+public main release endpoint, so a main build never follows beta metadata and a
+beta build never follows main releases. Never put a GitHub PAT in Tauri,
+frontend code, or an artifact.
 
 ## One-time updater key setup
 

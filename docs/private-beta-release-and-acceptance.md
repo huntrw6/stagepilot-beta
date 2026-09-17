@@ -1,6 +1,31 @@
 # Private beta release and native acceptance plan
 
-## Delivery decision and evidence
+## Delivery decision as shipped (release 1)
+
+Two operator decisions changed the delivery shape after the analysis below was
+written, and they are what release 1 actually ships:
+
+1. **In-app update is off for the beta.** No `STAGEPILOT_RELEASE_TOKEN` is
+   issued and the release broker is **not** deployed. The updater code,
+   allowlisting, and `latest.json` generation all stay implemented, tested in
+   CI, and promotable — they are deferred, not removed.
+2. **`huntrw6/stagepilot-beta` is temporarily public**, so the release page and
+   its assets are readable without any GitHub credential, and hosted
+   Windows/macOS Actions minutes are free.
+
+Therefore release 1 is distributed as a **direct GitHub Release download**:
+testers open the release page and download the installer for their platform.
+`latest.json` is still generated, signature-validated, and published with the
+release because it is the same artifact a future promoted release depends on,
+but nothing consumes it during the beta. See
+[`native-completion-runbook.md`](native-completion-runbook.md) for the
+authoritative PROVEN/DEFERRED ledger.
+
+The analysis below remains accurate for the private-repository case and is what
+the broker implementation is built against; it applies again the moment the
+repository is made private or the updater is switched on.
+
+## Delivery decision and evidence (private-repository analysis)
 
 An installed Tauri client cannot directly consume a release in the private `huntrw6/stagepilot-beta` repository without a GitHub credential. On 2026-09-15, unauthenticated GET requests to both the browser download URL for `latest.json` and `GET /repos/huntrw6/stagepilot-beta/releases/latest` returned 404. GitHub documents that only people with repository read access can view releases, and its release-asset API uses authenticated API requests for private resources. Tauri accepts a static JSON endpoint or update server and always verifies updater payload signatures; verification cannot be disabled.
 
@@ -79,26 +104,44 @@ Run `node scripts/audit_beta_release.mjs source` before release and `node script
 
 ## Friend download instructions
 
-Invite each tester to the private `huntrw6/stagepilot-beta` repository with read
-access. The tester must sign in to GitHub, open the exact immutable beta release,
-and download only the installer matching their platform:
+While `huntrw6/stagepilot-beta` is public, a tester needs no invitation and no
+GitHub account: send them the exact immutable release URL and tell them to
+download only the installer matching their platform.
 
 - Windows x64: `StagePilot_VERSION_x64-setup.exe`
 - macOS Apple Silicon: `StagePilot_VERSION_aarch64.dmg`
 - macOS Intel: `StagePilot_VERSION_x64.dmg`
 
-Send the release URL and the matching SHA-256 value from the preserved asset
-inventory through the approved private channel. The tester must compare the
-download hash before installation and must not forward the private asset URL or
-installer. Never send a PAT, updater signing material, machine evidence, or a
-control-plane credential. Installed beta builds obtain later signed updates from
-the beta broker; testers do not need GitHub credentials inside StagePilot.
+If the repository is made private again, first invite each tester with read
+access; the same release URL then requires them to sign in to GitHub.
+
+Send the matching SHA-256 value from the preserved asset inventory alongside the
+release URL, and have the tester compare the download hash before installing.
+Never send a PAT, updater signing material, machine evidence, or a control-plane
+credential.
+
+There is **no in-app update in this beta**: the Update button has no deployed
+broker to talk to, so a later build is delivered the same way — a new immutable
+tag, a new release, and a fresh download. Testers never need GitHub credentials
+inside StagePilot.
 
 ## Signing recovery and rollback
 
-Before release 1, verify without printing values that GitHub contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, the configured updater public key is not a placeholder, and two independently recoverable encrypted offline copies of the private key/password exist. On an isolated local copy, sign a disposable file with the recovered key and verify it with the configured public key using the pinned Tauri CLI. Delete the disposable file. Do not rotate the updater key for release 2; existing clients trust only the embedded public key.
+Before release 1, verify without printing values that GitHub contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, the configured updater public key is not a placeholder, and two independently recoverable encrypted offline copies of the private key/password exist. On an isolated local copy, sign a disposable file with the recovered key and verify it with the configured public key using the pinned Tauri CLI. Delete the disposable file. Never rotate the updater key between beta releases; installed clients trust only the embedded public key.
 
-If a release is bad, immediately set `BETA_LATEST_RELEASE_VERSION` back to the last known-good allowlisted version and redeploy/read back the Worker. Keep the broken tag immutable but remove it from `BETA_RELEASE_VERSIONS` after affected clients have a newer recovery path. Publish a higher version; never replace signed artifacts or reuse a version. The beta broker does not alter Remote installation state.
+If the signing key is lost, no future build can be accepted by an installed
+updater-enabled copy. Recovery is then a new key plus a fresh installer
+download by every tester — which is why two independently recoverable offline
+copies are required before release 1, not after.
+
+Rollback for this beta is distribution-side only, because the broker is not
+deployed and no client polls for updates:
+
+- Keep the bad tag and release immutable. Never delete, move, or reuse a version.
+- Unpublish the bad release with `gh release edit TAG --repo huntrw6/stagepilot-beta --draft`, which hides it from the Releases page while preserving the tag and assets for audit.
+- Fix the problem, bump to the next version, publish a new release, and point all download instructions at the new tag.
+
+Only if the broker is later deployed does the variable-based rollback apply: set `BETA_LATEST_RELEASE_VERSION` back to the last known-good allowlisted version, redeploy, and read the Worker back; keep the broken tag immutable but remove it from `BETA_RELEASE_VERSIONS` once affected clients have a newer recovery path. The beta broker does not alter Remote installation state.
 
 ## Native acceptance matrix
 

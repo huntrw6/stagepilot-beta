@@ -1,10 +1,18 @@
 # Updating StagePilot
 
+> **Private beta 1.1.103-beta.2: in-app update is off.** The release broker is
+> not deployed for the beta by operator decision, so an installed beta build's
+> update check finds no endpoint and no Update button appears. Beta testers get
+> a newer build by downloading the installer from the new GitHub Release. The
+> mechanism described below is fully implemented, CI-tested, and promotable —
+> it simply has nothing to talk to during the beta. See
+> [`native-completion-runbook.md`](native-completion-runbook.md).
+
 StagePilot checks for updates after the desktop dashboard is ready. Main builds
-use the public main GitHub Release endpoint; private-beta release builds use the
-beta control-plane metadata/download broker because private GitHub Releases are
-not anonymously readable. The broker never disables or replaces Tauri signature
-verification and does not relay Remote traffic. StagePilot waits about five seconds so the check never blocks
+use the public main GitHub Release endpoint; private-beta release builds point
+at the beta control-plane metadata/download broker because private GitHub
+Releases are not anonymously readable. The broker never disables or replaces
+Tauri signature verification and does not relay Remote traffic. StagePilot waits about five seconds so the check never blocks
 startup, checks again every six hours, and may check when the app regains focus
 after that interval.
 
