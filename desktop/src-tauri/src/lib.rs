@@ -1201,10 +1201,29 @@ mod tests {
 
     #[test]
     fn unused_local_port_is_available() {
-        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        assert_eq!(probe_port(port), PortProbe::Available);
+        // Binding an ephemeral port, dropping the listener, and then probing
+        // that exact port is inherently racy: the OS (or another process on
+        // the machine) can reclaim the port in the window between drop and
+        // probe, especially under CI load. Try several independent
+        // candidate ports and require at least one to probe `Available`
+        // rather than pinning the assertion to a single port number.
+        const ATTEMPTS: usize = 20;
+        let mut observed_occupied = 0;
+        for _ in 0..ATTEMPTS {
+            let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+            match probe_port(port) {
+                PortProbe::Available => return,
+                PortProbe::Occupied => {
+                    observed_occupied += 1;
+                }
+            }
+        }
+        panic!(
+            "expected at least one of {ATTEMPTS} freshly-dropped ephemeral ports to probe \
+             Available, but all {observed_occupied} attempts probed Occupied"
+        );
     }
 
     #[test]

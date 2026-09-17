@@ -62,27 +62,20 @@ rather than trusting this table alone.
 | P14 | Release-1 dry run at `main`/`8ce2da9`: `validate_versions.mjs v1.1.103-beta.2`, `audit_beta_release.mjs source` (428 tracked files, zero leaks), `npm --prefix desktop run release:test` (15/15) pass without tagging or publishing | manual local run on this host, see "Release 1 dry run" below |
 | P15 | Live enrollment/guardrail acceptance against the deployed Worker: transparent enrollment, idempotent nonce replay, isolated machine credentials, per-installation status quota with `retry-after`, two-tunnel HTTPS isolation, edge HTTPS/WSS abuse limits actually tripped and an unrelated zone host unaffected, zero disposable residue after cleanup | `prepare-control-plane-live-acceptance.yml` run [`35176046446`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35176046446) on `stagepilot-ci`, commit `4dadbaa`. The developer-network enrollment exemption (`ENROLLMENT_EXEMPT_SOURCES`, see `docs/private-beta-enrollment-and-guardrails.md`) is what removed the 3-per-24h enrollment-source quota as a scheduling constraint on `stagepilot-ci`'s own address. |
 | P16 | Native compile/build proof on GitHub-hosted runners, repo now public: Windows x64 unsigned CI installer builds clean (the previously failing "Run packaged Remote lifecycle on Windows" pytest step now passes — the failure was specific to the retired self-hosted Windows setup, not a code defect) and macOS Apple Silicon + macOS Intel Cargo fmt/check/test lifecycle checks pass | `ci.yml` jobs `desktop`, `desktop-macos-lifecycle` on `main`/`3deba13`, run [`35195305370`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35195305370): `Desktop installer — Windows x64` on `windows-latest` success, `Desktop lifecycle — macOS Apple Silicon` on `macos-15` success, `Desktop lifecycle — macOS Intel` on `macos-15-intel` success; artifact `stagepilot-windows-installer` (54,340,679 bytes) uploaded |
+| P17 | Windows x64 installer builds and publishes **signed** (release 1, real tag) | `release-macos.yml:build` (Windows leg, `runs-on: windows-latest`) and `release-macos.yml:publish` (`runs-on: [self-hosted, stagepilot-linux]`) green at tag `v1.1.103-beta.6`, release run [`35229334636`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636); published asset `StagePilot_1.1.103-beta.6_x64-setup.exe` plus signed `latest.json` entry |
+| P18 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build, sign, and publish (release 1, real tag) | `release-macos.yml:build` macOS legs (`macos-15` for Apple Silicon, `macos-15-intel` for Intel) and `release-macos.yml:publish` (`runs-on: [self-hosted, stagepilot-linux]`) green at tag `v1.1.103-beta.6`, release run [`35229334636`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636); published assets `StagePilot_1.1.103-beta.6_aarch64.dmg`, `StagePilot_1.1.103-beta.6_aarch64.app.tar.gz`, `StagePilot_1.1.103-beta.6_x64.dmg`, `StagePilot_1.1.103-beta.6_x64.app.tar.gz` plus signed `latest.json` entries |
 
 ## DEFERRED — not proven, required for release 1, with the exact evidence still required
 
-Never describe any of these as validated. D1 and D2 are narrowed by P16
-above (unsigned Windows build and macOS compile/lifecycle checks are now
-proven green on hosted runners) but not fully cleared: `ci.yml:desktop`
-builds with `tauri.ci.conf.json`, which sets `createUpdaterArtifacts: false`
-and produces an **unsigned** installer, and `ci.yml:desktop-macos-lifecycle`
-only compiles and runs Cargo tests — it does not invoke `tauri build` to
-produce a `.dmg`/`.app.tar.gz`. Real signed artifacts only come from
-`release-macos.yml:build` and `release-windows.yml:build`, both gated behind
-an existing release tag (`validate` job verifies `HEAD` matches
-`refs/tags/$RELEASE_TAG`) — creating that tag and publishing the release is
-explicitly Milestone C's job (card `t_1807ef4f`), not this card's, so this
-card does not run them. D3–D8 remain in scope for the beta but need genuine
-physical hardware and cannot be proven by CI.
+Never describe any of these as validated. D1 and D2 (real signed Windows
+installer and signed macOS bundles) were cleared by release 1: see P17 and
+P18 above, both proven at tag `v1.1.103-beta.6`, release run
+[`35229334636`](https://github.com/huntrw6/stagepilot-beta/actions/runs/35229334636).
+D3–D8 remain in scope for the beta but need genuine physical hardware and
+cannot be proven by CI.
 
 | # | Item | Blocked by | Evidence required to clear it |
 |---|---|---|---|
-| D1 | Windows x64 installer builds **signed** | Release tag required by `release-windows.yml`/`release-macos.yml:validate`; tagging is Milestone C's job | `release-windows.yml:build` or `release-macos.yml:build` (Windows leg) green at a real tag, with a `.sig`-bearing `*-setup.exe` |
-| D2 | macOS arm64/x64 `.app`, `.dmg`, and `.app.tar.gz` build, sign, and verify | Release tag required by `release-macos.yml:validate`; tagging is Milestone C's job | `release-macos.yml:build` (macOS legs) green at a real tag; `scripts/verify_macos_release_bundle.sh` passes `--app`, `--dmg`, `--archive` |
 | D3 | Fresh-machine install on each platform | native hardware | `beta_release_acceptance.py installer` + `check --name local_health` receipts |
 | D4 | No-auth transparent enrollment from an installed build | native hardware | `check --name transparent_enrollment` and `first_operator` receipts |
 | D5 | Viewer/Operator HTTPS + WSS policy from an installed build | native hardware | `check --name https_wss_roles` receipt |
@@ -321,6 +314,17 @@ eight jobs. The published inventory, SHA-256 hashes and post-publication
 signature verification are recorded in
 [`private-beta-release-and-acceptance.md`](private-beta-release-and-acceptance.md).
 The next available version is `v1.1.103-beta.7`.
+
+> **The private beta is `v1.1.103-beta.6` — full stop.** Tags
+> `v1.1.103-beta.2` through `v1.1.103-beta.5` exist in the repository but are
+> **abandoned failed release attempts**, not prior betas: each was tagged,
+> hit a build/publish failure (lockfile drift, signing, or workflow issues)
+> before a release was ever published from it, and was superseded by the
+> next attempt. None of `beta.2`–`beta.5` has a corresponding GitHub Release;
+> only `beta.6` does. Do not reference `beta.2` (or any of `beta.3`–`beta.5`)
+> as "the beta" in any doc, script default, or support answer — always say
+> `v1.1.103-beta.6` explicitly. The next release, if one is ever cut, must
+> use `v1.1.103-beta.7` (or later) — never reuse or fall back to `beta.2`–`beta.5`.
 
 The procedure below is retained for the next release.
 
