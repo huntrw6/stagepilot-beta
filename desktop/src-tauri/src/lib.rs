@@ -1215,7 +1215,7 @@ mod tests {
             drop(listener);
             match probe_port(port) {
                 PortProbe::Available => return,
-                PortProbe::Occupied => {
+                PortProbe::Occupied | PortProbe::StagePilot => {
                     observed_occupied += 1;
                 }
             }
