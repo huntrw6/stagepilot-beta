@@ -198,13 +198,15 @@ try {
   report.wssBelowThreshold = true;
 
   await wait(11_000);
-  // Fire the entire flood at once (not just in small batches): with only 60
-  // requests permitted per colo per 10 seconds, any gap between batches risks
-  // spreading the flood across window boundaries or letting keep-alive reuse
-  // route requests to different edge colos one at a time. A single burst
-  // matches how a real abusive client would actually trip this rule.
+  // With only 60 requests permitted per (edge colo, source IP) pair per 10
+  // seconds, concurrent connections from one source can fan out across
+  // several nearby anycast colos (ECMP source-port hashing), diluting any
+  // single colo's count below the threshold. Send a large enough concurrent
+  // burst that at least one colo crosses 60 regardless of how the requests
+  // are spread, rather than assuming a single connection or colo.
+  const FLOOD_SIZE = 300;
   const httpCodes = await Promise.all(
-    Array.from({ length: 70 }, () => httpsStatus(installations[0].hostname)),
+    Array.from({ length: FLOOD_SIZE }, () => httpsStatus(installations[0].hostname)),
   );
   assert(httpCodes.slice(0, 10).includes(200));
   assert(httpCodes.includes(429));
