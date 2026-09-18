@@ -220,7 +220,13 @@ class DesktopBootstrapStore:
         self.credentials.set(installation_id, credential)
         try:
             current.active = metadata
-            current.enrollment_nonce = None
+            # Deliberately retained (not cleared): this nonce is the durable
+            # installation identity. The control plane treats a replayed
+            # enrollment of this exact nonce as "the rightful owner is
+            # re-enabling" and reprovisions the SAME hostname with a fresh
+            # generation/credential instead of minting a new installation.
+            # Clearing it here (as before) meant every disable->enable cycle
+            # discarded the identity and got a brand-new "sp-<id>" hostname.
             self._write(current)
         except Exception:
             self.credentials.delete(installation_id)
@@ -249,7 +255,12 @@ class DesktopBootstrapStore:
         state = self.state()
         if state.active is not None and state.active.installation_id == metadata.installation_id:
             state.active = None
-            state.enrollment_nonce = None
+            # Note: enrollment_nonce is intentionally left in place. It is
+            # the durable installation identity, not a revocable secret --
+            # the control plane never returns it and clearing it here would
+            # force every re-enable to mint a brand-new installation/hostname
+            # (see ensure_enrolled()). The credential and remote tunnel/DNS
+            # are still genuinely revoked above and by the caller.
             self._write(state)
 
     def _write(self, state: BootstrapState) -> None:

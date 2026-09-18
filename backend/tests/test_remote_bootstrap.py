@@ -57,12 +57,38 @@ class FakeControlPlane:
         self.fail_revoke = False
         self.offline = False
         self.enrollment_nonce = ""
+        # Models the real control plane's per-nonce idempotency: the same
+        # enrollment nonce always maps back to the same installation, and a
+        # revoked installation reactivated via a replayed nonce comes back
+        # with a fresh credential (a new "generation" of the same identity).
+        self._nonce_to_id: dict[str, str] = {}
+        self._credential_generation = 0
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if self.offline:
             raise httpx.ConnectError("test outage")
         if request.url.path.endswith("/v1/installations/enroll"):
-            self.enrollment_nonce = str(json.loads(request.content)["nonce"])
+            nonce = str(json.loads(request.content)["nonce"])
+            self.enrollment_nonce = nonce
+            installation_id = self._nonce_to_id.get(nonce)
+            if installation_id is None:
+                installation_id = str(self.payload["installationId"])
+                self._nonce_to_id[nonce] = installation_id
+            elif self.revoked:
+                # Reactivation of a previously revoked installation: same
+                # durable id/hostname, brand-new credential.
+                self.revoked = False
+                self._credential_generation += 1
+            credential = f"spi_{installation_id}." + "s" * 43
+            if self._credential_generation:
+                credential = f"spi_{installation_id}." + f"g{self._credential_generation}".ljust(
+                    43, "s"
+                )
+            self.payload = {
+                "installationId": installation_id,
+                "hostname": f"sp-{installation_id}.remote.example.com",
+                "installationCredential": credential,
+            }
             return httpx.Response(201, json=self.payload)
         if self.reject_credential:
             return httpx.Response(401, json={"error": "unauthorized"})
@@ -163,9 +189,12 @@ def test_first_enable_transparently_enrolls_and_keeps_credential_native(tmp_path
     assert credentials.get(active.installation_id) == payload["installationCredential"]
     serialized = store.path.read_text(encoding="utf-8")
     assert str(payload["installationCredential"]) not in serialized
-    assert store.state().enrollment_nonce is None
+    # The enrollment nonce is the durable installation identity and is
+    # deliberately retained (not cleared) after a successful enrollment so
+    # that a later disable -> enable cycle can replay it and reprovision the
+    # SAME hostname instead of minting a brand-new installation.
+    assert store.state().enrollment_nonce == fake.enrollment_nonce
     assert active.bundle_id == active.installation_id
-    assert fake.enrollment_nonce not in serialized
 
 
 def test_new_16_char_installation_id_validates_alongside_legacy_32_char(tmp_path: Path) -> None:
@@ -230,7 +259,9 @@ def test_enrollment_honors_retry_after_with_backoff_and_jitter(tmp_path: Path) -
     assert sleeps == [2.0, 2.0]
 
 
-def test_desktop_enable_restart_and_permanent_disable(tmp_path: Path) -> None:
+def test_desktop_disable_then_enable_reprovisions_same_hostname_new_generation(
+    tmp_path: Path,
+) -> None:
     manager, credentials, fake, payload = manager_fixture(tmp_path)
 
     enabled = manager.enable()
@@ -240,12 +271,16 @@ def test_desktop_enable_restart_and_permanent_disable(tmp_path: Path) -> None:
     assert desired.enabled and desired.generation == manager.feature.intent().generation
     assert active is not None
     assert manager.bootstrap.credential(active) == payload["installationCredential"]
+    original_installation_id = active.installation_id
+    original_hostname = active.hostname
+    original_credential = manager.bootstrap.credential(active)
 
     restarted = DesktopRemoteManager(
         manager.root,
         manager.cloudflared_binary,
         bootstrap_store=manager.bootstrap,
         transport=httpx.MockTransport(fake),
+        control_plane_origin="https://control.example.com",
     )
     restarted.reconcile_control()
     assert restarted.feature.intent().enabled
@@ -256,17 +291,44 @@ def test_desktop_enable_restart_and_permanent_disable(tmp_path: Path) -> None:
     assert disabled["provisioned"] is False
     assert not read_desired(restarted.desired_path).enabled
     assert not restarted.installation_dir.joinpath("connector.token").exists()
-    assert credentials.get(str(payload["installationId"])) is None
+    assert credentials.get(original_installation_id) is None
+    # Disable genuinely revokes the credential/tunnel, but the durable
+    # installation identity (enrollment nonce) must survive locally so
+    # re-enable can reprovision the SAME hostname.
+    assert restarted.bootstrap.state().enrollment_nonce == fake.enrollment_nonce
+    assert restarted.bootstrap.state().active is None
 
-    replacement = bundle_payload("b" * 32)
-    replacement_control = FakeControlPlane(replacement)
-    restarted.transport = httpx.MockTransport(replacement_control)
-    restarted.control_plane_origin = "https://control.example.com"
     reenabled = restarted.enable()
     assert reenabled["provisioned"] is True
-    active_replacement = restarted.bootstrap.state().active
-    assert active_replacement is not None
-    assert active_replacement.installation_id == "b" * 32
+    active_after = restarted.bootstrap.state().active
+    assert active_after is not None
+    # SAME hostname / installation id ...
+    assert active_after.installation_id == original_installation_id
+    assert active_after.hostname == original_hostname
+    # ... but a NEW generation (fresh credential) was issued.
+    new_credential = restarted.bootstrap.credential(active_after)
+    assert new_credential != original_credential
+    assert credentials.get(original_installation_id) == new_credential
+
+    # A different owner replaying a different (unrelated) nonce must never
+    # collide with this reactivated installation.
+    other_payload = bundle_payload("f" * 32)
+    other_credentials = MemoryCredentials()
+    other_store = verified_store(tmp_path / "other/bootstrap.json", other_credentials)
+    other_fake = FakeControlPlane(other_payload)
+    other_manager = DesktopRemoteManager(
+        tmp_path / "other",
+        manager.cloudflared_binary,
+        bootstrap_store=other_store,
+        transport=httpx.MockTransport(other_fake),
+        control_plane_origin="https://control.example.com",
+    )
+    other_enabled = other_manager.enable()
+    assert other_enabled["provisioned"] is True
+    other_active = other_store.state().active
+    assert other_active is not None
+    assert other_active.installation_id != original_installation_id
+
 
 
 def test_revoke_failure_closes_local_access_and_retries_after_restart(tmp_path: Path) -> None:
