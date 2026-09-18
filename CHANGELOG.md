@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.104-beta.2] - 2026-09-18
+
+### Fixed
+
+- Add a release-channel (STABLE / BETA) toggle to the frontend updater path.
+- Use a 16-hex-character `randomHex(8)` label in the control plane instead of
+  a shorter/weaker identifier.
+- Retain the enrollment nonce as the durable installation identity across
+  `finish_revoke()` so re-enabling after a disable does not mint a new
+  identity.
+- Move the Remote Access settings entry point inside the Backend Settings
+  widget.
+
 ## [Unreleased]
 
 ### Added
