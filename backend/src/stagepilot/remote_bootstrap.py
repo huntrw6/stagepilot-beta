@@ -29,7 +29,8 @@ TRUSTED_CONTROL_PLANE_ORIGINS = frozenset(
 _HOSTNAME = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
 )
-_CREDENTIAL = re.compile(r"^spi_([a-f0-9]{32})\.([A-Za-z0-9_-]{32,})$")
+_INSTALLATION_ID = re.compile(r"^[a-f0-9]{16}$|^[a-f0-9]{32}$")
+_CREDENTIAL = re.compile(r"^spi_([a-f0-9]{16}|[a-f0-9]{32})\.([A-Za-z0-9_-]{32,})$")
 
 
 class RemoteCredentialStore(Protocol):
@@ -106,7 +107,7 @@ class BootstrapMetadata(BaseModel):
     version: int
     bundle_id: str = Field(alias="bundleId")
     control_plane_origin: str = Field(alias="controlPlaneOrigin")
-    installation_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")] = Field(
+    installation_id: Annotated[str, Field(pattern=r"^[a-f0-9]{16}$|^[a-f0-9]{32}$")] = Field(
         alias="installationId"
     )
     hostname: str
@@ -197,7 +198,7 @@ class DesktopBootstrapStore:
         match = _CREDENTIAL.fullmatch(credential) if isinstance(credential, str) else None
         if (
             not isinstance(installation_id, str)
-            or not re.fullmatch(r"[a-f0-9]{32}", installation_id)
+            or not _INSTALLATION_ID.fullmatch(installation_id)
             or match is None
             or match.group(1) != installation_id
             or not isinstance(hostname, str)

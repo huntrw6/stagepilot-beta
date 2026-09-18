@@ -93,6 +93,7 @@ class PersistentSettings(BaseModel):
     lan_access: bool = False
     web_dashboard_pin_enabled: bool = True
     web_dashboard_pin_hash: str | None = Field(default=None, exclude=True)
+    release_channel: Literal["STABLE", "BETA"] = "BETA"
     planning_center: PersistentPlanningCenterSettings = Field(
         default_factory=PersistentPlanningCenterSettings
     )

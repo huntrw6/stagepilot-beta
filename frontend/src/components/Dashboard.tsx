@@ -594,11 +594,6 @@ export function Dashboard({
         </div>
       </header>
 
-      {canConfigure && <details className="mb-4 text-sm text-slate-200">
-        <summary className="cursor-pointer">Settings</summary>
-        <button className="mt-2 rounded-lg border border-white/20 px-3 py-2" type="button"
-          onClick={() => setRemoteOpen(true)}>Remote Access</button>
-      </details>}
       {canConfigure && remoteOpen && <RemoteAccessPanel onClose={() => setRemoteOpen(false)} />}
 
       {canConfigure && updater && (
@@ -794,6 +789,7 @@ export function Dashboard({
           live={live}
           message={settingsMessage}
           onClose={closeConnection}
+          onOpenRemoteAccess={() => setRemoteOpen(true)}
           onSave={saveGeneralSettings}
           pending={pendingSettingsOperation}
           settings={settings}

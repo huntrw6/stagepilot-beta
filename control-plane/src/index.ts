@@ -36,6 +36,10 @@ interface Installation {
   statusRate?: RateWindow;
   mutationRate?: RateWindow;
   providerConfirmedAt?: number;
+  // Bumped whenever a revoked installation is reactivated so its
+  // installation credential rotates to a fresh value even though the
+  // durable id/hostname stay the same.
+  credentialGeneration?: number;
 }
 
 interface RateWindow {
@@ -285,12 +289,12 @@ export class Registry {
         if (!(await this.isAdmin(request))) return reply({ error: 'unauthorized' }, 401);
         return reply(await this.stats());
       }
-      const adminRevoke = url.pathname.match(/^\/v1\/admin\/installations\/([a-f0-9]{32})\/revoke$/);
+      const adminRevoke = url.pathname.match(/^\/v1\/admin\/installations\/([a-f0-9]{16}|[a-f0-9]{32})\/revoke$/);
       if (request.method === 'POST' && adminRevoke) {
         if (!(await this.isAdmin(request))) return reply({ error: 'unauthorized' }, 401);
         return await this.withProviderLane('recovery', () => this.adminRevoke(adminRevoke[1]));
       }
-      const route = url.pathname.match(/^\/v1\/installations\/([a-f0-9]{32})\/(status|provision|disable|revoke|reconcile)$/);
+      const route = url.pathname.match(/^\/v1\/installations\/([a-f0-9]{16}|[a-f0-9]{32})\/(status|provision|disable|revoke|reconcile)$/);
       if (!route) return reply({ error: 'not found' }, 404);
       const installation = await this.state.storage.get<Installation>(`installation:${route[1]}`);
       if (!installation || installation.revoked || !(await this.isInstallation(request, installation))) {
@@ -555,7 +559,7 @@ export class Registry {
   }
 
 
-  private async credential(id: string): Promise<string> {
+  private async credential(id: string, generation = 0): Promise<string> {
     const key = await crypto.subtle.importKey(
       'raw',
       new TextEncoder().encode(this.env.INSTALLATION_SIGNING_KEY),
@@ -564,7 +568,11 @@ export class Registry {
       ['sign'],
     );
     const signature = new Uint8Array(
-      await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`stagepilot-installation:${id}`)),
+      await crypto.subtle.sign(
+        'HMAC',
+        key,
+        new TextEncoder().encode(`stagepilot-installation:${id}:${generation}`),
+      ),
     );
     return `spi_${id}.${encodeBase64Url(signature)}`;
   }
@@ -572,7 +580,7 @@ export class Registry {
   private async isInstallation(request: Request, installation: Installation): Promise<boolean> {
     const token = bearer(request);
     if (!token.startsWith(`spi_${installation.id}.`)) return false;
-    return equalSecret(token, await this.credential(installation.id));
+    return equalSecret(token, await this.credential(installation.id, installation.credentialGeneration ?? 0));
   }
 
   private async enroll(request: Request): Promise<Response> {
@@ -586,6 +594,36 @@ export class Registry {
     let installation = id
       ? await this.state.storage.get<Installation>(`installation:${id}`)
       : undefined;
+    if (installation?.revoked) {
+      // The rightful owner (the only party who knows this installation's
+      // enrollment nonce) is re-enabling after a prior disable/revoke.
+      // Reprovision the SAME hostname with a fresh generation on next
+      // /provision, instead of minting a brand-new installation identity.
+      // A different owner can never reach this branch: they would need to
+      // know this exact nonce, which is never exposed by any API response.
+      const stats = await this.stats();
+      if ((this.env.ENROLLMENT_ENABLED ?? 'true') !== 'true') {
+        await this.bumpDenied(stats, 'enrollmentDenied');
+        throw new Limited(503, 300, 'enrollment unavailable');
+      }
+      if (stats.activeInstallations >= this.installationLimit()) {
+        await this.bumpDenied(stats, 'enrollmentDenied');
+        throw new Limited(503, 300, 'enrollment unavailable');
+      }
+      installation.revoked = false;
+      installation.phase = 'disabled';
+      installation.desiredEnabled = false;
+      delete installation.generation;
+      delete installation.tunnelId;
+      delete installation.providerConfirmedAt;
+      installation.credentialGeneration = (installation.credentialGeneration ?? 0) + 1;
+      installation.updatedAt = new Date().toISOString();
+      stats.activeInstallations += 1;
+      await this.state.storage.put({
+        [`installation:${id}`]: installation,
+        'registry:stats': stats,
+      });
+    }
     if (!installation) {
       const stats = await this.stats();
       if ((this.env.ENROLLMENT_ENABLED ?? 'true') !== 'true') {
@@ -613,7 +651,9 @@ export class Registry {
         await this.bumpDenied(stats, 'enrollmentDenied');
         throw new Limited(503, 300, 'enrollment unavailable');
       }
-      id = randomHex(16);
+      // New enrollments get a 16-hex-char id (sp-<16 hex chars> hostname
+      // label); existing 32-char installations keep working unchanged.
+      id = randomHex(8);
       const now = new Date().toISOString();
       installation = {
         id,
@@ -642,7 +682,7 @@ export class Registry {
     }
     return reply({
       ...publicInstallation(installation),
-      installationCredential: await this.credential(installation.id),
+      installationCredential: await this.credential(installation.id, installation.credentialGeneration ?? 0),
     }, 201);
   }
 

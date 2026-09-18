@@ -4,11 +4,12 @@ const mocks = vi.hoisted(() => ({
   getVersion: vi.fn().mockResolvedValue("1.2.0"),
   invoke: vi.fn().mockResolvedValue(undefined),
   isTauri: vi.fn(() => true),
-  check: vi.fn(),
   unminimize: vi.fn().mockResolvedValue(undefined),
   show: vi.fn().mockResolvedValue(undefined),
   setFocus: vi.fn().mockResolvedValue(undefined),
   saveWindowState: vi.fn().mockResolvedValue(undefined),
+  download: vi.fn(),
+  install: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: mocks.getVersion }));
@@ -24,7 +25,31 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  // Minimal stand-in for the plugin's `Update` class: the adapter only
+  // reads currentVersion/version/body/date off it and calls download/install.
+  Update: class {
+    currentVersion: string;
+    version: string;
+    body: string | null;
+    date: string | null;
+    download: typeof mocks.download;
+    install: typeof mocks.install;
+    constructor(metadata: {
+      currentVersion: string;
+      version: string;
+      body?: string | null;
+      date?: string | null;
+    }) {
+      this.currentVersion = metadata.currentVersion;
+      this.version = metadata.version;
+      this.body = metadata.body ?? null;
+      this.date = metadata.date ?? null;
+      this.download = mocks.download;
+      this.install = mocks.install;
+    }
+  },
+}));
 vi.mock("@tauri-apps/plugin-window-state", () => ({
   saveWindowState: mocks.saveWindowState,
   StateFlags: { ALL: 63 },
@@ -62,34 +87,37 @@ describe("Tauri updater adapter relaunch state", () => {
   });
 
   it("stops the managed backend after download and before launching the installer", async () => {
-    const download = vi.fn().mockImplementation(async (onEvent) => {
+    mocks.download.mockImplementation(async (onEvent: (event: unknown) => void) => {
       onEvent?.({ event: "Started", data: { contentLength: 100 } });
       onEvent?.({ event: "Progress", data: { chunkLength: 100 } });
       onEvent?.({ event: "Finished" });
     });
-    const install = vi.fn().mockResolvedValue(undefined);
-    mocks.check.mockResolvedValue({
-      rid: 1,
-      currentVersion: "1.1.43",
-      version: "1.1.44",
-      body: null,
-      date: null,
-      download,
-      install,
+    mocks.install.mockResolvedValue(undefined);
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "check_for_update_on_channel") {
+        return {
+          rid: 1,
+          currentVersion: "1.1.43",
+          version: "1.1.44",
+          body: null,
+          date: null,
+        };
+      }
+      return undefined;
     });
 
-    const candidate = await tauriUpdaterAdapter.check();
+    const candidate = await tauriUpdaterAdapter.check({ betaEnabled: false });
     const progress = vi.fn();
     await candidate!.install(progress);
 
-    expect(download).toHaveBeenCalledOnce();
+    expect(mocks.download).toHaveBeenCalledOnce();
     expect(mocks.invoke).toHaveBeenCalledWith("prepare_for_update");
-    expect(install).toHaveBeenCalledOnce();
-    expect(download.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.invoke.mock.invocationCallOrder[0]!,
+    expect(mocks.install).toHaveBeenCalledOnce();
+    expect(mocks.download.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.invoke.mock.invocationCallOrder[1]!,
     );
-    expect(mocks.invoke.mock.invocationCallOrder[0]).toBeLessThan(
-      install.mock.invocationCallOrder[0]!,
+    expect(mocks.invoke.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.install.mock.invocationCallOrder[0]!,
     );
     expect(progress).toHaveBeenLastCalledWith({
       downloadedBytes: 100,
@@ -97,6 +125,27 @@ describe("Tauri updater adapter relaunch state", () => {
       percentage: 100,
       stage: "installing",
     });
+  });
+
+  it.each([
+    { betaEnabled: false },
+    { betaEnabled: true },
+  ])(
+    "resolves $betaEnabled channel by invoking check_for_update_on_channel with betaEnabled=$betaEnabled",
+    async ({ betaEnabled }) => {
+      mocks.invoke.mockResolvedValue(null);
+
+      const candidate = await tauriUpdaterAdapter.check({ betaEnabled });
+
+      expect(candidate).toBeNull();
+      expect(mocks.invoke).toHaveBeenCalledWith("check_for_update_on_channel", { betaEnabled });
+    },
+  );
+
+  it("returns null cleanly when no update is available on either channel", async () => {
+    mocks.invoke.mockResolvedValue(null);
+    const candidate = await tauriUpdaterAdapter.check({ betaEnabled: true });
+    expect(candidate).toBeNull();
   });
 
   it("restores, unminimizes, shows, and focuses only after a matching update", async () => {
