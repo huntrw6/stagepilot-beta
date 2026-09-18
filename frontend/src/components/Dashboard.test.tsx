@@ -668,7 +668,7 @@ describe("Dashboard widget layout", () => {
     expect(screen.queryByText("Optional")).not.toBeInTheDocument();
   });
 
-  it("adds intentional spacers and confirms before resetting them", async () => {
+  it("adds intentional spacers and resets them without confirmation", async () => {
     window.localStorage.removeItem("stagepilot.dashboard-layout.v2");
     const user = userEvent.setup();
     renderDashboard(loadedServiceState);
@@ -681,9 +681,7 @@ describe("Dashboard widget layout", () => {
     expect(customized.desktop.some((item: { kind: string }) => item.kind === "spacer")).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "Reset layout" }));
-    const dialog = screen.getByRole("dialog", { name: "Reset dashboard layout?" });
-    expect(dialog).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Reset layout" }));
+    expect(screen.queryByRole("dialog", { name: "Reset dashboard layout?" })).not.toBeInTheDocument();
 
     const reset = JSON.parse(window.localStorage.getItem("stagepilot.dashboard-layout.v2")!);
     expect(reset.desktop.some((item: { kind: string }) => item.kind === "spacer")).toBe(false);

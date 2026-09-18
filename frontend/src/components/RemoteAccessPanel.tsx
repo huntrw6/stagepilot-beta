@@ -3,13 +3,14 @@ import { useDashboardAccess } from "../access/AccessContext";
 import { invalidateAccess } from "../access/accessState";
 import {
   ApiError, bootstrapRemote, createRemoteUser, deleteRemoteUser, getRemoteStatus,
-  getRemoteUsers, setRemoteEnabled, updateRemoteUser,
+  getRemoteUsers, regenerateRemote, setRemoteEnabled, updateRemoteUser,
   type RemoteStatus, type RemoteUser,
 } from "../api";
 import { setRemoteAutostart } from "../desktop";
 
-const button = "rounded-lg border border-white/20 px-3 py-2 text-sm text-slate-100 disabled:opacity-40";
-const input = "rounded-lg border border-white/20 bg-slate-950 p-2 text-white";
+const button = "rounded-lg border border-white/20 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-40";
+const primaryButton = "rounded-lg border border-rose-400/40 bg-rose-500 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:opacity-40";
+const input = "w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-rose-400/50";
 const labels: Record<RemoteStatus["state"], string> = {
   off: "Off", enabling: "Enabling…", connected: "Connected", reconnecting: "Reconnecting…", error: "Connection unavailable",
 };
@@ -33,7 +34,7 @@ function friendlyError(cause: unknown): string {
   return "Remote Access is unavailable. Local StagePilot is unaffected. Try again shortly.";
 }
 
-export function RemoteAccessPanel({ onClose }: { onClose: () => void }) {
+export function RemoteAccessPanel() {
   const access = useDashboardAccess();
   const [status, setStatus] = useState<RemoteStatus | null>(null);
   const [users, setUsers] = useState<RemoteUser[]>([]);
@@ -46,6 +47,7 @@ export function RemoteAccessPanel({ onClose }: { onClose: () => void }) {
   const [role, setRole] = useState<RemoteUser["role"]>("Viewer");
   const [edit, setEdit] = useState<RemoteUser | null>(null);
   const [confirmDisable, setConfirmDisable] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const alive = useRef(true);
   const inFlight = useRef(false);
   const canManage = access.authenticated && access.capabilities.canConfigure;
@@ -109,13 +111,11 @@ export function RemoteAccessPanel({ onClose }: { onClose: () => void }) {
   };
   const url = status?.state === "connected" ? safeUrl(status.url) : null;
   const operators = users.filter((user) => user.enabled && user.role === "Operator").length;
-  if (!canManage) return <section aria-label="Remote Access"><p>Read-only access. An Operator manages Remote Access.</p></section>;
+  if (!canManage) return <div aria-label="Remote Access"><p className="text-sm text-slate-300">Read-only access. An Operator manages Remote Access.</p></div>;
 
-  return <section aria-label="Remote Access" className="mb-5 space-y-4 rounded-xl border border-white/10 bg-slate-950/80 p-5">
-    <div className="flex items-center justify-between"><h2 className="text-lg font-bold text-white">Remote Access</h2>
-      <button type="button" className={button} onClick={onClose}>Close Remote Access</button></div>
+  return <div aria-label="Remote Access" className="space-y-4">
     <p className="text-sm text-slate-300">Securely view or operate this StagePilot from another device. Local operation continues if Remote disconnects.</p>
-    <p role="status" className="text-sky-200">{status ? labels[status.state] : "Checking Remote Access…"}</p>
+    <p role="status" className="text-sm text-sky-200">{status ? labels[status.state] : "Checking Remote Access…"}</p>
     {status?.temporary_url ?
       <p className="text-sm text-amber-200">Temporary Remote link: the address changes after reconnection or restart. This preview is not a permanent remote address.</p> :
       <p className="text-sm text-sky-200">Stable Remote link: this installation keeps the same address after reconnecting.</p>}
@@ -124,38 +124,54 @@ export function RemoteAccessPanel({ onClose }: { onClose: () => void }) {
     {status?.state === "error" && <p className="text-sm text-slate-300">Check your Internet connection. You can disable Remote and try enabling it again.</p>}
     {status?.state === "reconnecting" && <p className="text-sm text-slate-300">Reconnecting. Check here for the current link once connected.</p>}
 
-    {url && <div className="flex flex-wrap items-center gap-3">
+    {url && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3">
       <output aria-label="Remote URL" className="break-all text-sm text-sky-200">{url}</output>
       <button className={button} type="button" onClick={() => {
         if (!navigator.clipboard) { setError("Copy unavailable. Select and copy the link above."); return; }
         void navigator.clipboard.writeText(url).then(() => setNotice("Link copied."), () => setError("Copy unavailable. Select and copy the link above."));
       }}>Copy link</button>
-      <a className={button} href={url} target="_blank" rel="noopener noreferrer">Open Remote</a>
+      <button className={button} disabled={busy} type="button" onClick={() => setConfirmRegenerate(true)}>Regenerate Remote link</button>
+      {!status?.enabled ? null : <button className={button} disabled={busy} type="button" onClick={() => setConfirmDisable(true)}>Disable Remote Access</button>}
     </div>}
-    {!status?.enabled ? <button className={button} disabled={busy || !status?.available || Boolean(status?.provisioned && !status?.credential_available)} type="button" onClick={() => {
+    {confirmRegenerate && <div role="group" aria-label="Confirm regenerate Remote link" className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-3">
+      <p className="text-sm text-amber-200">
+        The current Remote link will stop working. Anyone using the old address will lose access. Continue?
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <button className={primaryButton} disabled={busy} type="button" onClick={() => {
+          setConfirmRegenerate(false);
+          void run(async () => { await regenerateRemote(); });
+        }}>Confirm regenerate</button>
+        <button className={button} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
+      </div>
+    </div>}
+    {!url && !status?.enabled && <button className={primaryButton} disabled={busy || !status?.available || Boolean(status?.provisioned && !status?.credential_available)} type="button" onClick={() => {
       if (status?.needs_operator) { if (local) setBootstrap(true); }
       else void run(async () => { await setRemoteEnabled(true); await setRemoteAutostart(true); });
-    }}>Enable Remote Access</button> : <button className={button} disabled={busy} type="button" onClick={() => setConfirmDisable(true)}>Disable Remote Access</button>}
-    {confirmDisable && <div role="group" aria-label="Confirm disable Remote Access" className="space-x-3">
+    }}>Enable Remote Access</button>}
+    {!url && status?.enabled && <button className={button} disabled={busy} type="button" onClick={() => setConfirmDisable(true)}>Disable Remote Access</button>}
+    {confirmDisable && <div role="group" aria-label="Confirm disable Remote Access" className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-3">
       <p className="text-sm text-amber-200">Disconnect all Remote users? Local StagePilot will keep running.</p>
-      <button className={button} disabled={busy} type="button" onClick={() => {
-        setConfirmDisable(false); void run(async () => {
-          await setRemoteEnabled(false); await setRemoteAutostart(false);
-        }, true);
-      }}>Confirm disable</button>
-      <button className={button} type="button" onClick={() => setConfirmDisable(false)}>Cancel</button>
+      <div className="flex flex-wrap gap-3">
+        <button className={primaryButton} disabled={busy} type="button" onClick={() => {
+          setConfirmDisable(false); void run(async () => {
+            await setRemoteEnabled(false); await setRemoteAutostart(false);
+          }, true);
+        }}>Confirm disable</button>
+        <button className={button} type="button" onClick={() => setConfirmDisable(false)}>Cancel</button>
+      </div>
     </div>}
-    {status?.needs_operator && !local && <p>Create the first Operator from local StagePilot.</p>}
-    {bootstrap && local && <h3 className="font-bold text-white">Create first Operator</h3>}
+    {status?.needs_operator && !local && <p className="text-sm text-slate-300">Create the first Operator from local StagePilot.</p>}
+    {bootstrap && local && <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Create first Operator</h3>}
     {(bootstrap && local || status && !status.needs_operator) && <>
-      {!bootstrap && <h3 className="font-bold text-white">Remote users</h3>}
+      {!bootstrap && <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Remote users</h3>}
       <p className="text-sm text-slate-300">Viewers are read-only. Operators can control StagePilot and manage users. Keep at least one enabled Operator. User changes revoke that user's sessions.</p>
       {!bootstrap && <ul className="space-y-3">{users.map((user) => {
         const last = user.enabled && user.role === "Operator" && operators <= 1;
         const self = user.email === access.user?.email;
-        return <li key={user.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 p-3">
-          <span className="text-sm text-white">{user.email} · {user.enabled ? "Enabled" : "Disabled"}{last ? " · Last Operator" : ""}</span>
-          <label className="text-sm text-slate-300">Role for {user.email} <select className={input} value={user.role} disabled={busy || last}
+        return <li key={user.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300">
+          <span className="text-sm text-slate-200">{user.email} · {user.enabled ? "Enabled" : "Disabled"}{last ? " · Last Operator" : ""}</span>
+          <label className="text-sm text-slate-300">Role for {user.email} <select className="ml-1 rounded-lg border border-white/10 bg-slate-950 px-2 py-1.5 text-slate-100" value={user.role} disabled={busy || last}
             onChange={(event) => {
               const nextRole = event.target.value as RemoteUser["role"];
               if (user.role === "Operator" && nextRole === "Viewer" && !window.confirm(`Change ${user.email} to Viewer and revoke their Remote sessions?`)) return;
@@ -174,14 +190,23 @@ export function RemoteAccessPanel({ onClose }: { onClose: () => void }) {
       })}</ul>}
       {operators === 1 && <p className="text-sm text-amber-200">Last Operator protection is active. Add or enable another Operator before changing or deleting the remaining Operator.</p>}
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
-        {!edit && <label className="grid gap-1 text-sm text-slate-300">Email<input className={input} type="email" autoComplete="off" required maxLength={254} disabled={busy} value={email} onChange={(e) => setEmail(e.target.value)} /></label>}
-        <label className="grid gap-1 text-sm text-slate-300">{edit ? `New password for ${edit.email}` : "Password"}<input className={input} type="password" autoComplete="new-password" required minLength={12} maxLength={1024} disabled={busy} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-        {!edit && !bootstrap && <label className="grid gap-1 text-sm text-slate-300">New user role<select className={input} disabled={busy} value={role} onChange={(e) => setRole(e.target.value as RemoteUser["role"])}><option>Viewer</option><option>Operator</option></select></label>}
-        <button className={button} disabled={busy} type="submit">{bootstrap ? "Create Operator and enable" : edit ? "Save password" : "Add user"}</button>
+        {!edit && <label className="grid gap-1 text-sm text-slate-300">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Email</span>
+          <input className={input} type="email" autoComplete="off" required maxLength={254} disabled={busy} value={email} onChange={(e) => setEmail(e.target.value)} />
+        </label>}
+        <label className="grid gap-1 text-sm text-slate-300">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{edit ? `New password for ${edit.email}` : "Password"}</span>
+          <input className={input} type="password" autoComplete="new-password" required minLength={12} maxLength={1024} disabled={busy} value={password} onChange={(e) => setPassword(e.target.value)} />
+        </label>
+        {!edit && !bootstrap && <label className="grid gap-1 text-sm text-slate-300">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">New user role</span>
+          <select className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100" disabled={busy} value={role} onChange={(e) => setRole(e.target.value as RemoteUser["role"])}><option>Viewer</option><option>Operator</option></select>
+        </label>}
+        <button className={primaryButton} disabled={busy} type="submit">{bootstrap ? "Create Operator and enable" : edit ? "Save password" : "Add user"}</button>
         {(edit || bootstrap) && <button className={button} type="button" onClick={() => {setEdit(null); setBootstrap(false); setPassword("");}}>Cancel</button>}
       </form>
     </>}
-    {notice && <p role="status" className="text-sky-200">{notice}</p>}
-    {error && <p role="alert" className="text-rose-300">{error}</p>}
-  </section>;
+    {notice && <p role="status" className="text-sm text-sky-200">{notice}</p>}
+    {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+  </div>;
 }

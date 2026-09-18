@@ -263,5 +263,25 @@ class DesktopBootstrapStore:
             # are still genuinely revoked above and by the caller.
             self._write(state)
 
+    def discard_identity(self, metadata: BootstrapMetadata) -> None:
+        """Force a genuinely new installation/hostname on the next enrollment.
+
+        Unlike `finish_revoke` (which deliberately keeps the enrollment
+        nonce so a disable/enable cycle reprovisions the SAME installation),
+        this clears the nonce too, so the next `ensure_enrolled` call mints a
+        brand-new installation id and hostname. Used for an explicit
+        "Regenerate Remote link" -- the previous credential/tunnel/DNS are
+        revoked by the caller first; this only retires the local identity
+        record so a fresh one is issued.
+        """
+
+        self.credentials.delete(metadata.installation_id)
+        state = self.state()
+        if state.active is not None and state.active.installation_id == metadata.installation_id:
+            state.active = None
+        if state.enrollment_nonce is not None:
+            state.enrollment_nonce = None
+        self._write(state)
+
     def _write(self, state: BootstrapState) -> None:
         atomic_write(self.path, state.model_dump_json(by_alias=True))

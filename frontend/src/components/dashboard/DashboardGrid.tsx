@@ -32,7 +32,6 @@ import {
 } from "./dashboardLayoutTypes";
 import { DASHBOARD_WIDGETS } from "./dashboardWidgetRegistry";
 import { DashboardLayoutToolbar } from "./DashboardLayoutToolbar";
-import { DashboardResetDialog } from "./DashboardResetDialog";
 import { DashboardSpacer } from "./DashboardSpacer";
 import { DashboardWidgetFrame } from "./DashboardWidgetFrame";
 
@@ -129,7 +128,6 @@ export function DashboardGrid({
   const editing = canEditLayout && editingRequested;
   const [interactingId, setInteractingId] = useState<DashboardItemId | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [resetOpen, setResetOpen] = useState(false);
   const gridElement = useRef<HTMLDivElement>(null);
   const gridRef = useRef<GridStack | null>(null);
   const initialSizingDone = useRef(new Set<DashboardLayoutMode>());
@@ -435,7 +433,6 @@ export function DashboardGrid({
 
   const resetLayout = useCallback(() => {
     commitLayout(createDefaultDashboardLayout());
-    setResetOpen(false);
     setAnnouncement("Dashboard layout reset");
   }, [commitLayout]);
 
@@ -498,13 +495,8 @@ export function DashboardGrid({
         onCompact={() => compactGrid(true)}
         onDone={() => setEditing(false)}
         onEdit={() => setEditing(true)}
-        onReset={() => setResetOpen(true)}
+        onReset={resetLayout}
       />}
-      <DashboardResetDialog
-        onCancel={() => setResetOpen(false)}
-        onConfirm={resetLayout}
-        open={canEditLayout && resetOpen}
-      />
     </section>
   );
 }

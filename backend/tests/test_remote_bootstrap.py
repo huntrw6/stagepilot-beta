@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -12,6 +13,7 @@ from stagepilot.remote_bootstrap import DesktopBootstrapStore
 from stagepilot.remote_desktop import DesktopRemoteManager
 from stagepilot.remote_files import read_desired
 from stagepilot.remote_provider import ProviderError
+from stagepilot.services.remote_auth import RemoteRole, RemoteStore
 
 TEST_ORIGINS = frozenset({"https://control.example.com"})
 
@@ -72,7 +74,17 @@ class FakeControlPlane:
             self.enrollment_nonce = nonce
             installation_id = self._nonce_to_id.get(nonce)
             if installation_id is None:
-                installation_id = str(self.payload["installationId"])
+                if not self._nonce_to_id:
+                    # First-ever enrollment in this fake uses the fixture's
+                    # seeded installation id so existing assertions keep
+                    # matching a known value.
+                    installation_id = str(self.payload["installationId"])
+                else:
+                    # A genuinely new/unseen nonce (e.g. after a local
+                    # identity discard for "Regenerate Remote link") gets a
+                    # brand-new installation id from the control plane, not
+                    # a reuse of a previous installation's identity.
+                    installation_id = uuid4().hex
                 self._nonce_to_id[nonce] = installation_id
             elif self.revoked:
                 # Reactivation of a previously revoked installation: same
@@ -407,3 +419,77 @@ def test_missing_native_credential_fails_closed_without_reenrollment(tmp_path: P
     with pytest.raises(ProviderError, match="credential is unavailable"):
         manager.enable()
     assert manager.bootstrap.state().active is not None
+
+
+def test_regenerate_revokes_old_identity_and_provisions_a_new_hostname(tmp_path: Path) -> None:
+    manager, credentials, fake, payload = manager_fixture(tmp_path)
+    manager.enable()
+    original_installation_id = str(payload["installationId"])
+    original_hostname = manager.bootstrap.state().active.hostname  # type: ignore[union-attr]
+
+    result = manager.regenerate()
+
+    # Old identity's tunnel/credential were revoked (not merely disabled).
+    assert fake.revoked
+    assert credentials.get(original_installation_id) is None
+
+    # A genuinely new installation/hostname was provisioned.
+    new_active = manager.bootstrap.state().active
+    assert new_active is not None
+    assert new_active.installation_id != original_installation_id
+    assert new_active.hostname != original_hostname
+    assert result["provisioned"] is True
+    assert result["enabled"] is True
+
+    # Regeneration is idempotent / restart-safe: calling again does not
+    # error and produces another fresh identity without orphaning the
+    # previous one either.
+    second_installation_id = new_active.installation_id
+    second_hostname = new_active.hostname
+    manager.regenerate()
+    third_active = manager.bootstrap.state().active
+    assert third_active is not None
+    assert third_active.installation_id != second_installation_id
+    assert third_active.hostname != second_hostname
+    assert credentials.get(second_installation_id) is None
+
+
+def test_regenerate_cancel_path_makes_no_changes(tmp_path: Path) -> None:
+    """The UI's Cancel button must never call regenerate(); this documents
+    that plain status reads alone cannot mutate identity state."""
+
+    manager, credentials, fake, payload = manager_fixture(tmp_path)
+    manager.enable()
+    before = manager.status()
+    before_active = manager.bootstrap.state().active
+
+    for _ in range(3):
+        manager.status()
+
+    after = manager.status()
+    after_active = manager.bootstrap.state().active
+    assert before == after
+    assert before_active == after_active
+    assert not fake.revoked
+    assert credentials.get(str(payload["installationId"])) is not None
+
+
+def test_regenerate_preserves_remote_users_in_the_identity_store(tmp_path: Path) -> None:
+    """Remote Operators/Viewers live in the separate local identity SQLite
+    store (services.remote_auth), not in the bootstrap/tunnel identity this
+    module manages, so regenerating the installation hostname/credential
+    must never touch or drop them."""
+
+    manager, _, _, _ = manager_fixture(tmp_path)
+    manager.enable()
+
+    store = RemoteStore(tmp_path / "identity.sqlite3")
+    store.bootstrap("operator@example.test", "a-strong-password-123")
+    store.create_user("viewer@example.test", "another-strong-password-1", RemoteRole.VIEWER)
+    before_users = store.users()
+    assert len(before_users) == 2
+
+    manager.regenerate()
+
+    after_users = store.users()
+    assert after_users == before_users

@@ -18,10 +18,8 @@
         "title": "StagePilot",
         "width": 1440,
         "height": 960,
-        "minWidth": 1024,
-        "minHeight": 700,
-        "maxWidth": 1700,
-        "maxHeight": 2560,
+        "minWidth": 640,
+        "minHeight": 480,
         "decorations": false,
         "resizable": true,
         "fullscreen": false
