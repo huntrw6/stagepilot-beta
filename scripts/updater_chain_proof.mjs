@@ -136,8 +136,9 @@ try {
   proven.push("platform_inventory_enforced");
 
   // 11. The configured updater public key is real, not a placeholder, and the
-  //     base/main channel keeps the main endpoint while the release overlays
-  //     select the broker.
+  //     base/main channel and release overlays (Windows/macOS) all resolve
+  //     the same direct GitHub releases endpoint — the dead control-plane
+  //     broker must never be configured as an updater endpoint.
   const config = JSON.parse(fs.readFileSync(path.join(root, "desktop/src-tauri/tauri.conf.json"), "utf8"));
   const windows = JSON.parse(fs.readFileSync(path.join(root, "desktop/src-tauri/tauri.release.conf.json"), "utf8"));
   const macos = JSON.parse(fs.readFileSync(path.join(root, "desktop/src-tauri/tauri.macos.conf.json"), "utf8"));
@@ -147,8 +148,12 @@ try {
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json",
   ]);
-  assert.deepEqual(windows.plugins.updater.endpoints, [`${BROKER}/latest.json`]);
-  assert.deepEqual(macos.plugins.updater.endpoints, [`${BROKER}/latest.json`]);
+  assert.deepEqual(windows.plugins.updater.endpoints, [
+    "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json",
+  ]);
+  assert.deepEqual(macos.plugins.updater.endpoints, [
+    "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json",
+  ]);
   proven.push("public_key_and_endpoint_configuration");
 
   // 12. Every reserved beta version is distinct and well formed, so no release

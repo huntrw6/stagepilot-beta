@@ -3,7 +3,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json"
+        "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json"
       ]
     }
   },

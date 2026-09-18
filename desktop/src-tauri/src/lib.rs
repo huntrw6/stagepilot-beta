@@ -1216,12 +1216,61 @@ mod tests {
         );
         let windows: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
-        let beta_endpoint = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
-        assert_eq!(windows["plugins"]["updater"]["endpoints"][0], beta_endpoint);
-        assert_eq!(macos["plugins"]["updater"]["endpoints"][0], beta_endpoint);
+        let direct_github_endpoint =
+            "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json";
+        assert_eq!(
+            windows["plugins"]["updater"]["endpoints"][0],
+            direct_github_endpoint
+        );
+        assert_eq!(
+            macos["plugins"]["updater"]["endpoints"][0],
+            direct_github_endpoint
+        );
         assert!(config["plugins"]["updater"]["pubkey"]
             .as_str()
             .is_some_and(|value| !value.is_empty()));
+    }
+
+    /// Packaged release configs (Windows/macOS overlays) must never point the
+    /// updater at the dead control-plane release broker: `releaseAsset()` in
+    /// `control-plane/src/index.ts` returns 503 whenever
+    /// `GITHUB_RELEASE_TOKEN` is unset, which is the case for this beta.
+    /// Every packaged/release-config updater endpoint must be the direct,
+    /// anonymous GitHub releases URL instead.
+    #[test]
+    fn packaged_release_configs_never_point_at_the_dead_control_plane_broker() {
+        let dead_broker_endpoint =
+            "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
+        let direct_github_endpoint =
+            "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json";
+
+        for (name, contents) in [
+            ("tauri.conf.json", include_str!("../tauri.conf.json")),
+            (
+                "tauri.release.conf.json",
+                include_str!("../tauri.release.conf.json"),
+            ),
+            (
+                "tauri.macos.conf.json",
+                include_str!("../tauri.macos.conf.json"),
+            ),
+        ] {
+            let config: serde_json::Value = serde_json::from_str(contents).unwrap();
+            let Some(endpoints) = config["plugins"]["updater"]["endpoints"].as_array() else {
+                continue;
+            };
+            for endpoint in endpoints {
+                let endpoint = endpoint.as_str().unwrap_or_default();
+                assert_ne!(
+                    endpoint, dead_broker_endpoint,
+                    "{name} still points the updater at the dead control-plane broker"
+                );
+                assert_eq!(
+                    endpoint, direct_github_endpoint,
+                    "{name} updater endpoint should be the direct GitHub releases URL"
+                );
+            }
+        }
     }
 
     #[test]
