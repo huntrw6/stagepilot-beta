@@ -34,7 +34,6 @@ import type {
 } from "../types";
 import type { UpdaterController } from "../hooks/useUpdater";
 import { BackendSetupPanel } from "./BackendSetupPanel";
-import { RemoteAccessPanel } from "./RemoteAccessPanel";
 import { DashboardGrid } from "./dashboard/DashboardGrid";
 import { latestActiveError } from "./dashboard/dashboardActiveError";
 import {
@@ -287,7 +286,6 @@ export function Dashboard({
 }) {
   const { canOperate, canConfigure } = capabilities;
   const [activeConnection, setActiveConnection] = useState<ConnectionPanel | null>(null);
-  const [remoteOpen, setRemoteOpen] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const [notificationQueue, setNotificationQueue] = useState<HeaderNotification[]>([]);
   const [statusCompact, setStatusCompact] = useState(() => window.innerWidth <= 1_000);
@@ -594,7 +592,6 @@ export function Dashboard({
         </div>
       </header>
 
-      {canConfigure && remoteOpen && <RemoteAccessPanel onClose={() => setRemoteOpen(false)} />}
 
       {canConfigure && updater && (
         <UpdateDialog
@@ -789,7 +786,6 @@ export function Dashboard({
           live={live}
           message={settingsMessage}
           onClose={closeConnection}
-          onOpenRemoteAccess={() => setRemoteOpen(true)}
           onSave={saveGeneralSettings}
           pending={pendingSettingsOperation}
           settings={settings}

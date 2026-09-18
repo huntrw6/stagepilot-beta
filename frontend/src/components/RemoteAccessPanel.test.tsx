@@ -10,7 +10,7 @@ vi.mock("../api", async (original) => ({
   ...await original<typeof import("../api")>(),
   getRemoteStatus: vi.fn(), getRemoteUsers: vi.fn(), setRemoteEnabled: vi.fn(),
   bootstrapRemote: vi.fn(), createRemoteUser: vi.fn(),
-  updateRemoteUser: vi.fn(), deleteRemoteUser: vi.fn(),
+  updateRemoteUser: vi.fn(), deleteRemoteUser: vi.fn(), regenerateRemote: vi.fn(),
 }));
 vi.mock("../desktop", async (original) => ({
   ...await original<typeof import("../desktop")>(),
@@ -29,7 +29,7 @@ describe("Remote Access", () => {
   it("locally bootstraps Operator before enabling and clears password", async () => {
     vi.mocked(api.bootstrapRemote).mockResolvedValue(operator);
     vi.mocked(api.setRemoteEnabled).mockResolvedValue({...off, enabled: true, state: "enabling", needs_operator: false});
-    render(<RemoteAccessPanel onClose={vi.fn()} />);
+    render(<RemoteAccessPanel />);
     await waitFor(() => expect(screen.getByRole("button", {name: "Enable Remote Access"})).toBeEnabled());
     fireEvent.click(screen.getByRole("button", {name: "Enable Remote Access"}));
     fireEvent.change(screen.getByLabelText("Email"), {target: {value: operator.email}});
@@ -44,7 +44,7 @@ describe("Remote Access", () => {
   it("allows first use to enroll transparently while enabling", async () => {
     const unprovisioned = {...off, provisioned: false, credential_available: false};
     vi.mocked(api.getRemoteStatus).mockResolvedValue(unprovisioned);
-    render(<RemoteAccessPanel onClose={vi.fn()} />);
+    render(<RemoteAccessPanel />);
 
     expect(await screen.findByRole("button", {name: "Enable Remote Access"})).toBeEnabled();
     expect(screen.queryByText(/friend bundle/i)).not.toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("Remote Access", () => {
 
   it("blocks enable when the native installation credential is unavailable", async () => {
     vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, credential_available: false});
-    render(<RemoteAccessPanel onClose={vi.fn()} />);
+    render(<RemoteAccessPanel />);
 
     expect(await screen.findByText(/credential is unavailable or revoked/)).toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Enable Remote Access"})).toBeDisabled();
@@ -62,8 +62,8 @@ describe("Remote Access", () => {
   it("shows only safe connected URL and protects last Operator", async () => {
     vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, enabled: true, state: "connected", needs_operator: false, url: "https://test.trycloudflare.com"});
     vi.mocked(api.getRemoteUsers).mockResolvedValue([operator]);
-    render(<RemoteAccessPanel onClose={vi.fn()} />);
-    expect(await screen.findByRole("link", {name: "Open Remote"})).toHaveAttribute("href", "https://test.trycloudflare.com");
+    render(<RemoteAccessPanel />);
+    expect(await screen.findByLabelText("Remote URL")).toHaveTextContent("https://test.trycloudflare.com");
     expect(screen.getByText(/Temporary Remote link/)).toBeInTheDocument();
     expect(screen.getByRole("button", {name: `Delete ${operator.email}`})).toBeDisabled();
     expect(screen.getByRole("combobox", {name: `Role for ${operator.email}`})).toBeDisabled();
@@ -76,7 +76,7 @@ describe("Remote Access", () => {
 
   it("shows a stable-link label for named Remote", async () => {
     vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, enabled: true, state: "connected", needs_operator: false, url: "https://remote.example.test", temporary_url: false});
-    render(<RemoteAccessPanel onClose={vi.fn()} />);
+    render(<RemoteAccessPanel />);
     expect(await screen.findByText(/Stable Remote link/)).toBeInTheDocument();
     expect(screen.queryByText(/Temporary Remote link/)).not.toBeInTheDocument();
   });
@@ -85,7 +85,7 @@ describe("Remote Access", () => {
     vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, needs_operator: false});
     vi.mocked(api.getRemoteUsers).mockResolvedValue([operator]);
     vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    render(<RemoteAccessPanel onClose={vi.fn()} />);
+    render(<RemoteAccessPanel />);
     expect(await screen.findByText(/Last Operator protection is active/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: `Change password for ${operator.email}`}));
     fireEvent.change(screen.getByLabelText(`New password for ${operator.email}`), {target: {value: "replacement-password"}});
@@ -97,7 +97,7 @@ describe("Remote Access", () => {
 
   it("renders deliberate Viewer read-only without admin requests", () => {
     render(<AccessContext.Provider value={{...DESKTOP_ACCESS, mode: "remote", capabilities: {...DESKTOP_ACCESS.capabilities, canConfigure: false, canOperate: false}}}>
-      <RemoteAccessPanel onClose={vi.fn()} />
+      <RemoteAccessPanel />
     </AccessContext.Provider>);
     expect(screen.getByText(/Read-only access/)).toBeInTheDocument();
     expect(api.getRemoteStatus).not.toHaveBeenCalled();
@@ -107,9 +107,28 @@ describe("Remote Access", () => {
   it("hides unsafe links and raw infrastructure errors", async () => {
     vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, enabled: true, state: "connected", url: "javascript:alert(1)", needs_operator: false});
     vi.mocked(api.getRemoteUsers).mockRejectedValue(new Error("private /database/provider error"));
-    render(<RemoteAccessPanel onClose={vi.fn()} />);
+    render(<RemoteAccessPanel />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Local StagePilot is unaffected");
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(screen.queryByText(/private \/database/)).not.toBeInTheDocument();
+  });
+
+  it("regenerate asks for confirmation; cancel makes no changes; confirm calls the API", async () => {
+    vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, enabled: true, state: "connected", needs_operator: false, url: "https://test.trycloudflare.com"});
+    vi.mocked(api.regenerateRemote).mockResolvedValue({...off, enabled: true, state: "connected", needs_operator: false, url: "https://test2.trycloudflare.com"});
+    render(<RemoteAccessPanel />);
+    expect(await screen.findByRole("button", {name: "Regenerate Remote link"})).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {name: "Regenerate Remote link"}));
+    expect(await screen.findByRole("group", {name: "Confirm regenerate Remote link"})).toBeInTheDocument();
+    expect(screen.getByText(/stop working/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+    expect(api.regenerateRemote).not.toHaveBeenCalled();
+    expect(screen.queryByRole("group", {name: "Confirm regenerate Remote link"})).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {name: "Regenerate Remote link"}));
+    fireEvent.click(screen.getByRole("button", {name: "Confirm regenerate"}));
+    await waitFor(() => expect(api.regenerateRemote).toHaveBeenCalledTimes(1));
   });
 });

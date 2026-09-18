@@ -150,6 +150,8 @@ const remoteMutation = <T>(path: string, method: string, body?: object) => reque
 });
 export const setRemoteEnabled = (enabled: boolean) => remoteMutation<RemoteStatus>(
   `/api/v1/remote-access/${enabled ? "enable" : "disable"}`, "POST", {});
+export const regenerateRemote = () => remoteMutation<RemoteStatus>(
+  "/api/v1/remote-access/regenerate", "POST", {});
 export const bootstrapRemote = (email: string, password: string) => remoteMutation<RemoteUser>(
   "/api/v1/remote-access/bootstrap", "POST", {email, password});
 export const createRemoteUser = (email: string, password: string, role: RemoteUser["role"]) =>

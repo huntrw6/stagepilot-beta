@@ -102,3 +102,22 @@ async def disable(request: Request) -> dict[str, Any]:
         ) from exc
     await access.call(access.store.installation_generation, str(uuid4()))
     return await status(request)
+
+
+@router.post("/regenerate")
+async def regenerate(request: Request) -> dict[str, Any]:
+    access = _admin(request)
+    mutation(request)
+    value = manager(request)
+    if value is None or not callable(getattr(value, "regenerate", None)):
+        raise HTTPException(
+            503, "Regenerating the Remote link is unavailable on this installation."
+        )
+    try:
+        await access.call(value.regenerate)
+    except ProviderError as exc:
+        raise HTTPException(
+            503,
+            "Remote link regeneration is unavailable; local StagePilot is unaffected.",
+        ) from exc
+    return await status(request)

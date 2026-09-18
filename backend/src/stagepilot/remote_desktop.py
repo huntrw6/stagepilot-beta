@@ -113,6 +113,38 @@ class DesktopRemoteManager:
         self._publish_off_status()
         return self.status()
 
+    def regenerate(self) -> dict[str, object]:
+        """Retire this installation identity and transparently enroll a new one.
+
+        Idempotent and restart-safe: the previous tunnel/DNS record and
+        installation credential are revoked before a brand-new installation
+        id/hostname is enrolled, so no public resource from the old identity
+        is left orphaned. Remote users (Operators/Viewers) live in the local
+        identity store, which is untouched here, so they survive intact.
+        Local production keeps running throughout -- only the managed Remote
+        listener is reconciled onto the new identity.
+        """
+
+        active = self.bootstrap.state().active
+        was_enabled = self.feature.intent().enabled
+        if active is not None:
+            with suppress(InstallationRevokedError):
+                self._apply(active, "revoke")
+            self._clear_connector_credential()
+            if self.revoke_sessions is not None:
+                self.revoke_sessions()
+            self.bootstrap.discard_identity(active)
+            (self.state_dir / "state.json").unlink(missing_ok=True)
+        self.feature.set_managed_enabled(False)
+        self._publish_off_status()
+        if was_enabled:
+            self.enable()
+        else:
+            # Provision a fresh identity even when Remote was off so the new
+            # link is available immediately without re-enabling manually.
+            self._active()
+        return self.status()
+
     def reconcile_control(self) -> None:
         active = self.bootstrap.state().active
         if active is None:

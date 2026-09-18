@@ -7,6 +7,7 @@ import type {
   HealthResponse,
   SettingsResponse,
 } from "../types";
+import { RemoteAccessPanel } from "./RemoteAccessPanel";
 import { SetupPanelHeader } from "./SetupPanelHeader";
 
 export function BackendSetupPanel({
@@ -14,7 +15,6 @@ export function BackendSetupPanel({
   health,
   live,
   onClose,
-  onOpenRemoteAccess,
   settings,
   error,
   message,
@@ -25,7 +25,6 @@ export function BackendSetupPanel({
   health: HealthResponse | null;
   live: boolean;
   onClose: () => void;
-  onOpenRemoteAccess: () => void;
   settings: SettingsResponse | null;
   error: string | null;
   message: string | null;
@@ -39,6 +38,7 @@ export function BackendSetupPanel({
   const [pinEnabled, setPinEnabled] = useState(true);
   const [dashboardPin, setDashboardPin] = useState("");
   const [releaseChannel, setReleaseChannel] = useState<GeneralSettingsInput["release_channel"]>("BETA");
+  const [remoteAccessOpen, setRemoteAccessOpen] = useState(false);
 
   useEffect(() => {
     if (!settings) return;
@@ -85,7 +85,7 @@ export function BackendSetupPanel({
         title="StagePilot backend"
       />
 
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm text-slate-300">
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Timezone</span>
           <input
@@ -134,7 +134,7 @@ export function BackendSetupPanel({
         </label>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
         <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300">
           <input
             checked={lanAccess}
@@ -188,6 +188,37 @@ export function BackendSetupPanel({
             </label>
           )}
         </div>
+        <label
+          aria-controls="remote-access-inline"
+          aria-expanded={remoteAccessOpen}
+          className="flex items-start gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300"
+        >
+          <input
+            checked={remoteAccessOpen}
+            className="mt-0.5 size-4 accent-rose-500"
+            onChange={(event) => setRemoteAccessOpen(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <span className="block font-semibold text-slate-200">
+              Remote Access
+            </span>
+            <span className="mt-1 block text-xs text-slate-400">
+              Securely view or operate this StagePilot from another device.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div
+        className={`dashboard-expand-region mt-4 ${remoteAccessOpen ? "dashboard-expand-region-open" : ""}`}
+        id="remote-access-inline"
+      >
+        <div className="dashboard-expand-region-inner">
+          <div className="overflow-hidden rounded-lg border border-white/7 bg-black/20 p-4">
+            <RemoteAccessPanel />
+          </div>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -198,13 +229,6 @@ export function BackendSetupPanel({
           type="button"
         >
           {pending ? "Saving…" : "Save general settings"}
-        </button>
-        <button
-          className="rounded-lg border border-white/20 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
-          onClick={onOpenRemoteAccess}
-          type="button"
-        >
-          Remote Access
         </button>
         <p className="text-xs text-slate-500">
           Timezone, logging, port, and network-access changes take effect after a backend restart. PIN changes apply immediately.
