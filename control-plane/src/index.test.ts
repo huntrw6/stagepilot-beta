@@ -757,4 +757,61 @@ describe('private-beta control plane', () => {
     expect(provider.records.size).toBe(1);
     expect((await json(response)).error).not.toContain('foreign.cfargotunnel.com');
   });
+
+  it('reprovisions the same hostname with a new generation after disable -> re-enable', async () => {
+    const installation = await enroll(registry, 'durable-identity-request');
+    const firstGeneration = '55555555-5555-4555-8555-555555555555';
+    const provisioned = await registry.fetch(request(
+      installationPath(installation, 'provision'),
+      'POST',
+      String(installation.installationCredential),
+      { generation: firstGeneration },
+    ));
+    expect(provisioned.status).toBe(200);
+
+    const disable = await registry.fetch(request(
+      installationPath(installation, 'revoke'),
+      'POST',
+      String(installation.installationCredential),
+    ));
+    expect(disable.status).toBe(200);
+    expect((await json(disable)).revoked).toBe(true);
+
+    // Re-enable replays the SAME enrollment nonce the installer retained
+    // locally (finish_revoke keeps identity/nonce; only the credential and
+    // provider resources are actually revoked).
+    const reenrolled = await enroll(registry, 'durable-identity-request');
+    expect(reenrolled.installationId).toBe(installation.installationId);
+    expect(reenrolled.hostname).toBe(installation.hostname);
+    expect(reenrolled.installationCredential).not.toBe(installation.installationCredential);
+    expect(reenrolled.revoked).toBe(false);
+    expect(reenrolled.generation).toBeNull();
+
+    const secondGeneration = '66666666-6666-4666-8666-666666666666';
+    const reprovisioned = await registry.fetch(request(
+      installationPath(reenrolled, 'provision'),
+      'POST',
+      String(reenrolled.installationCredential),
+      { generation: secondGeneration },
+    ));
+    expect(reprovisioned.status).toBe(200);
+    const reprovisionedBody = await json(reprovisioned);
+    expect(reprovisionedBody.generation).toBe(secondGeneration);
+    expect(reprovisionedBody.generation).not.toBe(firstGeneration);
+    expect(reprovisionedBody.hostname).toBe(installation.hostname);
+  });
+
+  it('rejects a hostname-ownership conflict from a different owner on re-enroll', async () => {
+    const installation = await enroll(registry, 'owner-identity-request');
+    await registry.fetch(request(
+      installationPath(installation, 'revoke'),
+      'POST',
+      String(installation.installationCredential),
+    ));
+    // A different source presenting a different nonce must mint its own
+    // fresh installation, never reuse or collide with the revoked one.
+    const other = await enroll(registry, 'a-completely-different-nonce');
+    expect(other.installationId).not.toBe(installation.installationId);
+    expect(other.hostname).not.toBe(installation.hostname);
+  });
 });

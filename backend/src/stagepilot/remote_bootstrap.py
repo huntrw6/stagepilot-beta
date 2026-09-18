@@ -29,7 +29,8 @@ TRUSTED_CONTROL_PLANE_ORIGINS = frozenset(
 _HOSTNAME = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
 )
-_CREDENTIAL = re.compile(r"^spi_([a-f0-9]{32})\.([A-Za-z0-9_-]{32,})$")
+_INSTALLATION_ID = re.compile(r"^[a-f0-9]{16}$|^[a-f0-9]{32}$")
+_CREDENTIAL = re.compile(r"^spi_([a-f0-9]{16}|[a-f0-9]{32})\.([A-Za-z0-9_-]{32,})$")
 
 
 class RemoteCredentialStore(Protocol):
@@ -106,7 +107,7 @@ class BootstrapMetadata(BaseModel):
     version: int
     bundle_id: str = Field(alias="bundleId")
     control_plane_origin: str = Field(alias="controlPlaneOrigin")
-    installation_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")] = Field(
+    installation_id: Annotated[str, Field(pattern=r"^[a-f0-9]{16}$|^[a-f0-9]{32}$")] = Field(
         alias="installationId"
     )
     hostname: str
@@ -197,7 +198,7 @@ class DesktopBootstrapStore:
         match = _CREDENTIAL.fullmatch(credential) if isinstance(credential, str) else None
         if (
             not isinstance(installation_id, str)
-            or not re.fullmatch(r"[a-f0-9]{32}", installation_id)
+            or not _INSTALLATION_ID.fullmatch(installation_id)
             or match is None
             or match.group(1) != installation_id
             or not isinstance(hostname, str)
@@ -219,7 +220,13 @@ class DesktopBootstrapStore:
         self.credentials.set(installation_id, credential)
         try:
             current.active = metadata
-            current.enrollment_nonce = None
+            # Deliberately retained (not cleared): this nonce is the durable
+            # installation identity. The control plane treats a replayed
+            # enrollment of this exact nonce as "the rightful owner is
+            # re-enabling" and reprovisions the SAME hostname with a fresh
+            # generation/credential instead of minting a new installation.
+            # Clearing it here (as before) meant every disable->enable cycle
+            # discarded the identity and got a brand-new "sp-<id>" hostname.
             self._write(current)
         except Exception:
             self.credentials.delete(installation_id)
@@ -248,7 +255,12 @@ class DesktopBootstrapStore:
         state = self.state()
         if state.active is not None and state.active.installation_id == metadata.installation_id:
             state.active = None
-            state.enrollment_nonce = None
+            # Note: enrollment_nonce is intentionally left in place. It is
+            # the durable installation identity, not a revocable secret --
+            # the control plane never returns it and clearing it here would
+            # force every re-enable to mint a brand-new installation/hostname
+            # (see ensure_enrolled()). The credential and remote tunnel/DNS
+            # are still genuinely revoked above and by the caller.
             self._write(state)
 
     def _write(self, state: BootstrapState) -> None:

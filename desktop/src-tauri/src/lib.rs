@@ -20,6 +20,7 @@ use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
 };
+use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 #[cfg(target_os = "windows")]
@@ -36,6 +37,11 @@ const PROBE_INTERVAL: Duration = Duration::from_millis(250);
 const RECENT_BACKEND_LINES: usize = 32;
 const BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const STAGEPILOT_GITHUB_URL: &str = "https://github.com/tage-ilot/stagepilot";
+// Stable-channel updates come from the main (non-beta) desktop release feed;
+// beta-channel updates keep using whichever endpoint tauri.conf.json (or its
+// platform overrides) already configures for this build.
+const STABLE_UPDATE_ENDPOINT: &str =
+    "https://github.com/tage-ilot/stagepilot/releases/latest/download/latest.json";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StagePilotMenuAction {
@@ -785,6 +791,102 @@ async fn prepare_for_update(
     Ok(())
 }
 
+/// Metadata describing an update found by [`check_for_update_on_channel`].
+///
+/// This mirrors the plugin's own (private) `Metadata` shape closely enough
+/// for the frontend to reconstruct the plugin's public `Update` class from
+/// it and then drive the plugin's own `download`/`install` IPC commands by
+/// resource id.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChannelUpdateMetadata {
+    rid: tauri::ResourceId,
+    current_version: String,
+    version: String,
+    date: Option<String>,
+    body: Option<String>,
+    raw_json: serde_json::Value,
+}
+
+/// Checks for an update on the requested release channel (STABLE or BETA)
+/// instead of the static `tauri.conf.json` endpoint list.
+///
+/// This still goes through `updater_builder()` — the same builder the
+/// plugin's own default `check` IPC command uses internally — so signature
+/// verification is identical to the default path; only the endpoint list
+/// changes. "No update available" on STABLE (an empty/older feed) surfaces
+/// as `Ok(None)`, never an error, exactly like the plugin's default check.
+#[tauri::command]
+async fn check_for_update_on_channel(
+    webview: tauri::Webview,
+    beta_enabled: bool,
+) -> Result<Option<ChannelUpdateMetadata>, String> {
+    let endpoint = if beta_enabled {
+        // BETA keeps the endpoint(s) already configured for this build via
+        // tauri.conf.json / the platform-specific overrides.
+        return check_for_update_default(webview).await;
+    } else {
+        STABLE_UPDATE_ENDPOINT
+    };
+    let url = url::Url::parse(endpoint).map_err(|error| {
+        format!("StagePilot could not parse the update endpoint {endpoint}: {error}")
+    })?;
+
+    let updater = webview
+        .updater_builder()
+        .endpoints(vec![url])
+        .map_err(|error| format!("StagePilot could not configure the update channel: {error}"))?
+        .build()
+        .map_err(|error| format!("StagePilot could not build the updater: {error}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| format!("StagePilot could not check for updates: {error}"))?;
+
+    Ok(update.map(|update| {
+        let metadata = ChannelUpdateMetadata {
+            current_version: update.current_version.clone(),
+            version: update.version.clone(),
+            date: update.date.map(|date| date.to_string()),
+            body: update.body.clone(),
+            raw_json: update.raw_json.clone(),
+            rid: 0,
+        };
+        let mut resources = webview.resources_table();
+        let rid = resources.add(update);
+        ChannelUpdateMetadata { rid, ..metadata }
+    }))
+}
+
+async fn check_for_update_default(
+    webview: tauri::Webview,
+) -> Result<Option<ChannelUpdateMetadata>, String> {
+    let updater = webview
+        .updater_builder()
+        .build()
+        .map_err(|error| format!("StagePilot could not build the updater: {error}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| format!("StagePilot could not check for updates: {error}"))?;
+
+    Ok(update.map(|update| {
+        let metadata = ChannelUpdateMetadata {
+            current_version: update.current_version.clone(),
+            version: update.version.clone(),
+            date: update.date.map(|date| date.to_string()),
+            body: update.body.clone(),
+            raw_json: update.raw_json.clone(),
+            rid: 0,
+        };
+        let mut resources = webview.resources_table();
+        let rid = resources.add(update);
+        ChannelUpdateMetadata { rid, ..metadata }
+    }))
+}
+
 #[tauri::command]
 fn set_remote_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let manager = app.autolaunch();
@@ -1013,6 +1115,7 @@ pub fn run() {
             backend_supervisor_status,
             restart_managed_backend,
             prepare_for_update,
+            check_for_update_on_channel,
             set_remote_autostart,
             hide_application_window
         ])
@@ -1064,6 +1167,18 @@ mod tests {
         assert!(!tasklist_has_stagepilot_backend(
             b"INFO: No tasks are running which match the specified criteria.",
         ));
+    }
+
+    #[test]
+    fn stable_channel_endpoint_is_distinct_from_the_configured_beta_endpoint() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let beta_endpoint = config["plugins"]["updater"]["endpoints"][0]
+            .as_str()
+            .unwrap();
+        assert_ne!(STABLE_UPDATE_ENDPOINT, beta_endpoint);
+        assert!(STABLE_UPDATE_ENDPOINT.starts_with("https://"));
+        assert!(url::Url::parse(STABLE_UPDATE_ENDPOINT).is_ok());
     }
 
     #[test]

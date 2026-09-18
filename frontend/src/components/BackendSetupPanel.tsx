@@ -14,6 +14,7 @@ export function BackendSetupPanel({
   health,
   live,
   onClose,
+  onOpenRemoteAccess,
   settings,
   error,
   message,
@@ -24,6 +25,7 @@ export function BackendSetupPanel({
   health: HealthResponse | null;
   live: boolean;
   onClose: () => void;
+  onOpenRemoteAccess: () => void;
   settings: SettingsResponse | null;
   error: string | null;
   message: string | null;
@@ -36,6 +38,7 @@ export function BackendSetupPanel({
   const [lanAccess, setLanAccess] = useState(false);
   const [pinEnabled, setPinEnabled] = useState(true);
   const [dashboardPin, setDashboardPin] = useState("");
+  const [releaseChannel, setReleaseChannel] = useState<GeneralSettingsInput["release_channel"]>("BETA");
 
   useEffect(() => {
     if (!settings) return;
@@ -45,6 +48,7 @@ export function BackendSetupPanel({
     setLanAccess(settings.settings.lan_access ?? false);
     setPinEnabled(settings.settings.web_dashboard_pin_enabled ?? true);
     setDashboardPin("");
+    setReleaseChannel(settings.settings.release_channel ?? "BETA");
   }, [settings]);
 
   const parsedSettings = useMemo<GeneralSettingsInput | null>(() => {
@@ -58,9 +62,10 @@ export function BackendSetupPanel({
       server_port: parsedPort,
       lan_access: lanAccess,
       web_dashboard_pin_enabled: pinEnabled,
+      release_channel: releaseChannel,
       ...(dashboardPin ? { web_dashboard_pin: dashboardPin } : {}),
     };
-  }, [dashboardPin, lanAccess, logLevel, pinEnabled, serverPort, timezone]);
+  }, [dashboardPin, lanAccess, logLevel, pinEnabled, releaseChannel, serverPort, timezone]);
   const connectionStatus = live
     ? "connected"
     : state.application_status === "error" ? "error" : "disconnected";
@@ -113,6 +118,19 @@ export function BackendSetupPanel({
             onChange={(event) => setServerPort(event.target.value)}
             value={serverPort}
           />
+        </label>
+        <label className="text-sm text-slate-300">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Release channel</span>
+          <select
+            className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5 text-slate-100"
+            disabled={pending}
+            onChange={(event) => setReleaseChannel(event.target.value as GeneralSettingsInput["release_channel"])}
+            value={releaseChannel}
+          >
+            {(["STABLE", "BETA"] as const).map((channel) => (
+              <option key={channel} value={channel}>{channel}</option>
+            ))}
+          </select>
         </label>
       </div>
 
@@ -180,6 +198,13 @@ export function BackendSetupPanel({
           type="button"
         >
           {pending ? "Saving…" : "Save general settings"}
+        </button>
+        <button
+          className="rounded-lg border border-white/20 px-3.5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+          onClick={onOpenRemoteAccess}
+          type="button"
+        >
+          Remote Access
         </button>
         <p className="text-xs text-slate-500">
           Timezone, logging, port, and network-access changes take effect after a backend restart. PIN changes apply immediately.

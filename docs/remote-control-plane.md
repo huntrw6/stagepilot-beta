@@ -144,15 +144,19 @@ All routes except health and enrollment require an authorization bearer.
 
 ## Installation-side operation
 
-On first local enable, the packaged desktop persists a random enrollment nonce only
-until the enrollment response and native credential write are durable, then removes it,
-calls the fixed HTTPS enrollment origin, validates the returned identity,
-hostname, and credential binding, and stores only the unique installation
-credential in Windows Credential Manager or macOS Keychain. It persists only the
-origin, installation ID, hostname, port, and nonce as non-secret recovery
-metadata. Lost responses replay the same nonce. Later lifecycle requests read the
-credential through the authenticated native Tauri broker; the frontend never
-receives it.
+On first local enable, the packaged desktop persists a random enrollment nonce and
+keeps it as the durable installation identity across the installation's lifetime
+(it is not a secret and the control plane never returns it), then calls the
+fixed HTTPS enrollment origin, validates the returned identity, hostname, and
+credential binding, and stores only the unique installation credential in
+Windows Credential Manager or macOS Keychain. It persists only the origin,
+installation ID, hostname, port, and nonce as non-secret recovery metadata.
+Lost responses replay the same nonce. Disabling Remote Access genuinely revokes
+the tunnel, DNS record, and installation credential, but retains the nonce
+locally so a later re-enable replays it and the control plane reprovisions the
+SAME hostname under a fresh generation/credential instead of minting a new
+installation. Later lifecycle requests read the credential through the
+authenticated native Tauri broker; the frontend never receives it.
 
 For the current backend-only validation path, create a private
 `BetaControlConfig` JSON outside the connector export with the exact HTTPS Worker
