@@ -33,9 +33,23 @@ test("Tauri updater configuration isolates main and beta release channels", () =
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json",
   ]);
-  const betaEndpoint = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
-  assert.deepEqual(windowsConfig.plugins.updater.endpoints, [betaEndpoint]);
-  assert.deepEqual(macOSConfig.plugins.updater.endpoints, [betaEndpoint]);
+  // Packaged release builds must use the same direct, anonymous GitHub
+  // releases endpoint as the base config — never the control-plane broker,
+  // which returns 503 whenever GITHUB_RELEASE_TOKEN is unset (deliberately
+  // unset for this beta).
+  const directGitHubEndpoint =
+    "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json";
+  const deadBrokerEndpoint =
+    "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
+  assert.deepEqual(windowsConfig.plugins.updater.endpoints, [directGitHubEndpoint]);
+  assert.deepEqual(macOSConfig.plugins.updater.endpoints, [directGitHubEndpoint]);
+  for (const endpoints of [
+    config.plugins.updater.endpoints,
+    windowsConfig.plugins.updater.endpoints,
+    macOSConfig.plugins.updater.endpoints,
+  ]) {
+    assert.ok(!endpoints.includes(deadBrokerEndpoint));
+  }
   assert.ok(config.plugins.updater.pubkey);
   assert.equal(
     config.bundle.windows.nsis.installerHooks,
