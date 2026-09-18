@@ -330,7 +330,6 @@ def test_desktop_disable_then_enable_reprovisions_same_hostname_new_generation(
     assert other_active.installation_id != original_installation_id
 
 
-
 def test_revoke_failure_closes_local_access_and_retries_after_restart(tmp_path: Path) -> None:
     manager, credentials, fake, payload = manager_fixture(tmp_path)
     manager.enable()
