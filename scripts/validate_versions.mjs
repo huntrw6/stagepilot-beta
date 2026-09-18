@@ -42,7 +42,7 @@ if (tauri.plugins?.updater?.endpoints?.[0] !== "https://github.com/tage-ilot/sta
 if (!tauri.plugins?.updater?.pubkey || tauri.plugins.updater.pubkey === "STAGEPILOT_UPDATER_PUBLIC_KEY_REQUIRED") {
   throw new Error("A real Tauri updater public key must replace STAGEPILOT_UPDATER_PUBLIC_KEY_REQUIRED before release.");
 }
-const betaEndpoint = "https://stagepilot-beta-control-plane.stagepilot-illuminary-beta.workers.dev/v1/releases/latest.json";
+const betaEndpoint = "https://github.com/tage-ilot/stagepilot-beta/releases/latest/download/latest.json";
 for (const file of ["desktop/src-tauri/tauri.release.conf.json", "desktop/src-tauri/tauri.macos.conf.json"]) {
   const overlay = JSON.parse(read(file));
   if (overlay.plugins?.updater?.endpoints?.[0] !== betaEndpoint) {

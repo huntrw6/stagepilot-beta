@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.104-beta.3] - 2026-09-18
+
+### Changed
+
+- Move the Release Channel row and add a Remote Access checkbox with an
+  animated in-widget expand in Backend Settings.
+- Set the dashboard widget layout default.
+- Rename "Open Remote" to "Regenerate Remote link".
+
+### Fixed
+
+- Fix narrow-window layout by setting `tauri.conf.json` minWidth=640 /
+  minHeight=480 and removing the max window-size constraints.
+
 ## [1.1.104-beta.2] - 2026-09-18
 
 ### Fixed
