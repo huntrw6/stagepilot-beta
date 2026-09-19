@@ -15,6 +15,31 @@ const labels: Record<RemoteStatus["state"], string> = {
   off: "Off", enabling: "Enabling…", connected: "Connected", reconnecting: "Reconnecting…", error: "Connection unavailable",
 };
 
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+    const onChange = () => setReduced(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
+function ButtonSpinner() {
+  const reducedMotion = usePrefersReducedMotion();
+  if (reducedMotion) {
+    return <span aria-hidden="true" className="text-xs font-semibold tracking-wide">Working…</span>;
+  }
+  return <span
+    aria-hidden="true"
+    className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white"
+  />;
+}
+
 function safeUrl(value: string | null): string | null {
   if (!value) return null;
   try {
@@ -48,6 +73,7 @@ export function RemoteAccessPanel() {
   const [edit, setEdit] = useState<RemoteUser | null>(null);
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [regenBusy, setRegenBusy] = useState(false);
   const alive = useRef(true);
   const inFlight = useRef(false);
   const canManage = access.authenticated && access.capabilities.canConfigure;
@@ -130,7 +156,7 @@ export function RemoteAccessPanel() {
         if (!navigator.clipboard) { setError("Copy unavailable. Select and copy the link above."); return; }
         void navigator.clipboard.writeText(url).then(() => setNotice("Link copied."), () => setError("Copy unavailable. Select and copy the link above."));
       }}>Copy link</button>
-      <button className={button} disabled={busy} type="button" onClick={() => setConfirmRegenerate(true)}>Regenerate Remote link</button>
+      <button className={`${button} inline-flex items-center gap-2`} disabled={busy || regenBusy} type="button" onClick={() => setConfirmRegenerate(true)}>{regenBusy && <ButtonSpinner />}{regenBusy ? "Regenerating…" : "Regenerate Remote link"}</button>
       {!status?.enabled ? null : <button className={button} disabled={busy} type="button" onClick={() => setConfirmDisable(true)}>Disable Remote Access</button>}
     </div>}
     {confirmRegenerate && <div role="group" aria-label="Confirm regenerate Remote link" className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-3">
@@ -138,11 +164,13 @@ export function RemoteAccessPanel() {
         The current Remote link will stop working. Anyone using the old address will lose access. Continue?
       </p>
       <div className="flex flex-wrap gap-3">
-        <button className={primaryButton} disabled={busy} type="button" onClick={() => {
+        <button className={`${primaryButton} inline-flex items-center gap-2`} disabled={busy || regenBusy} type="button" onClick={() => {
+          if (regenBusy) return;
           setConfirmRegenerate(false);
-          void run(async () => { await regenerateRemote(); });
-        }}>Confirm regenerate</button>
-        <button className={button} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
+          setRegenBusy(true);
+          void run(async () => { await regenerateRemote(); }).finally(() => setRegenBusy(false));
+        }}>{regenBusy && <ButtonSpinner />}{regenBusy ? "Regenerating…" : "Confirm regenerate"}</button>
+        <button className={button} disabled={regenBusy} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
       </div>
     </div>}
     {!url && !status?.enabled && <button className={primaryButton} disabled={busy || !status?.available || Boolean(status?.provisioned && !status?.credential_available)} type="button" onClick={() => {

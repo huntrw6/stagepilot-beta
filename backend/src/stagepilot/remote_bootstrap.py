@@ -250,6 +250,87 @@ class DesktopBootstrapStore:
             raise ProviderError("The installation credential is unavailable")
         return value or ""
 
+    def reenroll(
+        self,
+        metadata: BootstrapMetadata,
+        *,
+        transport: httpx.BaseTransport | None = None,
+    ) -> BootstrapMetadata:
+        """Authenticated "Regenerate Remote link": mint a brand-new
+        installation id/hostname while proving ownership of the current one
+        via its installation credential.
+
+        This deliberately does NOT go through `/v1/installations/enroll`
+        (used only by unauthenticated, nonce-based first-time enrollment).
+        That endpoint is guarded by a per-network anonymous-enrollment quota
+        that protects the control plane from arbitrary Internet clients
+        minting tunnels; a legitimate installation owner regenerating their
+        link repeatedly would otherwise exhaust that quota and see Remote
+        "break" with no recourse. The control plane atomically revokes the
+        old installation and provisions the new one within a single
+        authenticated request, so a failure here leaves the current
+        identity/credential untouched and still usable.
+        """
+
+        if metadata.control_plane_origin not in self.trusted_origins:
+            raise ProviderError("The enrollment service is not trusted")
+        credential = self.credential(metadata)
+        with httpx.Client(
+            base_url=metadata.control_plane_origin,
+            timeout=20,
+            trust_env=False,
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            try:
+                response = client.post(
+                    f"/v1/installations/{metadata.installation_id}/reenroll",
+                    headers={"authorization": f"Bearer {credential}"},
+                )
+            except httpx.HTTPError as exc:
+                raise ProviderError("The Remote link could not be regenerated") from exc
+        if response.status_code not in {200, 201}:
+            raise ProviderError("The Remote link could not be regenerated; try again")
+        try:
+            payload = response.json()
+            installation_id = payload["installationId"]
+            hostname = payload["hostname"]
+            new_credential = payload["installationCredential"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ProviderError("The re-enrollment response was invalid") from exc
+        match = _CREDENTIAL.fullmatch(new_credential) if isinstance(new_credential, str) else None
+        if (
+            not isinstance(installation_id, str)
+            or not _INSTALLATION_ID.fullmatch(installation_id)
+            or match is None
+            or match.group(1) != installation_id
+            or not isinstance(hostname, str)
+            or not _HOSTNAME.fullmatch(hostname)
+            or hostname != f"sp-{installation_id}.{hostname.split('.', 1)[1]}"
+        ):
+            raise ProviderError("The re-enrollment response was not installation-bound")
+        new_metadata = BootstrapMetadata.model_validate(
+            {
+                "schema": INSTALLATION_SCHEMA,
+                "version": metadata.version,
+                "bundleId": metadata.bundle_id,
+                "controlPlaneOrigin": metadata.control_plane_origin,
+                "installationId": installation_id,
+                "hostname": hostname,
+                "remotePort": metadata.remote_port,
+            }
+        )
+        # Store the new credential before swapping `active` so a crash
+        # between these two writes still leaves a usable (old) identity
+        # recoverable by re-reading the still-valid old credential -- never
+        # a state with neither credential present.
+        self.credentials.set(installation_id, new_credential)
+        state = self.state()
+        state.active = new_metadata
+        self._write(state)
+        self.credentials.delete(metadata.installation_id)
+        return new_metadata
+
     def finish_revoke(self, metadata: BootstrapMetadata) -> None:
         self.credentials.delete(metadata.installation_id)
         state = self.state()

@@ -131,4 +131,42 @@ describe("Remote Access", () => {
     fireEvent.click(screen.getByRole("button", {name: "Confirm regenerate"}));
     await waitFor(() => expect(api.regenerateRemote).toHaveBeenCalledTimes(1));
   });
+
+  it("shows an in-button loading state during regenerate, disables the button, and blocks concurrent clicks", async () => {
+    vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, enabled: true, state: "connected", needs_operator: false, url: "https://test.trycloudflare.com"});
+    let resolveRegenerate!: (value: api.RemoteStatus) => void;
+    vi.mocked(api.regenerateRemote).mockReturnValue(new Promise((resolve) => { resolveRegenerate = resolve; }));
+    render(<RemoteAccessPanel />);
+    expect(await screen.findByRole("button", {name: "Regenerate Remote link"})).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {name: "Regenerate Remote link"}));
+    fireEvent.click(screen.getByRole("button", {name: "Confirm regenerate"}));
+
+    const busyButton = await screen.findByRole("button", {name: /Regenerating…/});
+    expect(busyButton).toBeDisabled();
+
+    // A second click while in flight must never trigger a second call
+    // (there is no visible confirm dialog anymore, but clicking the busy
+    // button itself must be a no-op).
+    fireEvent.click(busyButton);
+    expect(api.regenerateRemote).toHaveBeenCalledTimes(1);
+
+    resolveRegenerate({...off, enabled: true, state: "connected", needs_operator: false, url: "https://test2.trycloudflare.com"});
+    await waitFor(() => expect(screen.queryByRole("button", {name: /Regenerating…/})).not.toBeInTheDocument());
+    expect(await screen.findByRole("button", {name: "Regenerate Remote link"})).toBeEnabled();
+  });
+
+  it("restores normal state and surfaces an error when regenerate fails", async () => {
+    vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, enabled: true, state: "connected", needs_operator: false, url: "https://test.trycloudflare.com"});
+    vi.mocked(api.regenerateRemote).mockRejectedValue(new Error("provider unavailable"));
+    render(<RemoteAccessPanel />);
+    expect(await screen.findByRole("button", {name: "Regenerate Remote link"})).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {name: "Regenerate Remote link"}));
+    fireEvent.click(screen.getByRole("button", {name: "Confirm regenerate"}));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Local StagePilot is unaffected");
+    expect(await screen.findByRole("button", {name: "Regenerate Remote link"})).toBeEnabled();
+    expect(screen.queryByRole("button", {name: /Regenerating…/})).not.toBeInTheDocument();
+  });
 });

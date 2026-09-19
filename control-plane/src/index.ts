@@ -294,6 +294,15 @@ export class Registry {
         if (!(await this.isAdmin(request))) return reply({ error: 'unauthorized' }, 401);
         return await this.withProviderLane('recovery', () => this.adminRevoke(adminRevoke[1]));
       }
+      const reenrollRoute = url.pathname.match(/^\/v1\/installations\/([a-f0-9]{16}|[a-f0-9]{32})\/reenroll$/);
+      if (request.method === 'POST' && reenrollRoute) {
+        const installation = await this.state.storage.get<Installation>(`installation:${reenrollRoute[1]}`);
+        if (!installation || installation.revoked || !(await this.isInstallation(request, installation))) {
+          return reply({ error: 'unauthorized' }, 401);
+        }
+        await this.takeInstallationRate(installation, 'mutation');
+        return await this.withProviderLane('recovery', () => this.reenroll(installation));
+      }
       const route = url.pathname.match(/^\/v1\/installations\/([a-f0-9]{16}|[a-f0-9]{32})\/(status|provision|disable|revoke|reconcile)$/);
       if (!route) return reply({ error: 'not found' }, 404);
       const installation = await this.state.storage.get<Installation>(`installation:${route[1]}`);
@@ -888,6 +897,50 @@ export class Registry {
       return reply(publicInstallation(installation));
     }
     return this.disable(installation, true);
+  }
+
+  // Authenticated re-enrollment for "Regenerate Remote link": the caller
+  // already proved ownership of `installation` (via isInstallation), so
+  // this never touches the anonymous-enrollment source quota that protects
+  // /v1/installations/enroll from arbitrary Internet clients. Fully revokes
+  // the old installation's tunnel/DNS/credential first (same teardown as
+  // disable(..., revoke=true)), then mints a brand-new installation record
+  // -- so a legitimate owner can regenerate repeatedly without ever being
+  // rate-limited by ENROLLMENTS_PER_SOURCE, while an attacker who does not
+  // hold the installation credential still cannot reach this path at all.
+  private async reenroll(installation: Installation): Promise<Response> {
+    await this.disable(installation, true);
+    const stats = await this.stats();
+    if ((this.env.ENROLLMENT_ENABLED ?? 'true') !== 'true') {
+      await this.bumpDenied(stats, 'enrollmentDenied');
+      throw new Limited(503, 300, 'enrollment unavailable');
+    }
+    if (stats.activeInstallations >= this.installationLimit()) {
+      await this.bumpDenied(stats, 'enrollmentDenied');
+      throw new Limited(503, 300, 'enrollment unavailable');
+    }
+    const id = randomHex(8);
+    const now = new Date().toISOString();
+    const fresh: Installation = {
+      id,
+      hostname: `sp-${id}.${this.env.REMOTE_HOST_SUFFIX.toLowerCase()}`,
+      label: '',
+      phase: 'disabled',
+      desiredEnabled: false,
+      revoked: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    stats.activeInstallations += 1;
+    stats.enrollments += 1;
+    await this.state.storage.put({
+      [`installation:${id}`]: fresh,
+      'registry:stats': stats,
+    });
+    return reply({
+      ...publicInstallation(fresh),
+      installationCredential: await this.credential(fresh.id, fresh.credentialGeneration ?? 0),
+    }, 201);
   }
 
   private async save(installation: Installation): Promise<void> {

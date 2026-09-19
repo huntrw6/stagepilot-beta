@@ -57,6 +57,8 @@ class FakeControlPlane:
         self.revoked = False
         self.reject_credential = False
         self.fail_revoke = False
+        self.fail_reenroll = False
+        self.reenrolled = False
         self.offline = False
         self.enrollment_nonce = ""
         # Models the real control plane's per-nonce idempotency: the same
@@ -145,6 +147,19 @@ class FakeControlPlane:
                     "revoked": True,
                 },
             )
+        if request.url.path.endswith("/reenroll"):
+            if self.fail_reenroll:
+                raise httpx.ConnectError("test outage")
+            self.reenrolled = True
+            new_id = uuid4().hex
+            self.payload = {
+                "installationId": new_id,
+                "hostname": f"sp-{new_id}.remote.example.com",
+                "installationCredential": f"spi_{new_id}." + "r" * 43,
+            }
+            self.revoked = False
+            self.generation = ""
+            return httpx.Response(201, json=self.payload)
         raise AssertionError(f"unexpected route {request.url.path}")
 
 
@@ -429,8 +444,9 @@ def test_regenerate_revokes_old_identity_and_provisions_a_new_hostname(tmp_path:
 
     result = manager.regenerate()
 
-    # Old identity's tunnel/credential were revoked (not merely disabled).
-    assert fake.revoked
+    # Old identity's tunnel/credential were revoked (not merely disabled)
+    # via the authenticated re-enrollment path, not the anonymous quota.
+    assert fake.reenrolled
     assert credentials.get(original_installation_id) is None
 
     # A genuinely new installation/hostname was provisioned.
@@ -493,3 +509,43 @@ def test_regenerate_preserves_remote_users_in_the_identity_store(tmp_path: Path)
 
     after_users = store.users()
     assert after_users == before_users
+
+
+def test_regenerate_repeatedly_never_hits_anonymous_enrollment_endpoint(
+    tmp_path: Path,
+) -> None:
+    """Regression test for the reported bug: regenerating several times in
+    a row used to exhaust the control plane's per-network anonymous
+    enrollment quota (ENROLLMENTS_PER_SOURCE) because it went back through
+    the nonce-based /v1/installations/enroll route, leaving Remote broken
+    with no recourse. Regenerate must instead use the authenticated
+    reenroll path and never touch /enroll again after the first bootstrap."""
+
+    manager, _credentials, fake, _payload = manager_fixture(tmp_path)
+    manager.enable()
+    enroll_calls = 0
+    original_call = fake.__call__
+
+    def counting_call(request: httpx.Request) -> httpx.Response:
+        nonlocal enroll_calls
+        if request.url.path.endswith("/v1/installations/enroll"):
+            enroll_calls += 1
+        return original_call(request)
+
+    fake.__call__ = counting_call  # type: ignore[method-assign]
+
+    seen_ids = {manager.bootstrap.state().active.installation_id}  # type: ignore[union-attr]
+    for _ in range(5):
+        result = manager.regenerate()
+        assert result["enabled"] is True
+        active = manager.bootstrap.state().active
+        assert active is not None
+        assert active.installation_id not in seen_ids
+        seen_ids.add(active.installation_id)
+
+    # Only the very first `enable()` call above used /enroll; none of the
+    # five subsequent regenerations should have -- they must all be billed
+    # against the authenticated per-installation mutation budget instead of
+    # the anonymous-enrollment abuse quota that a real network could
+    # exhaust after just 3 regenerations/24h.
+    assert enroll_calls == 0
