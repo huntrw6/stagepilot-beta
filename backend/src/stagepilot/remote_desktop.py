@@ -187,7 +187,7 @@ class DesktopRemoteManager:
             result = self._apply(active, "reconcile")
         except InstallationRevokedError:
             self.feature.set_managed_enabled(False)
-            self._retire_local(active)
+            self._retire_local(active, hard=True)
             self._publish_off_status()
             return
         if result.get("phase") == "enabled":
@@ -298,11 +298,11 @@ class DesktopRemoteManager:
         (self.installation_dir / "connector.token").unlink(missing_ok=True)
         (self.root / "run/connector.token").unlink(missing_ok=True)
 
-    def _retire_local(self, metadata: BootstrapMetadata) -> None:
+    def _retire_local(self, metadata: BootstrapMetadata, *, hard: bool = False) -> None:
         self._clear_connector_credential()
         if self.revoke_sessions is not None:
             self.revoke_sessions()
-        self.bootstrap.finish_revoke(metadata)
+        self.bootstrap.finish_revoke(metadata, hard=hard)
         (self.state_dir / "state.json").unlink(missing_ok=True)
 
     def _connector_credential(self) -> str:

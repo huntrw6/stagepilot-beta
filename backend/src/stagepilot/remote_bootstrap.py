@@ -118,6 +118,11 @@ class BootstrapState(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
     active: BootstrapMetadata | None = None
+    # A disabled/revoked-but-known installation: kept (with its still-valid
+    # installation credential) so a future genuine re-enable can prove
+    # ownership via the authenticated reactivate path instead of burning the
+    # anonymous per-network enrollment quota meant for first-time installs.
+    retired: BootstrapMetadata | None = None
     enrollment_nonce: str | None = Field(default=None, alias="enrollmentNonce")
     legacy_consumed_bundle_ids: list[str] = Field(
         default_factory=list, alias="consumedBundleIds", exclude=True
@@ -155,6 +160,15 @@ class DesktopBootstrapStore:
         if current.active is not None:
             self.credential(current.active)
             return current.active
+        if current.retired is not None:
+            # A known prior installation (disabled or revoked) exists on
+            # this machine: reactivate it via the authenticated path so we
+            # never touch the anonymous per-network enrollment quota below.
+            # A ProviderError here (e.g. genuinely exhausted mutation
+            # budget, or the credential itself was hard-revoked) propagates
+            # as-is; it must never silently fall through to a brand-new
+            # anonymous enrollment, which would mint a second installation.
+            return self.reactivate(current.retired, transport=transport)
         if current.enrollment_nonce is None:
             current.enrollment_nonce = str(UUID(bytes=os.urandom(16), version=4))
             self._write(current)
@@ -173,7 +187,10 @@ class DesktopBootstrapStore:
                     )
                 except httpx.HTTPError as exc:
                     if attempt == 2:
-                        raise ProviderError("The enrollment service is unavailable") from exc
+                        raise ProviderError(
+                            "Could not reach the enrollment service. Check your Internet "
+                            "connection and try again."
+                        ) from exc
                 else:
                     if response.status_code not in {429, 503} or attempt == 2:
                         break
@@ -186,7 +203,16 @@ class DesktopBootstrapStore:
                     except ValueError:
                         retry_after = 0
                 sleep(max(float(retry_after), min(0.5 * (2**attempt) + random_value() * 0.25, 5.0)))
-        if response is None or response.status_code not in {200, 201}:
+        if response is None:
+            raise ProviderError(
+                "Could not reach the enrollment service. Check your Internet connection and "
+                "try again."
+            )
+        if response.status_code == 429:
+            raise ProviderError(
+                "This computer has reached its enrollment limit for now. Try again later."
+            )
+        if response.status_code not in {200, 201}:
             raise ProviderError("The enrollment service is unavailable; retry later")
         try:
             payload = response.json()
@@ -331,18 +357,130 @@ class DesktopBootstrapStore:
         self.credentials.delete(metadata.installation_id)
         return new_metadata
 
-    def finish_revoke(self, metadata: BootstrapMetadata) -> None:
-        self.credentials.delete(metadata.installation_id)
+    def finish_revoke(self, metadata: BootstrapMetadata, *, hard: bool = False) -> None:
+        """Local bookkeeping after the caller has revoked the control-plane
+        tunnel/DNS for `metadata`.
+
+        By default (`hard=False`, the normal disable/revoke path) the
+        installation credential itself is deliberately KEPT (not deleted):
+        it stays cryptographically valid at the control plane until a
+        reactivation bumps its credential generation, so retaining it here
+        lets a genuine future re-enable use the authenticated
+        `reactivate()` path below instead of burning the anonymous
+        per-network enrollment quota meant for first-time/unknown installs.
+        `metadata` moves from `active` to `retired`.
+
+        `hard=True` is for when the control plane has already told us this
+        exact credential is no longer accepted (`InstallationRevokedError`,
+        e.g. an admin-forced recovery) -- there is nothing to reactivate
+        with, so the credential is purged immediately rather than left
+        around unusable.
+        """
+
+        if hard:
+            self.credentials.delete(metadata.installation_id)
         state = self.state()
         if state.active is not None and state.active.installation_id == metadata.installation_id:
             state.active = None
+            state.retired = None if hard else metadata
             # Note: enrollment_nonce is intentionally left in place. It is
             # the durable installation identity, not a revocable secret --
             # the control plane never returns it and clearing it here would
             # force every re-enable to mint a brand-new installation/hostname
-            # (see ensure_enrolled()). The credential and remote tunnel/DNS
-            # are still genuinely revoked above and by the caller.
+            # (see ensure_enrolled()). The tunnel/DNS are still genuinely
+            # revoked above and by the caller.
             self._write(state)
+
+    def reactivate(
+        self,
+        metadata: BootstrapMetadata,
+        *,
+        transport: httpx.BaseTransport | None = None,
+    ) -> BootstrapMetadata:
+        """Re-enable a previously-known, disabled/revoked installation by
+        proving ownership of it via its still-valid installation credential,
+        instead of going through the anonymous, per-network-quota-limited
+        `/v1/installations/enroll` route.
+
+        This is the fix for "Enable fails after the network's anonymous
+        enrollment quota was exhausted by the (now-fixed) regenerate bug":
+        a machine that has a KNOWN prior installation identity (even
+        disabled/revoked) can always get back in via this authenticated
+        path, which is billed against the per-installation mutation budget,
+        never the anonymous-enrollment abuse quota. A genuinely first-time
+        install with no prior identity still has no credential to present
+        here and must go through `ensure_enrolled()` -- the quota keeps
+        protecting exactly the case it exists for.
+        """
+
+        if metadata.control_plane_origin not in self.trusted_origins:
+            raise ProviderError("The enrollment service is not trusted")
+        credential = self.credential(metadata)
+        with httpx.Client(
+            base_url=metadata.control_plane_origin,
+            timeout=20,
+            trust_env=False,
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            try:
+                response = client.post(
+                    f"/v1/installations/{metadata.installation_id}/reactivate",
+                    headers={"authorization": f"Bearer {credential}"},
+                )
+            except httpx.HTTPError as exc:
+                raise ProviderError(
+                    "Could not reach the enrollment service. Check your Internet "
+                    "connection and try again."
+                ) from exc
+        if response.status_code == 429:
+            raise ProviderError(
+                "This computer has reached its enrollment limit for now. Try again later."
+            )
+        if response.status_code in {401, 403}:
+            raise ProviderError(
+                "This installation's credential was revoked. Contact beta support to "
+                "recover this installation."
+            )
+        if response.status_code not in {200, 201}:
+            raise ProviderError("The enrollment service is unavailable; retry later")
+        try:
+            payload = response.json()
+            installation_id = payload["installationId"]
+            hostname = payload["hostname"]
+            new_credential = payload["installationCredential"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ProviderError("The reactivation response was invalid") from exc
+        match = _CREDENTIAL.fullmatch(new_credential) if isinstance(new_credential, str) else None
+        if (
+            not isinstance(installation_id, str)
+            or not _INSTALLATION_ID.fullmatch(installation_id)
+            or match is None
+            or match.group(1) != installation_id
+            or not isinstance(hostname, str)
+            or not _HOSTNAME.fullmatch(hostname)
+            or hostname != f"sp-{installation_id}.{hostname.split('.', 1)[1]}"
+            or installation_id != metadata.installation_id
+            or hostname != metadata.hostname
+        ):
+            raise ProviderError("The reactivation response was not installation-bound")
+        new_metadata = BootstrapMetadata.model_validate(
+            {
+                "schema": INSTALLATION_SCHEMA,
+                "version": metadata.version,
+                "bundleId": metadata.bundle_id,
+                "controlPlaneOrigin": metadata.control_plane_origin,
+                "installationId": installation_id,
+                "hostname": hostname,
+                "remotePort": metadata.remote_port,
+            }
+        )
+        self.credentials.set(installation_id, new_credential)
+        state = self.state()
+        state.retired = None
+        state.active = new_metadata
+        self._write(state)
+        return new_metadata
 
     def discard_identity(self, metadata: BootstrapMetadata) -> None:
         """Force a genuinely new installation/hostname on the next enrollment.
@@ -360,6 +498,8 @@ class DesktopBootstrapStore:
         state = self.state()
         if state.active is not None and state.active.installation_id == metadata.installation_id:
             state.active = None
+        if state.retired is not None and state.retired.installation_id == metadata.installation_id:
+            state.retired = None
         if state.enrollment_nonce is not None:
             state.enrollment_nonce = None
         self._write(state)

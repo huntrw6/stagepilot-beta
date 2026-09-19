@@ -169,4 +169,36 @@ describe("Remote Access", () => {
     expect(await screen.findByRole("button", {name: "Regenerate Remote link"})).toBeEnabled();
     expect(screen.queryByRole("button", {name: /Regenerating…/})).not.toBeInTheDocument();
   });
+
+  it("shows an in-button loading state during enable, disables the button, and blocks concurrent clicks", async () => {
+    vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, needs_operator: false});
+    let resolveEnable!: (value: api.RemoteStatus) => void;
+    vi.mocked(api.setRemoteEnabled).mockReturnValue(new Promise((resolve) => { resolveEnable = resolve; }));
+    render(<RemoteAccessPanel />);
+    expect(await screen.findByRole("button", {name: "Enable Remote Access"})).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", {name: "Enable Remote Access"}));
+
+    const busyButton = await screen.findByRole("button", {name: /Enabling…/});
+    expect(busyButton).toBeDisabled();
+    fireEvent.click(busyButton);
+    expect(api.setRemoteEnabled).toHaveBeenCalledTimes(1);
+
+    resolveEnable({...off, enabled: true, state: "enabling", needs_operator: false});
+    await waitFor(() => expect(screen.queryByRole("button", {name: /Enabling…/})).not.toBeInTheDocument());
+  });
+
+  it("surfaces the backend's specific enable-failure message instead of a generic one", async () => {
+    vi.mocked(api.getRemoteStatus).mockResolvedValue({...off, needs_operator: false});
+    vi.mocked(api.setRemoteEnabled).mockRejectedValue(
+      new api.ApiError("This computer has reached its enrollment limit for now. Try again later.", 503),
+    );
+    render(<RemoteAccessPanel />);
+    expect(await screen.findByRole("button", {name: "Enable Remote Access"})).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", {name: "Enable Remote Access"}));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This computer has reached its enrollment limit for now. Try again later.");
+    expect(await screen.findByRole("button", {name: "Enable Remote Access"})).toBeEnabled();
+  });
 });

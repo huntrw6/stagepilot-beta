@@ -59,6 +59,7 @@ class FakeControlPlane:
         self.fail_revoke = False
         self.fail_reenroll = False
         self.reenrolled = False
+        self.reactivated = False
         self.offline = False
         self.enrollment_nonce = ""
         # Models the real control plane's per-nonce idempotency: the same
@@ -160,6 +161,15 @@ class FakeControlPlane:
             self.revoked = False
             self.generation = ""
             return httpx.Response(201, json=self.payload)
+        if request.url.path.endswith("/reactivate"):
+            self.reactivated = True
+            self._credential_generation += 1
+            suffix = f"a{self._credential_generation}".ljust(43, "a")
+            credential = f"spi_{self.payload['installationId']}." + suffix
+            self.payload = {**self.payload, "installationCredential": credential}
+            self.revoked = False
+            self.generation = ""
+            return httpx.Response(200, json=self.payload)
         raise AssertionError(f"unexpected route {request.url.path}")
 
 
@@ -318,12 +328,20 @@ def test_desktop_disable_then_enable_reprovisions_same_hostname_new_generation(
     assert disabled["provisioned"] is False
     assert not read_desired(restarted.desired_path).enabled
     assert not restarted.installation_dir.joinpath("connector.token").exists()
-    assert credentials.get(original_installation_id) is None
+    # The installation credential is deliberately KEPT locally (not
+    # deleted) after a normal disable/revoke: it lets a genuine future
+    # re-enable authenticate via `reactivate()` instead of the anonymous,
+    # per-network-quota-limited enrollment route. It only stops being
+    # presentable once the control plane's credential generation moves on
+    # (e.g. after an actual reactivation or an admin-forced recovery).
+    assert credentials.get(original_installation_id) is not None
     # Disable genuinely revokes the credential/tunnel, but the durable
     # installation identity (enrollment nonce) must survive locally so
     # re-enable can reprovision the SAME hostname.
     assert restarted.bootstrap.state().enrollment_nonce == fake.enrollment_nonce
     assert restarted.bootstrap.state().active is None
+    assert restarted.bootstrap.state().retired is not None
+    assert restarted.bootstrap.state().retired.installation_id == original_installation_id  # type: ignore[union-attr]
 
     reenabled = restarted.enable()
     assert reenabled["provisioned"] is True
@@ -377,7 +395,10 @@ def test_revoke_failure_closes_local_access_and_retries_after_restart(tmp_path: 
     restarted.reconcile_control()
     assert fake.revoked
     assert restarted.bootstrap.state().active is None
-    assert credentials.get(str(payload["installationId"])) is None
+    # See test_desktop_disable_then_enable_reprovisions_same_hostname_new_generation:
+    # the credential is deliberately retained locally after revoke, to
+    # support authenticated reactivation instead of anonymous re-enrollment.
+    assert credentials.get(str(payload["installationId"])) is not None
 
 
 @pytest.mark.asyncio
@@ -549,3 +570,115 @@ def test_regenerate_repeatedly_never_hits_anonymous_enrollment_endpoint(
     # the anonymous-enrollment abuse quota that a real network could
     # exhaust after just 3 regenerations/24h.
     assert enroll_calls == 0
+
+
+def test_enable_after_disable_reactivates_via_authenticated_path_not_anonymous_enroll(
+    tmp_path: Path,
+) -> None:
+    """Regression test for the reported bug: a machine that already
+    disabled/revoked Remote once must be able to Enable again via the
+    authenticated `reactivate()` path, never falling back to the anonymous,
+    per-network-quota-limited `/v1/installations/enroll` route -- even if
+    that anonymous quota is fully exhausted for this network."""
+
+    manager, credentials, fake, payload = manager_fixture(tmp_path)
+    manager.enable()
+    original_installation_id = str(payload["installationId"])
+    manager.disable()
+    assert manager.bootstrap.state().active is None
+    assert manager.bootstrap.state().retired is not None
+
+    enroll_calls = 0
+
+    def counting_call(request: httpx.Request) -> httpx.Response:
+        nonlocal enroll_calls
+        if request.url.path.endswith("/v1/installations/enroll"):
+            enroll_calls += 1
+        return fake(request)
+
+    manager.transport = httpx.MockTransport(counting_call)
+
+    reenabled = manager.enable()
+
+    assert fake.reactivated
+    assert enroll_calls == 0
+    assert reenabled["provisioned"] is True
+    active = manager.bootstrap.state().active
+    assert active is not None
+    # SAME durable installation id/hostname -- a genuine re-enable on a
+    # known machine, not a brand-new anonymous installation.
+    assert active.installation_id == original_installation_id
+    assert manager.bootstrap.state().retired is None
+    assert credentials.get(original_installation_id) is not None
+
+
+def test_genuinely_first_time_installation_still_uses_anonymous_enroll(
+    tmp_path: Path,
+) -> None:
+    """A machine with no prior local installation identity (no `retired`,
+    no `active`) has no installation credential to present, so it must
+    still go through the anonymous, quota-limited enrollment route -- the
+    reactivation fix must never weaken this guardrail."""
+
+    payload = bundle_payload()
+    credentials = MemoryCredentials()
+    store = DesktopBootstrapStore(
+        tmp_path / "remote/bootstrap.json",
+        credentials,
+        trusted_origins=TEST_ORIGINS,
+    )
+    binary = tmp_path / "resources/cloudflared"
+    binary.parent.mkdir()
+    binary.write_bytes(b"test binary")
+    fake = FakeControlPlane(payload)
+    enroll_calls = 0
+
+    def counting_call(request: httpx.Request) -> httpx.Response:
+        nonlocal enroll_calls
+        if request.url.path.endswith("/v1/installations/enroll"):
+            enroll_calls += 1
+        return fake(request)
+
+    manager = DesktopRemoteManager(
+        tmp_path / "remote",
+        binary,
+        bootstrap_store=store,
+        transport=httpx.MockTransport(counting_call),
+        control_plane_origin="https://control.example.com",
+    )
+
+    enabled = manager.enable()
+
+    assert enabled["provisioned"] is True
+    assert enroll_calls == 1
+    assert not fake.reactivated
+
+
+def test_reactivate_surfaces_quota_exceeded_as_specific_provider_error(
+    tmp_path: Path,
+) -> None:
+    """A 429 from the authenticated reactivate route must map to a specific,
+    end-user-readable ProviderError message distinct from the generic
+    "unavailable" case, and must never silently drop back to anonymous
+    enrollment."""
+
+    manager, _credentials, _fake, _payload = manager_fixture(tmp_path)
+    manager.enable()
+    manager.disable()
+
+    def limited(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/reactivate"):
+            return httpx.Response(429, json={"error": "limited"})
+        raise AssertionError(f"unexpected route {request.url.path}")
+
+    manager.bootstrap = DesktopBootstrapStore(
+        manager.bootstrap.path,
+        manager.bootstrap.credentials,
+        trusted_origins=TEST_ORIGINS,
+    )
+
+    with pytest.raises(ProviderError, match="enrollment limit"):
+        manager.bootstrap.ensure_enrolled(
+            control_plane_origin="https://control.example.com",
+            transport=httpx.MockTransport(limited),
+        )

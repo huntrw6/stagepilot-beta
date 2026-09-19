@@ -17,6 +17,14 @@ interface Env {
   BETA_RELEASE_VERSIONS?: string;
   BETA_LATEST_RELEASE_VERSION?: string;
   ENROLLMENT_EXEMPT_SOURCES?: string;
+  // Configurable enrollment-quota window in seconds. Defaults to 24h
+  // (86400) when unset. TEMPORARY OPERATOR-TESTING OVERRIDE: this is
+  // currently deployed as 3600 (1 hour) for the active beta test period so
+  // the operator does not have to wait ~24h between exhausted-quota test
+  // cycles. This MUST be reverted to 86400 (or longer) before this beta is
+  // promoted to stable or opened to real friend-beta users -- do not ship
+  // the 1-hour window as the permanent default.
+  ENROLLMENT_WINDOW_SECONDS?: string;
 }
 
 type Phase = 'disabled' | 'enabling' | 'provisioned' | 'revoking';
@@ -87,7 +95,7 @@ const ID = /^[a-f0-9]{32}$/;
 const GENERATION = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/;
 const ENROLLMENTS_PER_SOURCE = 3;
-const ENROLLMENT_WINDOW_SECONDS = 86_400;
+const DEFAULT_ENROLLMENT_WINDOW_SECONDS = 86_400;
 const MAX_SOURCE_QUOTAS = 2_000;
 const STATUS_REQUESTS_PER_MINUTE = 120;
 const MUTATION_REQUESTS_PER_MINUTE = 20;
@@ -302,6 +310,19 @@ export class Registry {
         }
         await this.takeInstallationRate(installation, 'mutation');
         return await this.withProviderLane('recovery', () => this.reenroll(installation));
+      }
+      // Authenticated Enable on a known-but-disabled-or-revoked installation:
+      // unlike the other routes below, this deliberately allows a revoked
+      // installation through (that is the whole point) as long as the
+      // caller can still present its installation credential.
+      const reactivateRoute = url.pathname.match(/^\/v1\/installations\/([a-f0-9]{16}|[a-f0-9]{32})\/reactivate$/);
+      if (request.method === 'POST' && reactivateRoute) {
+        const installation = await this.state.storage.get<Installation>(`installation:${reactivateRoute[1]}`);
+        if (!installation || !(await this.isInstallation(request, installation))) {
+          return reply({ error: 'unauthorized' }, 401);
+        }
+        await this.takeInstallationRate(installation, 'mutation');
+        return await this.withProviderLane('recovery', () => this.reactivate(installation));
       }
       const route = url.pathname.match(/^\/v1\/installations\/([a-f0-9]{16}|[a-f0-9]{32})\/(status|provision|disable|revoke|reconcile)$/);
       if (!route) return reply({ error: 'not found' }, 404);
@@ -592,6 +613,50 @@ export class Registry {
     return equalSecret(token, await this.credential(installation.id, installation.credentialGeneration ?? 0));
   }
 
+  // Authenticated reactivation for plain Enable on a previously-known but
+  // disabled/revoked installation: the caller already proved ownership of
+  // `installation` via its still-valid installation credential (isInstallation),
+  // so this never touches the anonymous, per-network ENROLLMENTS_PER_SOURCE
+  // quota that /v1/installations/enroll enforces for first-time/unknown
+  // clients. Reprovisions the SAME hostname/installation id with a fresh
+  // credential generation -- identical outcome to the nonce-replay branch of
+  // enroll(), just reached through a proof-of-ownership bearer token instead
+  // of a replayed anonymous enrollment nonce.
+  private async reactivate(installation: Installation): Promise<Response> {
+    if (!installation.revoked) {
+      return reply({
+        ...publicInstallation(installation),
+        installationCredential: await this.credential(installation.id, installation.credentialGeneration ?? 0),
+      });
+    }
+    const stats = await this.stats();
+    if ((this.env.ENROLLMENT_ENABLED ?? 'true') !== 'true') {
+      await this.bumpDenied(stats, 'enrollmentDenied');
+      throw new Limited(503, 300, 'enrollment unavailable');
+    }
+    if (stats.activeInstallations >= this.installationLimit()) {
+      await this.bumpDenied(stats, 'enrollmentDenied');
+      throw new Limited(503, 300, 'enrollment unavailable');
+    }
+    installation.revoked = false;
+    installation.phase = 'disabled';
+    installation.desiredEnabled = false;
+    delete installation.generation;
+    delete installation.tunnelId;
+    delete installation.providerConfirmedAt;
+    installation.credentialGeneration = (installation.credentialGeneration ?? 0) + 1;
+    installation.updatedAt = new Date().toISOString();
+    stats.activeInstallations += 1;
+    await this.state.storage.put({
+      [`installation:${installation.id}`]: installation,
+      'registry:stats': stats,
+    });
+    return reply({
+      ...publicInstallation(installation),
+      installationCredential: await this.credential(installation.id, installation.credentialGeneration ?? 0),
+    });
+  }
+
   private async enroll(request: Request): Promise<Response> {
     const input = await body(request);
     const idempotencyKey = input.nonce;
@@ -649,11 +714,12 @@ export class Registry {
       const sourceHash = await keyedHash(this.env.INSTALLATION_SIGNING_KEY, `enrollment-source:${source}`);
       const nowSeconds = Math.floor(Date.now() / 1000);
       const sourceKey = `enrollment-source:${sourceHash}`;
+      const windowSeconds = this.enrollmentWindowSeconds();
       let quota = await this.state.storage.get<SourceQuota>(sourceKey);
-      if (quota && nowSeconds - quota.startedAt >= ENROLLMENT_WINDOW_SECONDS) quota = undefined;
+      if (quota && nowSeconds - quota.startedAt >= windowSeconds) quota = undefined;
       if (!exempt && quota && quota.count >= ENROLLMENTS_PER_SOURCE) {
         await this.bumpDenied(stats, 'enrollmentDenied');
-        throw new Limited(429, Math.max(1, ENROLLMENT_WINDOW_SECONDS - (nowSeconds - quota.startedAt)), 'enrollment rate limited');
+        throw new Limited(429, Math.max(1, windowSeconds - (nowSeconds - quota.startedAt)), 'enrollment rate limited');
       }
       const index = await this.pruneSourceQuotas(nowSeconds);
       if (!quota && !index.includes(sourceHash) && index.length >= MAX_SOURCE_QUOTAS) {
@@ -699,6 +765,13 @@ export class Registry {
     return Number(this.env.BETA_INSTALLATION_LIMIT ?? '500');
   }
 
+  private enrollmentWindowSeconds(): number {
+    const configured = Number(this.env.ENROLLMENT_WINDOW_SECONDS ?? '');
+    return Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_ENROLLMENT_WINDOW_SECONDS;
+  }
+
   private async stats(): Promise<RegistryStats> {
     const existing = await this.state.storage.get<RegistryStats>('registry:stats');
     if (existing) return existing;
@@ -726,7 +799,7 @@ export class Registry {
     for (const hash of index) {
       const key = `enrollment-source:${hash}`;
       const quota = await this.state.storage.get<SourceQuota>(key);
-      if (quota && now - quota.lastSeenAt < ENROLLMENT_WINDOW_SECONDS) retained.push(hash);
+      if (quota && now - quota.lastSeenAt < this.enrollmentWindowSeconds()) retained.push(hash);
       else await this.state.storage.delete(key);
     }
     return retained;

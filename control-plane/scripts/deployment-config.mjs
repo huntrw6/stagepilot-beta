@@ -32,6 +32,11 @@ export function validateDeploymentEnvironment(environment) {
   // exemptions. Empty/unset means "no exemptions" so production behaviour is
   // unchanged by default; the Worker itself re-validates each entry.
   const enrollmentExemptSources = environment.ENROLLMENT_EXEMPT_SOURCES ?? "";
+  // Optional: anonymous-enrollment quota window in seconds (defaults to
+  // 86400 / 24h inside the Worker when unset or blank). TEMPORARY
+  // OPERATOR-TESTING OVERRIDE: set to 3600 (1h) for the active beta test
+  // period; must be reverted to 86400+ before stable/friend-beta release.
+  const enrollmentWindowSecondsText = environment.ENROLLMENT_WINDOW_SECONDS ?? "";
   const providerToken = required(environment, "CLOUDFLARE_API_TOKEN");
   const adminToken = required(environment, "ADMIN_API_TOKEN");
   const signingKey = required(environment, "INSTALLATION_SIGNING_KEY");
@@ -67,8 +72,15 @@ export function validateDeploymentEnvironment(environment) {
   if (!releaseVersions.includes(latestReleaseVersion)) {
     throw new Error("BETA_LATEST_RELEASE_VERSION must be in BETA_RELEASE_VERSIONS");
   }
+  let enrollmentWindowSeconds;
+  if (enrollmentWindowSecondsText.trim() !== "") {
+    enrollmentWindowSeconds = Number(enrollmentWindowSecondsText);
+    if (!Number.isInteger(enrollmentWindowSeconds) || enrollmentWindowSeconds < 60) {
+      throw new Error("ENROLLMENT_WINDOW_SECONDS must be an integer of at least 60 when set");
+    }
+  }
 
-  return { accountId, zoneId, hostnameSuffix, remotePort, enrollmentEnabled, installationLimit, releaseVersions, latestReleaseVersion, enrollmentExemptSources };
+  return { accountId, zoneId, hostnameSuffix, remotePort, enrollmentEnabled, installationLimit, releaseVersions, latestReleaseVersion, enrollmentExemptSources, enrollmentWindowSeconds };
 }
 
 export function installedSecretNames(output) {
@@ -92,8 +104,9 @@ function main() {
   if (command === "validate") {
     const config = validateDeploymentEnvironment(process.env);
     const exemptCount = config.enrollmentExemptSources.split(",").map((value) => value.trim()).filter(Boolean).length;
+    const windowText = config.enrollmentWindowSeconds ? `${config.enrollmentWindowSeconds}s` : "default (86400s)";
     console.log(
-      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}, enrollment=${config.enrollmentEnabled}, installation limit=${config.installationLimit}, latest beta=${config.latestReleaseVersion}, enrollment exemptions=${exemptCount}; 3 runtime secrets present.`,
+      `Deployment configuration valid: account/zone IDs present, suffix=${config.hostnameSuffix}, Remote port=${config.remotePort}, enrollment=${config.enrollmentEnabled}, installation limit=${config.installationLimit}, latest beta=${config.latestReleaseVersion}, enrollment exemptions=${exemptCount}, enrollment window=${windowText}; 3 runtime secrets present.`,
     );
     return;
   }
