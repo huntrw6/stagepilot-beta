@@ -521,7 +521,7 @@ def test_regenerate_repeatedly_never_hits_anonymous_enrollment_endpoint(
     with no recourse. Regenerate must instead use the authenticated
     reenroll path and never touch /enroll again after the first bootstrap."""
 
-    manager, credentials, fake, payload = manager_fixture(tmp_path)
+    manager, _credentials, fake, _payload = manager_fixture(tmp_path)
     manager.enable()
     enroll_calls = 0
     original_call = fake.__call__
