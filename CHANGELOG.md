@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.104-beta.4] - 2026-09-19
+
+### Fixed
+
+- Fix the Regenerate Remote link button so it correctly regenerates the
+  Remote link instead of breaking Remote access.
+- Add a loading state to the Regenerate Remote link button while the
+  request is in flight.
+- Add a regression test covering dashboard widget layout persistence.
+
 ## [1.1.104-beta.3] - 2026-09-18
 
 ### Changed
