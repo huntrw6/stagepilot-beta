@@ -240,6 +240,44 @@ describe('private-beta control plane', () => {
     expect(provider.fetch).not.toHaveBeenCalled();
   });
 
+  it('regenerating a link repeatedly never consumes the anonymous per-source enrollment quota', async () => {
+    // Regression test for the reported bug: the desktop app used to call
+    // the anonymous /enroll route on every "Regenerate Remote link" click,
+    // so 3 regenerations from one network exhausted ENROLLMENTS_PER_SOURCE
+    // and every further regeneration attempt (and the fallback re-enable)
+    // was denied with 429, leaving Remote permanently broken from the UI.
+    const source = '203.0.113.55';
+    const first = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'regen-quota-0001' }, source,
+    ));
+    expect(first.status).toBe(201);
+    let installation = await json(first) as Record<string, unknown>;
+
+    // Exhaust the per-source quota with two more (unrelated) anonymous
+    // enrollments from the same source -- 3 total, at the limit.
+    for (const nonce of ['regen-quota-0002', 'regen-quota-0003']) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, source));
+      expect(response.status).toBe(201);
+    }
+    const quotaExhausted = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'regen-quota-0004' }, source,
+    ));
+    expect(quotaExhausted.status).toBe(429);
+
+    // The authenticated reenroll route must still work for the already-
+    // enrolled installation from that same (now quota-exhausted) source,
+    // repeatedly, because it is never billed against the anonymous quota.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await registry.fetch(request(
+        installationPath(installation, 'reenroll'), 'POST', String(installation.installationCredential), undefined, source,
+      ));
+      expect(response.status).toBe(201);
+      const next = await json(response);
+      expect(next.installationId).not.toBe(installation.installationId);
+      installation = next;
+    }
+  });
+
   it('exempts a configured developer source from the per-source enrollment quota', async () => {
     registry = new Registry(
       { storage } as unknown as DurableObjectState,
@@ -813,5 +851,52 @@ describe('private-beta control plane', () => {
     const other = await enroll(registry, 'a-completely-different-nonce');
     expect(other.installationId).not.toBe(installation.installationId);
     expect(other.hostname).not.toBe(installation.hostname);
+  });
+
+  it('reenroll tears down the old tunnel/DNS/credential and never accepts an unauthenticated caller', async () => {
+    const installation = await enroll(registry, 'reenroll-teardown-request');
+    const generation = '77777777-7777-4777-8777-777777777777';
+    const provisioned = await registry.fetch(request(
+      installationPath(installation, 'provision'),
+      'POST',
+      String(installation.installationCredential),
+      { generation },
+    ));
+    expect(provisioned.status).toBe(200);
+    expect(provider.tunnels.size).toBe(1);
+    expect(provider.records.size).toBe(1);
+
+    // No credential at all: rejected before any provider call.
+    const anonymous = await registry.fetch(request(installationPath(installation, 'reenroll'), 'POST'));
+    expect(anonymous.status).toBe(401);
+    // Wrong credential: also rejected.
+    const wrongCredential = await registry.fetch(request(
+      installationPath(installation, 'reenroll'), 'POST', 'not-the-real-credential',
+    ));
+    expect(wrongCredential.status).toBe(401);
+    expect(provider.tunnels.size).toBe(1);
+    expect(provider.records.size).toBe(1);
+
+    const reenrolled = await registry.fetch(request(
+      installationPath(installation, 'reenroll'), 'POST', String(installation.installationCredential),
+    ));
+    expect(reenrolled.status).toBe(201);
+    const fresh = await json(reenrolled);
+    expect(fresh.installationId).not.toBe(installation.installationId);
+    expect(fresh.hostname).not.toBe(installation.hostname);
+
+    // Old tunnel/DNS resources were actually revoked, not orphaned.
+    expect(provider.tunnels.size).toBe(0);
+    expect(provider.records.size).toBe(0);
+
+    // Old credential is dead; only the new installation/credential works.
+    const oldStatus = await registry.fetch(request(
+      installationPath(installation, 'status'), 'GET', String(installation.installationCredential),
+    ));
+    expect(oldStatus.status).toBe(401);
+    const newStatus = await registry.fetch(request(
+      installationPath(fresh, 'status'), 'GET', String(fresh.installationCredential),
+    ));
+    expect(newStatus.status).toBe(200);
   });
 });

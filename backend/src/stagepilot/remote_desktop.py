@@ -114,7 +114,9 @@ class DesktopRemoteManager:
         return self.status()
 
     def regenerate(self) -> dict[str, object]:
-        """Retire this installation identity and transparently enroll a new one.
+        """Retire this installation identity and provision a new one,
+        proving ownership of the old identity via an authenticated
+        re-enrollment call instead of the anonymous enrollment endpoint.
 
         Idempotent and restart-safe: the previous tunnel/DNS record and
         installation credential are revoked before a brand-new installation
@@ -123,27 +125,57 @@ class DesktopRemoteManager:
         identity store, which is untouched here, so they survive intact.
         Local production keeps running throughout -- only the managed Remote
         listener is reconciled onto the new identity.
+
+        Root cause of the previous "Regenerate breaks Remote" bug: this
+        method used to clear the local enrollment nonce and go back through
+        `ensure_enrolled()` -> the anonymous, nonce-based
+        `/v1/installations/enroll` endpoint. That endpoint is guarded by a
+        per-network quota (`ENROLLMENTS_PER_SOURCE`, 3/24h) meant to stop
+        arbitrary Internet clients from minting tunnels; a handful of
+        regenerations from one network exhausted that quota and every
+        further regeneration (and the fallback re-enable) was denied with
+        429/503, leaving Remote off with no way back from the UI. The fix
+        uses a new authenticated `/v1/installations/<id>/reenroll` control-
+        plane route instead: the caller already proved ownership by
+        presenting the current installation credential, so it is billed
+        against the (much larger) authenticated mutation-rate budget, not
+        the anonymous-enrollment abuse budget.
         """
 
         active = self.bootstrap.state().active
         was_enabled = self.feature.intent().enabled
-        if active is not None:
-            with suppress(InstallationRevokedError):
-                self._apply(active, "revoke")
-            self._clear_connector_credential()
-            if self.revoke_sessions is not None:
-                self.revoke_sessions()
-            self.bootstrap.discard_identity(active)
-            (self.state_dir / "state.json").unlink(missing_ok=True)
+        if active is None:
+            # Nothing to regenerate from; behave like a first-time enable.
+            self.feature.set_managed_enabled(False)
+            self._publish_off_status()
+            if was_enabled:
+                self.enable()
+            else:
+                self._active()
+            return self.status()
+        try:
+            new_active = self.bootstrap.reenroll(active, transport=self.transport)
+        except ProviderError:
+            # Reenroll failed atomically server-side (or the request never
+            # reached the control plane) -- the old identity/credential are
+            # untouched, so surface the error and leave the installation in
+            # its previous, still-working state rather than tearing
+            # anything down locally.
+            raise
+        self._clear_connector_credential()
+        if self.revoke_sessions is not None:
+            self.revoke_sessions()
+        (self.state_dir / "state.json").unlink(missing_ok=True)
         self.feature.set_managed_enabled(False)
         self._publish_off_status()
         if was_enabled:
             self.enable()
         else:
-            # Provision a fresh identity even when Remote was off so the new
-            # link is available immediately without re-enabling manually.
-            self._active()
+            # Confirm the freshly re-enrolled identity is reachable/valid
+            # without forcing Remote back on when the operator had it off.
+            self.bootstrap.credential(new_active)
         return self.status()
+
 
     def reconcile_control(self) -> None:
         active = self.bootstrap.state().active
