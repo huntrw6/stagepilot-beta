@@ -55,6 +55,11 @@ function friendlyError(cause: unknown): string {
     if (cause.status === 409) return "The change could not be applied. Keep at least one enabled Operator and use a unique email. Refresh before trying again.";
     if (cause.status === 422) return "Use a valid email and a password of at least 12 characters.";
     if (cause.status === 429) return "Too many requests. Please wait before trying again.";
+    // The backend already translates enable/regenerate failures (enrollment
+    // limit, unreachable control plane, revoked credential, etc.) into a
+    // short, specific, end-user-safe message -- surface it verbatim rather
+    // than collapsing everything to the generic fallback below.
+    if (cause.status === 503 && cause.message) return cause.message;
   }
   return "Remote Access is unavailable. Local StagePilot is unaffected. Try again shortly.";
 }
@@ -74,6 +79,7 @@ export function RemoteAccessPanel() {
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [regenBusy, setRegenBusy] = useState(false);
+  const [enableBusy, setEnableBusy] = useState(false);
   const alive = useRef(true);
   const inFlight = useRef(false);
   const canManage = access.authenticated && access.capabilities.canConfigure;
@@ -156,7 +162,7 @@ export function RemoteAccessPanel() {
         if (!navigator.clipboard) { setError("Copy unavailable. Select and copy the link above."); return; }
         void navigator.clipboard.writeText(url).then(() => setNotice("Link copied."), () => setError("Copy unavailable. Select and copy the link above."));
       }}>Copy link</button>
-      <button className={`${button} inline-flex items-center gap-2`} disabled={busy || regenBusy} type="button" onClick={() => setConfirmRegenerate(true)}>{regenBusy && <ButtonSpinner />}{regenBusy ? "Regenerating…" : "Regenerate Remote link"}</button>
+      <button className={`${button} inline-flex items-center gap-2`} disabled={busy || regenBusy || enableBusy} type="button" onClick={() => setConfirmRegenerate(true)}>{regenBusy && <ButtonSpinner />}{regenBusy ? "Regenerating…" : "Regenerate Remote link"}</button>
       {!status?.enabled ? null : <button className={button} disabled={busy} type="button" onClick={() => setConfirmDisable(true)}>Disable Remote Access</button>}
     </div>}
     {confirmRegenerate && <div role="group" aria-label="Confirm regenerate Remote link" className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-3">
@@ -173,10 +179,13 @@ export function RemoteAccessPanel() {
         <button className={button} disabled={regenBusy} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
       </div>
     </div>}
-    {!url && !status?.enabled && <button className={primaryButton} disabled={busy || !status?.available || Boolean(status?.provisioned && !status?.credential_available)} type="button" onClick={() => {
+    {!url && !status?.enabled && <button className={`${primaryButton} inline-flex items-center gap-2`} disabled={busy || enableBusy || !status?.available || Boolean(status?.provisioned && !status?.credential_available)} type="button" onClick={() => {
       if (status?.needs_operator) { if (local) setBootstrap(true); }
-      else void run(async () => { await setRemoteEnabled(true); await setRemoteAutostart(true); });
-    }}>Enable Remote Access</button>}
+      else {
+        setEnableBusy(true);
+        void run(async () => { await setRemoteEnabled(true); await setRemoteAutostart(true); }).finally(() => setEnableBusy(false));
+      }
+    }}>{enableBusy && <ButtonSpinner />}{enableBusy ? "Enabling…" : "Enable Remote Access"}</button>}
     {!url && status?.enabled && <button className={button} disabled={busy} type="button" onClick={() => setConfirmDisable(true)}>Disable Remote Access</button>}
     {confirmDisable && <div role="group" aria-label="Confirm disable Remote Access" className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-3">
       <p className="text-sm text-amber-200">Disconnect all Remote users? Local StagePilot will keep running.</p>

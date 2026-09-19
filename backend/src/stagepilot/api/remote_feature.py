@@ -80,9 +80,39 @@ async def enable(request: Request) -> dict[str, Any]:
             await access.call(value.enable)
         else:
             await access.call(value.set_enabled, True)
-    except (ValueError, ProviderError) as exc:
+    except ProviderError as exc:
+        raise HTTPException(503, _enable_error_message(exc)) from exc
+    except ValueError as exc:
         raise HTTPException(409, "Remote Access is not provisioned or is already managed.") from exc
     return await status(request)
+
+
+def _enable_error_message(exc: ProviderError) -> str:
+    """Map a sanitized ProviderError to a short, specific, end-user-facing
+    message. ProviderError text never contains secrets/tokens/stack traces
+    (see remote_provider.py), but we still map to fixed strings here rather
+    than passing the exception text straight through, so wording stays
+    stable and end-user-appropriate regardless of the exact internal reason.
+    """
+
+    text = str(exc)
+    if "enrollment limit" in text:
+        return "This computer has reached its enrollment limit for now. Try again later."
+    if "Could not reach" in text or ("unavailable" in text and "Internet" in text):
+        return (
+            "Could not reach the enrollment service. Check your Internet connection and try again."
+        )
+    if "credential is unavailable" in text or "credential was revoked" in text:
+        return (
+            "This installation's credential is unavailable or revoked. Contact beta "
+            "support to recover this installation."
+        )
+    if "not trusted" in text:
+        return "Remote Access is unavailable on this installation."
+    return (
+        "Remote Access could not be enabled right now; local StagePilot is unaffected. "
+        "Try again shortly."
+    )
 
 
 @router.post("/disable")

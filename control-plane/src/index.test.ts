@@ -278,6 +278,110 @@ describe('private-beta control plane', () => {
     }
   });
 
+  it('enables Enable to reactivate a known disabled installation without touching the anonymous quota', async () => {
+    const source = '203.0.113.77';
+    const first = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'reactivate-quota-0001' }, source,
+    ));
+    expect(first.status).toBe(201);
+    const installation = await json(first) as Record<string, unknown>;
+
+    // Exhaust the per-source anonymous enrollment quota with 2 more.
+    for (const nonce of ['reactivate-quota-0002', 'reactivate-quota-0003']) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, source));
+      expect(response.status).toBe(201);
+    }
+    const quotaExhausted = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'reactivate-quota-0004' }, source,
+    ));
+    expect(quotaExhausted.status).toBe(429);
+
+    // Disable (not revoke) this installation, then reactivate it via the
+    // authenticated path -- this must succeed even though the anonymous
+    // quota for this source is fully exhausted.
+    const disabled = await registry.fetch(request(
+      installationPath(installation, 'disable'), 'POST', String(installation.installationCredential), undefined, source,
+    ));
+    expect(disabled.status).toBe(200);
+
+    const reactivated = await registry.fetch(request(
+      installationPath(installation, 'reactivate'), 'POST', String(installation.installationCredential), undefined, source,
+    ));
+    expect(reactivated.status).toBe(200);
+    const reactivatedBody = await json(reactivated);
+    expect(reactivatedBody.installationId).toBe(installation.installationId);
+    expect(reactivatedBody.hostname).toBe(installation.hostname);
+    expect(reactivatedBody.installationCredential).toBe(installation.installationCredential);
+  });
+
+  it('reactivates a revoked installation with a fresh credential, never the anonymous route', async () => {
+    const source = '203.0.113.88';
+    const first = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'reactivate-revoked-0001' }, source,
+    ));
+    expect(first.status).toBe(201);
+    const installation = await json(first) as Record<string, unknown>;
+
+    for (const nonce of ['reactivate-revoked-0002', 'reactivate-revoked-0003']) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, source));
+      expect(response.status).toBe(201);
+    }
+    const quotaExhausted = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'reactivate-revoked-0004' }, source,
+    ));
+    expect(quotaExhausted.status).toBe(429);
+
+    const revoked = await registry.fetch(request(
+      installationPath(installation, 'revoke'), 'POST', String(installation.installationCredential), undefined, source,
+    ));
+    expect(revoked.status).toBe(200);
+    expect((await json(revoked)).revoked).toBe(true);
+
+    const reactivated = await registry.fetch(request(
+      installationPath(installation, 'reactivate'), 'POST', String(installation.installationCredential), undefined, source,
+    ));
+    expect(reactivated.status).toBe(200);
+    const reactivatedBody = await json(reactivated);
+    expect(reactivatedBody.installationId).toBe(installation.installationId);
+    expect(reactivatedBody.hostname).toBe(installation.hostname);
+    // A reactivation of a revoked installation rotates the credential (a
+    // fresh generation), unlike reactivating a merely-disabled one above.
+    expect(reactivatedBody.installationCredential).not.toBe(installation.installationCredential);
+    expect(reactivatedBody.revoked).toBe(false);
+
+    // The stale, pre-reactivation credential must be rejected everywhere.
+    const staleRejected = await registry.fetch(request(
+      installationPath(installation, 'status'), 'GET', String(installation.installationCredential), undefined, source,
+    ));
+    expect(staleRejected.status).toBe(401);
+  });
+
+  it('rejects reactivation without proof of ownership of the installation credential', async () => {
+    const installation = await enroll(registry, 'reactivate-unauthorized-request');
+    const response = await registry.fetch(request(
+      installationPath(installation, 'reactivate'), 'POST', 'spi_wrongwrongwrongwrongwrongwron.wrongwrongwrongwrongwrongwrongwrongwrongwrongw',
+    ));
+    expect(response.status).toBe(401);
+  });
+
+  it('honors a configured ENROLLMENT_WINDOW_SECONDS instead of the 24h default', async () => {
+    registry = new Registry(
+      { storage } as unknown as DurableObjectState,
+      { ...env, ENROLLMENT_WINDOW_SECONDS: '1' } as never,
+    );
+    const source = '203.0.113.99';
+    for (const nonce of ['short-window-0001', 'short-window-0002', 'short-window-0003']) {
+      const response = await registry.fetch(request('/v1/installations/enroll', 'POST', undefined, { nonce }, source));
+      expect(response.status).toBe(201);
+    }
+    const exhausted = await registry.fetch(request(
+      '/v1/installations/enroll', 'POST', undefined, { nonce: 'short-window-0004' }, source,
+    ));
+    expect(exhausted.status).toBe(429);
+    // Retry-After must reflect the short configured window, never the 24h default.
+    expect(Number(exhausted.headers.get('retry-after'))).toBeLessThanOrEqual(1);
+  });
+
   it('exempts a configured developer source from the per-source enrollment quota', async () => {
     registry = new Registry(
       { storage } as unknown as DurableObjectState,

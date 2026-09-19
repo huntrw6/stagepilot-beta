@@ -39,6 +39,7 @@ describe("deployment configuration", () => {
       releaseVersions: ["1.1.103-beta.1", "1.1.103-beta.2"],
       latestReleaseVersion: "1.1.103-beta.1",
       enrollmentExemptSources: "",
+      enrollmentWindowSeconds: undefined,
     });
   });
 
@@ -47,6 +48,20 @@ describe("deployment configuration", () => {
       deploymentEnvironment({ ENROLLMENT_EXEMPT_SOURCES: "192.0.2.10,2001:db8:1:4::/64" }),
     );
     assert.equal(config.enrollmentExemptSources, "192.0.2.10,2001:db8:1:4::/64");
+  });
+
+  it("accepts an explicit enrollment quota window override", () => {
+    const config = validateDeploymentEnvironment(
+      deploymentEnvironment({ ENROLLMENT_WINDOW_SECONDS: "3600" }),
+    );
+    assert.equal(config.enrollmentWindowSeconds, 3600);
+  });
+
+  it("rejects an enrollment quota window under 60 seconds", () => {
+    assert.throws(
+      () => validateDeploymentEnvironment(deploymentEnvironment({ ENROLLMENT_WINDOW_SECONDS: "30" })),
+      /ENROLLMENT_WINDOW_SECONDS/,
+    );
   });
 
   it("fails before deployment when any runtime secret is missing", () => {
