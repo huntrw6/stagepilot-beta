@@ -176,7 +176,6 @@ class DesktopRemoteManager:
             self.bootstrap.credential(new_active)
         return self.status()
 
-
     def reconcile_control(self) -> None:
         active = self.bootstrap.state().active
         if active is None:
